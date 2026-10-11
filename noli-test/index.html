@@ -1035,8 +1035,10 @@ const chargeUI = { a: 0, k: 0, last: 0 };
 function hash1(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
 function drawChargeUI() {
   const now = performance.now() / 1000, dt = Math.min(0.05, now - (chargeUI.last || now)); chargeUI.last = now;
-  const on = noli.state === 'rushWind';
-  if (on) chargeUI.k = Math.min(1, noli.st / KIT.rush.windup);
+  // Shown for the whole Void Rush: full while charging and rushing, drains during the re-rush window.
+  const st = noli.state, on = st === 'rushWind' || st === 'rush' || st === 'reWindow';
+  if (on) chargeUI.k = st === 'reWindow' ? 1 - clamp(noli.rush.wt / KIT.rush.reRush, 0, 1) : 0;
+  if (on) chargeUI.cap = st === 'rushWind' ? 'Charge VoidRush by holding down' : st === 'reWindow' ? 'Press Q to re-rush' : '';
   chargeUI.a = clamp(chargeUI.a + (on ? dt * 8 : -dt * 5), 0, 1);
   if (chargeUI.a <= 0) return;
   // Sits just below Noli on screen (above him if he's near the bottom edge).
@@ -1051,10 +1053,10 @@ function drawChargeUI() {
   ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R - 2, 0, 6.3); ctx.fill();
   // black four-point star with a thin light rim
   star4(cx, cy, 13, '#ffffff', 0.9 * chargeUI.a); star4(cx, cy, 11, '#000000', chargeUI.a);
-  // crumbly ring that drains clockwise from the top
+  // crumbly ring; it empties clockwise starting from the top
   const segs = 90, shown = Math.ceil(segs * remain), flick = Math.floor(now * 12);
-  for (let i = 0; i < shown; i++) {
-    const n = hash1(i), gap = hash1(i * 3.7 + 1) < 0.16, edge = i > shown - 4;
+  for (let i = segs - shown; i < segs; i++) {
+    const n = hash1(i), gap = hash1(i * 3.7 + 1) < 0.16, edge = i < segs - shown + 3;
     if (gap) continue;
     const a0 = -Math.PI / 2 + (i / segs) * Math.PI * 2, a1 = a0 + (Math.PI * 2 / segs) * (0.7 + 0.5 * hash1(i + flick * 0.01));
     const r = R + (n - 0.5) * 5, w = 3 + n * 4 * (edge ? hash1(i + flick) : 1);
@@ -1064,8 +1066,10 @@ function drawChargeUI() {
   }
   ctx.globalAlpha = chargeUI.a;
   ctx.font = '17px Georgia, "Times New Roman", serif'; ctx.textAlign = 'center';
-  ctx.lineWidth = 3; ctx.strokeStyle = '#000000'; ctx.strokeText('Charge VoidRush by holding down', cx, cy + R + 32);
-  ctx.fillStyle = '#e8e8e8'; ctx.fillText('Charge VoidRush by holding down', cx, cy + R + 32);
+  if (chargeUI.cap) {
+    ctx.lineWidth = 3; ctx.strokeStyle = '#000000'; ctx.strokeText(chargeUI.cap, cx, cy + R + 32);
+    ctx.fillStyle = '#e8e8e8'; ctx.fillText(chargeUI.cap, cx, cy + R + 32);
+  }
   ctx.restore();
 }
 function hud() {
@@ -1085,12 +1089,8 @@ function hud() {
   ctx.fillStyle = '#5aa9ff'; ctx.fillRect(bx, by, bw * noli.stamina / KIT.stamina.max, 12);
   label(W / 2, by - 4, 'STAMINA ' + Math.round(noli.stamina), '#e9e4ff');
   if (inWindow) {
-    // Fast countdown around Noli: press Q before it runs out.
-    const r = noli.rush, k = r.wt / KIT.rush.reRush;
-    const sx = (noli.x - cam.x) * cam.s, sy = (noli.y - cam.y) * cam.s;
-    ctx.strokeStyle = '#2c2540'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(sx, sy, 34, 0, 6.3); ctx.stroke();
-    ctx.strokeStyle = '#ffffff'; ctx.beginPath(); ctx.arc(sx, sy, 34, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k); ctx.stroke();
-    label(sx, sy - 44, r.wt.toFixed(2), '#ffffff', '900 18px system-ui');
+    // The countdown itself is the draining charge ring (drawChargeUI).
+    const r = noli.rush;
     ctx.globalAlpha = 0.6 + 0.4 * Math.sin(performance.now() / 50);
     label(W / 2, by - 26, `[Q] RE-RUSH! · next slam ${slamDmg(r.chain + 1).toFixed(1)} dmg`, '#ffffff');
     ctx.globalAlpha = 1;
