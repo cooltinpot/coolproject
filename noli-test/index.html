@@ -1138,10 +1138,10 @@ function drawCrown() {
   const spikes = [];
   for (let i = 0; i < 14; i++) {
     const a = Math.PI * 0.32 + (i / 13) * Math.PI * 1.36;   // around the back and sides
-    const fromFront = Math.abs(angDiff(a, 0)), len = 7 + 9 * Math.max(0, 1 - fromFront / Math.PI) * 1.2;
+    const fromFront = Math.abs(angDiff(a, 0)), len = 4 + 5 * Math.max(0, 1 - fromFront / Math.PI) * 1.2;   // short: seen from above they point up at you
     spikes.push([a, len]);
   }
-  spikes.push([0.52, 15], [-0.52, 15]);   // the big spikes flanking the masks
+  spikes.push([0.52, 9], [-0.52, 9]);   // the big spikes flanking the masks
   for (const [a, len] of spikes) {
     const w = 0.17, x0 = Math.cos(a - w) * R, y0 = Math.sin(a - w) * R, x1 = Math.cos(a + w) * R, y1 = Math.sin(a + w) * R;
     const tx = Math.cos(a) * (R + len), ty = Math.sin(a) * (R + len);
@@ -1162,10 +1162,10 @@ function drawCrown() {
     ctx.restore();
   };
   maskTop(-0.27); maskTop(0.27);
-  // Centre front spike with the four-point star on top.
-  ctx.fillStyle = '#1b1720'; ctx.strokeStyle = '#4a3f5c'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(R - 1, -2.5); ctx.lineTo(R + 10, 0); ctx.lineTo(R - 1, 2.5); ctx.closePath(); ctx.fill(); ctx.stroke();
-  star4(R + 12, 0, 4.5 + 0.4 * Math.sin(T * 4), '#2a2433'); star4(R + 12, 0, 2.6, '#6b5a86');
+  // The centre spike points straight up, so from above only its star ornament shows, edge-on.
+  ctx.fillStyle = '#2a2433'; ctx.strokeStyle = '#6b5a86'; ctx.lineWidth = 0.8;
+  ctx.beginPath(); ctx.moveTo(R + 2.5, -5); ctx.lineTo(R + 4, 0); ctx.lineTo(R + 2.5, 5); ctx.lineTo(R + 1, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(201,168,255,' + (0.5 + 0.2 * Math.sin(T * 4)) + ')'; ctx.beginPath(); ctx.arc(R + 2.5, 0, 0.9, 0, 6.3); ctx.fill();
   ctx.restore();
 }
 function drawNoli() {
