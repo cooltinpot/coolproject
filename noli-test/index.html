@@ -52,7 +52,7 @@
   </div>
   <small>WASD move · Shift sprint · Mouse aim<br>
   <b>LMB</b> Stab (Play tool) · <b>Q</b> Void Rush · <b>E</b> Nova (E again = detonate) · <b>R</b> Observant<br>
-  <b>Void Rush:</b> hit a survivor → quick countdown → <b>Q</b> to re-rush off them. Chains stack slam damage. Shift during a re-rush = 3s boost.</small>
+  <b>Void Rush:</b> hit a survivor → quick countdown → <b>Q</b> to re-rush off them. Chains stack slam damage. Shift during the first 3s of a re-rush = boost (ends at 3s).</small>
   <div id="log"></div>
 </div>
 <script>
@@ -368,9 +368,11 @@ function update(dt) {
   }
   if (noli.state === 'rush') {
     const r = noli.rush; r.t += dt;
-    // Sprinting during a re-rush: 3s of extra speed and turning.
-    if (r.chain > 0 && keys.shift && !r.boosted) { r.boosted = true; r.boostT = KIT.rush.boost.time; txt(noli.x, noli.y - 30, 'BOOST', '#ffffff'); log(`Re-rush boost (${KIT.rush.boost.time}s)`); }
-    if (r.boostT > 0) r.boostT -= dt;
+    // Sprinting during a re-rush gives extra speed and turning, but only inside the
+    // first 3s of that re-rush: the boost always ends at the 3s mark.
+    const left = KIT.rush.boost.time - r.t;
+    if (r.chain > 0 && keys.shift && !r.boosted && left > 0) { r.boosted = true; txt(noli.x, noli.y - 30, 'BOOST', '#ffffff'); log(`Re-rush boost (${left.toFixed(1)}s left of the 3s window)`); }
+    r.boostT = r.boosted ? Math.max(0, left) : 0;
     const B = r.boostT > 0 ? KIT.rush.boost : null;
     const turn = B ? B.turn : KIT.rush.turn;
     noli.ang += clamp(angDiff(Math.atan2(w.y - noli.y, w.x - noli.x), noli.ang), -turn * dt, turn * dt);
@@ -535,7 +537,7 @@ function hud() {
   }
   if (noli.state === 'rush') {
     const r = noli.rush;
-    label(W / 2, by - 26, r.boostT > 0 ? `BOOST ${r.boostT.toFixed(1)}s · chain x${r.chain}` : r.chain ? `RE-RUSH x${r.chain} · Shift = 3s boost` : 'VOID RUSH · hit a survivor to open the re-rush window', r.boostT > 0 ? '#ffffff' : '#c49bff');
+    label(W / 2, by - 26, r.boostT > 0 ? `BOOST ${r.boostT.toFixed(1)}s · chain x${r.chain}` : r.chain ? (r.t < KIT.rush.boost.time ? `RE-RUSH x${r.chain} · Shift = boost (${(KIT.rush.boost.time - r.t).toFixed(1)}s window)` : `RE-RUSH x${r.chain} · boost window over`) : 'VOID RUSH · hit a survivor to open the re-rush window', r.boostT > 0 ? '#ffffff' : '#c49bff');
   }
   label(W / 2, 22, `Tool: ${TOOLS.find((t) => t.id === tool).name}  ·  ${dummies.length} dumm${dummies.length === 1 ? 'y' : 'ies'}`, '#9a90bf');
 }
