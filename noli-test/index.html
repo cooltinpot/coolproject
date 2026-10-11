@@ -246,7 +246,7 @@ function releaseRush() {
   stopSfx('charge');
   // Letting go before the charge finishes cancels it.
   noli.state = 'free'; noli.cds.rush = KIT.rush.cdCancel; sfx('cancel'); log('Void Rush let go too early (1.2s cooldown)');
-  chargeUI.cap = "You didn't charge it long enough >:(("; chargeUI.err = true; chargeUI.hold = 0.8;   // keep the ring up long enough to read it
+  chargeUI.cap = "You didn't charge it long enough >:(("; chargeUI.err = true; chargeUI.tint = 'red'; chargeUI.hold = 0.8;   // keep the ring up long enough to read it
 }
 function startRush(chain, ignore = null) {
   noli.state = 'rush';
@@ -310,6 +310,7 @@ function rushHit(d) {
     // Air slam: only its own sound plays, and Noli is held still until it finishes (ends the chain).
     stopSfx('voidrush'); stopWindowSfx(); for (let i = 1; i <= 5; i++) stopSfx('hit' + i);
     startAirSlam(d, r.chain);
+    chargeUI.cap = 'HELL YEAH >:))'; chargeUI.tint = 'green'; chargeUI.err = false; chargeUI.k = 0; chargeUI.hold = 1.2;   // full ring, green tint
     noli.state = 'slamHold'; noli.st = 0; noli.rush = null; noli.cds.rush = KIT.rush.cd;
     noli.slamCam = { d, hitT: null };   // cinematic camera for the air slam
     return;
@@ -1036,13 +1037,15 @@ function render() {
 // ------------------------------------------------------------- Void Rush charge UI
 // Dark orb with a soft white glow and a black four-point star; a crumbly white ring drains as you charge.
 const chargeUI = { a: 0, k: 0, last: 0 };
-const RUSH_PULSE = 0.5;   // seconds per white+purple cycle while rushing
+const RUSH_PULSE = 0.5;
+// Ring colours [main, chunk]: plain white, dark-green tint (air slam), dark-red tint (cancelled charge).
+const TINTS = { none: ['#ffffff', '#9a9a9a'], green: ['#8fc79a', '#3f6b48'], red: ['#c97a7a', '#6b3434'] };   // seconds per white+purple cycle while rushing
 function hash1(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
 function drawChargeUI() {
   const now = performance.now() / 1000, dt = Math.min(0.05, now - (chargeUI.last || now)); chargeUI.last = now;
   // Shown for the whole Void Rush: full while charging and rushing, drains during the re-rush window.
   const st = noli.state, rushing = st === 'rushWind' || st === 'rush' || st === 'reWindow';
-  if (rushing) { chargeUI.hold = 0; chargeUI.err = false; }
+  if (rushing) { chargeUI.hold = 0; chargeUI.err = false; chargeUI.tint = null; }
   chargeUI.hold = Math.max(0, (chargeUI.hold || 0) - dt);
   const on = rushing || chargeUI.hold > 0;
   // Fills while charging (empty -> full as the charge SFX plays), then tracks the time left:
@@ -1094,16 +1097,18 @@ function drawChargeUI() {
     if (gap) continue;
     const a0 = -Math.PI / 2 + (i / segs) * Math.PI * 2, a1 = a0 + (Math.PI * 2 / segs) * (0.7 + 0.5 * hash1(i + flick * 0.01));
     const r = R + (n - 0.5) * 5, w = 3 + n * 4 * (edge ? hash1(i + flick) : 1);
-    ctx.strokeStyle = n > 0.82 ? '#9a9a9a' : '#ffffff'; ctx.globalAlpha = chargeUI.a * (0.7 + 0.3 * n);
+    ctx.strokeStyle = TINTS[chargeUI.tint || 'none'][n > 0.82 ? 1 : 0]; ctx.globalAlpha = chargeUI.a * (0.7 + 0.3 * n);
     ctx.lineWidth = w; ctx.beginPath(); ctx.arc(cx, cy, r, a0, a1); ctx.stroke();
-    if (hash1(i * 9.1) > 0.7) { ctx.fillStyle = '#ffffff'; ctx.fillRect(cx + Math.cos(a0) * (r + w), cy + Math.sin(a0) * (r + w), 2, 2); }   // flecks
+    if (hash1(i * 9.1) > 0.7) { ctx.fillStyle = TINTS[chargeUI.tint || 'none'][0]; ctx.fillRect(cx + Math.cos(a0) * (r + w), cy + Math.sin(a0) * (r + w), 2, 2); }   // flecks
   }
   ctx.globalAlpha = chargeUI.a;
   ctx.font = '17px Georgia, "Times New Roman", serif'; ctx.textAlign = 'center';
   if (chargeUI.cap) {
     // The "didn't charge it long enough" message is red with a dark red outline.
-    ctx.lineWidth = 3; ctx.strokeStyle = chargeUI.err ? '#5a0000' : '#000000'; ctx.strokeText(chargeUI.cap, cx, cy + R + 32);
-    ctx.fillStyle = chargeUI.err ? '#ff3030' : '#e8e8e8'; ctx.fillText(chargeUI.cap, cx, cy + R + 32);
+    // Tinted captions: dark green for the air slam, dark red for a cancelled charge.
+    const tc = chargeUI.tint === 'green' ? ['#7fc48c', '#0d2a14'] : chargeUI.tint === 'red' ? ['#c45454', '#2a0606'] : ['#e8e8e8', '#000000'];
+    ctx.lineWidth = 3; ctx.strokeStyle = tc[1]; ctx.strokeText(chargeUI.cap, cx, cy + R + 32);
+    ctx.fillStyle = tc[0]; ctx.fillText(chargeUI.cap, cx, cy + R + 32);
   }
   ctx.restore();
 }
