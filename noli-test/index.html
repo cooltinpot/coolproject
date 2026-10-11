@@ -551,10 +551,22 @@ function update(dt) {
 
   // Camera: Observant zooms out so every generator can be picked; wheel zoom otherwise.
   const fit = Math.min(W / (MAP.w + 80), H / (MAP.h + 160));
-  cam.s += ((noli.stance ? fit : noli.state === 'exec' ? cam.zoom * EXEC.zoom : cam.zoom) - cam.s) * Math.min(1, dt * (noli.state === 'exec' ? 5 : 8));
+  // Stab kill: follow the survivor while they struggle, punch in fast on the crush, then ease back.
+  const ex = noli.state === 'exec' ? noli.ex : null;
+  let zTarget = noli.stance ? fit : cam.zoom, zRate = 8;
+  if (ex && !ex.stomped) { zTarget = cam.zoom * EXEC.followZoom; zRate = 5; }
+  else if (ex && ex.punchT < EXEC.punchTime) { zTarget = cam.zoom * EXEC.punch; zRate = 30; }
+  else if (ex) { zTarget = cam.zoom; zRate = 4; }
+  cam.s += (zTarget - cam.s) * Math.min(1, dt * zRate);
+  const focus = ex && !ex.stomped ? ex.d : noli;
+  // Smooth only around the kill; otherwise the camera sticks to Noli.
+  cam.ease = ex ? 0.5 : Math.max(0, (cam.ease || 0) - dt);
+  const fk = cam.ease > 0 && cam.fx !== undefined ? Math.min(1, dt * 12) : 1;
+  cam.fx = cam.fx === undefined ? focus.x : cam.fx + (focus.x - cam.fx) * fk;
+  cam.fy = cam.fy === undefined ? focus.y : cam.fy + (focus.y - cam.fy) * fk;
   const vw = W / cam.s, vh = H / cam.s;
-  cam.x = vw >= MAP.w ? (MAP.w - vw) / 2 : clamp(noli.x - vw / 2, -60, MAP.w - vw + 60);
-  cam.y = vh >= MAP.h ? (MAP.h - vh) / 2 : clamp(noli.y - vh / 2, -60, MAP.h - vh + 60);
+  cam.x = vw >= MAP.w ? (MAP.w - vw) / 2 : clamp(cam.fx - vw / 2, -60, MAP.w - vw + 60);
+  cam.y = vh >= MAP.h ? (MAP.h - vh) / 2 : clamp(cam.fy - vh / 2, -60, MAP.h - vh + 60);
 }
 
 // ------------------------------------------------------------- render
@@ -653,7 +665,8 @@ function drawParts() {
   }
 }
 // ------------------------------------------------------------- stab kill: drag, stomp, wait (PG: stars, no blood)
-const EXEC = { drag: 0.9, lift: 0.2, stomp: 0.08, settle: 0.15, after: 0.3, zoom: 1.35 };   // after = 0.3s wait once the survivor is gone
+// The crush lands on the loudest hit of the kill SFX (1.45s in): drag + lift + stomp = 1.45.
+const EXEC = { drag: 1.17, lift: 0.2, stomp: 0.08, settle: 0.15, after: 0.3, followZoom: 1.2, punch: 1.7, punchTime: 0.12 };   // after = 0.3s wait once the survivor is gone
 function startExec(d, dmg, stacks) {
   d.exec = true; d.hall = 0; d.hp = 0; d.vx = d.vy = 0; d.squash = 0; d.fade = 1;
   txt(d.x, d.y - 24, '-' + dmg, '#ff4d6d');
@@ -677,6 +690,7 @@ function noliScale() {
 }
 function updateExec(dt) {
   const e = noli.ex, d = e.d; e.t += dt;
+  const a = SFX.kill; if (a && !a.paused && a.currentTime > 0 && !e.stomped) e.t = Math.max(e.t - dt, a.currentTime);   // follow the sound's clock
   noli.ang = Math.atan2(d.y - noli.y, d.x - noli.x);   // looks at the survivor the whole time
   const tDrag = EXEC.drag, tStomp = tDrag + EXEC.lift + EXEC.stomp, tEnd = tStomp + Math.max(0.25, EXEC.settle) + EXEC.after;
   if (e.t < tDrag) {
@@ -693,7 +707,7 @@ function updateExec(dt) {
   }
   if (!e.stomped && e.t >= tStomp) {
     // The crush: stars, purple shockwaves, the survivor squashes and fades into sparkles.
-    e.stomped = true; d.squash = 1;
+    e.stomped = true; d.squash = 1; e.punchT = 0;
     ring(d.x, d.y, 50, '#ffffff', 0.35); ring(d.x, d.y, 90, '#c9a8ff', 0.6); ring(d.x, d.y, 130, '#7a3cff', 0.8);
     for (let i = 0; i < 50; i++) { const a = rand(0, 6.3), r = rand(0, 60); parts.push({ kind: 'star', x: d.x + Math.cos(a) * r, y: d.y + Math.sin(a) * r * 0.7, c: i % 3 === 0 ? '#000000' : i % 3 === 1 ? '#ffffff' : '#c9a8ff', size: rand(3, 10), t: rand(-0.3, 0), life: rand(0.5, 1.0) }); }
     for (let i = 0; i < 26; i++) { const a = rand(0, 6.3), sp = rand(60, 220); parts.push({ kind: 'spark', x: d.x, y: d.y, z: 6, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.8, vz: rand(160, 360), rot: rand(0, 6.3), spin: rand(6, 14), size: rand(3, 6), c: TP_COLORS[i % 3], t: 0, life: rand(0.8, 1.3) }); }
@@ -703,6 +717,7 @@ function updateExec(dt) {
     if (Math.random() < dt * 30 && d.fade > 0) parts.push({ kind: 'star', x: d.x + rand(-16, 16), y: d.y + rand(-10, 10), c: Math.random() < 0.5 ? '#ffffff' : '#c9a8ff', size: rand(3, 6), t: 0, life: 0.5 });
     if (d.fade === 0 && !d.dead) { d.dead = true; d.exec = false; d.deadT = 0; d.squash = 0; d.fade = 1; log(`${d.name} was crushed — respawning in 3s`); }
   }
+  if (e.punchT !== undefined) e.punchT += dt;
   if (e.t >= tEnd) { noli.state = 'free'; noli.ex = null; }
 }
 function drawExec() {
