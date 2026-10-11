@@ -126,7 +126,7 @@ function addDummy(x, y, mode = newMode, hp = newHp) {
   if (d.inf) { d.maxHp = 100; d.hp = 100; }
   dummies.push(d); return d;
 }
-const alive = () => dummies.filter((d) => !d.dead && !d.exec);
+const alive = () => dummies.filter((d) => !d.dead && !d.exec && !d.air);
 
 const logEl = document.getElementById('log');
 function log(s) { const d = document.createElement('div'); d.textContent = s; logEl.prepend(d); while (logEl.children.length > 40) logEl.lastChild.remove(); }
@@ -252,10 +252,47 @@ function startRush(chain, ignore = null) {
     log(`Re-rush x${chain} (slam now ${slamDmg(chain).toFixed(1)} dmg)`);
   } else log('Void Rush!');
 }
+// ------------------------------------------------------------- re-rush air slam (PG: stars and void, no blood)
+// Lifted into the air (shown by size), then slammed down on the loud hit of the SFX (0.70s in).
+const AIR = { rise: 0.55, impact: 0.7, end: 0.95, top: 1.9 };
+function startAirSlam(d, chain) {
+  d.air = { t: 0, chain, hit: false };
+  d.vx = d.vy = 0; d.hall = 0;
+  stopSfx('rush_slam'); sfx('rush_slam', 0.9);
+  txt(d.x, d.y - 48, 'UP!', '#c9a8ff');
+  ring(d.x, d.y, 40, '#c9a8ff', 0.4);
+}
+function airScale(d) {
+  const t = d.air.t;
+  if (t < AIR.rise) { const k = t / AIR.rise; return 1 + (AIR.top - 1) * (1 - (1 - k) * (1 - k)); }
+  if (t < AIR.impact) { const k = (t - AIR.rise) / (AIR.impact - AIR.rise); return AIR.top - (AIR.top - 0.75) * k * k; }
+  const k = Math.min(1, (t - AIR.impact) / (AIR.end - AIR.impact)); return 0.75 + 0.25 * k;
+}
+function updateAirSlam(d, dt) {
+  const A = d.air; A.t += dt;
+  const a = SFX.rush_slam; if (a && !a.paused && a.currentTime > 0 && !A.hit) A.t = Math.max(A.t - dt, a.currentTime);   // follow the sound's clock
+  if (A.t < AIR.rise && Math.random() < dt * 40) {
+    // Void wisps and stars streaming off them as they rise.
+    parts.push({ kind: 'trail', x: d.x + rand(-14, 14), y: d.y + rand(-10, 10), c: TP_COLORS[Math.floor(rand(0, 3))], size: rand(2, 4), t: 0, life: rand(0.4, 0.7) });
+    if (Math.random() < 0.4) parts.push({ kind: 'star', x: d.x + rand(-26, 26), y: d.y + rand(-26, 26), c: Math.random() < 0.5 ? '#ffffff' : '#c9a8ff', size: rand(3, 7), t: 0, life: 0.45 });
+  }
+  if (!A.hit && A.t >= AIR.impact) {
+    A.hit = true;
+    damage(d, slamDmg(A.chain), `Void Rush AIR SLAM (chain x${A.chain})`, '#d36bff');
+    d.knockT = KIT.rush.knock;
+    txt(d.x, d.y - 48, 'SLAMMED', '#ffffff');
+    ring(d.x, d.y, 45, '#ffffff', 0.35); ring(d.x, d.y, 95, '#c9a8ff', 0.6); ring(d.x, d.y, 145, '#7a3cff', 0.85);
+    for (let i = 0; i < 45; i++) { const a2 = rand(0, 6.3), r = rand(0, 70); parts.push({ kind: 'star', x: d.x + Math.cos(a2) * r, y: d.y + Math.sin(a2) * r * 0.7, c: i % 3 === 0 ? '#000000' : i % 3 === 1 ? '#ffffff' : '#c9a8ff', size: rand(3, 10), t: rand(-0.3, 0), life: rand(0.5, 1.0) }); }
+    for (let i = 0; i < 24; i++) { const a2 = rand(0, 6.3), sp = rand(70, 240); parts.push({ kind: 'spark', x: d.x, y: d.y, z: 6, vx: Math.cos(a2) * sp, vy: Math.sin(a2) * sp * 0.8, vz: rand(160, 380), rot: rand(0, 6.3), spin: rand(6, 14), size: rand(3, 6), c: TP_COLORS[i % 3], t: 0, life: rand(0.8, 1.3) }); }
+  }
+  if (A.t >= AIR.end) d.air = null;
+}
 function rushHit(d) {
   const r = noli.rush;
-  // Any Hallucination turns the hit into a slam.
-  if (d.hall >= 1) {
+  // Any Hallucination turns the hit into a slam. On a re-rush it becomes the air slam.
+  if (d.hall >= 1 && r.chain >= 1) {
+    startAirSlam(d, r.chain);
+  } else if (d.hall >= 1) {
     damage(d, slamDmg(r.chain), `Void Rush SLAM (chain x${r.chain})`, '#d36bff');
     d.hall = 0; d.knockT = KIT.rush.knock;
     ring(d.x, d.y, 70, '#a26bff', 0.6);
@@ -373,7 +410,7 @@ function dummyThink(d, dt) {
   const a = Math.atan2(ty - d.y, tx - d.x), dd = Math.hypot(tx - d.x, ty - d.y);
   return dd > 4 && sp ? { mx: Math.cos(a), my: Math.sin(a), sp } : null;
 }
-function respawnDummy(d) { Object.assign(d, { x: d.home.x, y: d.home.y, hp: d.maxHp, hall: 0, dead: false, exec: false, squash: 0, fade: 1, wiggle: 0, deadT: 0, knockT: 0, vx: 0, vy: 0, repair: null, goal: null }); }
+function respawnDummy(d) { Object.assign(d, { x: d.home.x, y: d.home.y, hp: d.maxHp, hall: 0, dead: false, air: null, exec: false, squash: 0, fade: 1, wiggle: 0, deadT: 0, knockT: 0, vx: 0, vy: 0, repair: null, goal: null }); }
 
 // ------------------------------------------------------------- creative tools
 const TOOLS = [
@@ -530,6 +567,7 @@ function update(dt) {
   for (const d of dummies) {
     if (d.dead) { d.deadT += dt; if (d.deadT > 3) respawnDummy(d); continue; }
     if (d.exec) continue;   // the execution moves them
+    if (d.air) { updateAirSlam(d, dt); continue; }   // held in place while airborne
     d.knockT = Math.max(0, d.knockT - dt);
     if (d.hall > 0) { d.hallT += dt; if (d.hallT > KIT.hallDur) { d.hall = 0; d.hallT = 0; txt(d.x, d.y - 36, 'hallucination wore off', '#9a90bf'); } }
     const dragging = mouse.drag && mouse.drag.o === d;
@@ -851,8 +889,15 @@ function drawNoli() {
 function drawDummy(d) {
   if (d.dead) { ctx.globalAlpha = 0.35; ctx.strokeStyle = '#9a90bf'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(d.home.x, d.home.y, 16, 0, 6.3); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; label(d.home.x, d.home.y - 22, 'respawning…', '#9a90bf'); return; }
   const { x, y } = d;
+  if (d.air) {
+    // Shadow stays on the floor, shrinking as they go up.
+    const sc = airScale(d), lift = Math.max(0, sc - 1);
+    ctx.globalAlpha = 0.35 * (1 - lift * 0.6); ctx.fillStyle = '#000000';
+    ctx.beginPath(); ctx.ellipse(x, y + 10, 16 * (1 - lift * 0.4), 7 * (1 - lift * 0.4), 0, 0, 6.3); ctx.fill(); ctx.globalAlpha = 1;
+  }
   ctx.save(); ctx.translate(x, y);
   if (d.knockT > 0) ctx.rotate(Math.PI / 2);
+  if (d.air) { const sc = airScale(d); ctx.translate(0, -(sc - 1) * 18); ctx.rotate(d.air.t < AIR.impact ? d.air.t * 4 : 0); ctx.scale(sc, sc); }
   if (d.exec) { ctx.globalAlpha = d.fade ?? 1; ctx.rotate(d.wiggle || 0); ctx.scale(1 + (d.squash || 0) * 0.6, 1 - (d.squash || 0) * 0.8); }
   // default Roblox-style NPC: yellow head, blue torso, green legs (top-down)
   ctx.fillStyle = '#1f7a3a'; ctx.fillRect(-11, 4, 22, 12);
