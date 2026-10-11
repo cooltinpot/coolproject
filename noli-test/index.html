@@ -249,7 +249,14 @@ function releaseRush() {
   chargeUI.cap = "You didn't charge it long enough >:(("; chargeUI.err = true; chargeUI.tint = 'red'; chargeUI.hold = 0.8;   // keep the ring up long enough to read it
 }
 // Noli draws his void star at his right side (his crushing side) while charging and holds it through the rush.
-function rushStarPos() { return localToWorld(6, noli.r + 14); }
+function rushStarPos() {
+  // At his side while charging; while rushing he eases it out in front of himself (not instantly).
+  if (noli.state === 'rush' && noli.rush) {
+    const k = Math.min(1, noli.rush.t / 0.3), e = 1 - (1 - k) * (1 - k);
+    return localToWorld(6 + (noli.r + 34 - 6) * e, (noli.r + 14) * (1 - e));
+  }
+  return localToWorld(6, noli.r + 14);
+}
 function rushStarFx(dt) {
   const p = rushStarPos();
   if (noli.state === 'rushWind') {
@@ -268,6 +275,18 @@ function drawRushStar() {
   const g = ctx.createRadialGradient(p.x, p.y, 1, p.x, p.y, 22 * sc);
   g.addColorStop(0, 'rgba(255,255,255,0.75)'); g.addColorStop(0.5, 'rgba(201,168,255,0.35)'); g.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 22 * sc, 0, 6.3); ctx.fill();
+  if (st === 'rush') {
+    // Sparkly white/grey strands from his hand to the star, like the stab.
+    const hand = localToWorld(noli.r * 0.6, noli.r * 0.55), dx = p.x - hand.x, dy = p.y - hand.y, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+    ctx.save(); ctx.lineCap = 'round';
+    for (let i = 0; i < 4; i++) {
+      const o = (i - 1.5) * 2, flick = 0.55 + 0.45 * Math.sin(T * 40 + i * 1.7);
+      ctx.globalAlpha = flick; ctx.strokeStyle = i % 2 ? '#9a9a9a' : '#ffffff'; ctx.lineWidth = i % 2 ? 1 : 1.5;
+      ctx.beginPath(); ctx.moveTo(hand.x + nx * o, hand.y + ny * o); ctx.lineTo(p.x + nx * o * 0.4, p.y + ny * o * 0.4); ctx.stroke();
+    }
+    for (let i = 0; i < 6; i++) { const f = (T * 2.5 + i / 6) % 1, tw = Math.abs(Math.sin(T * 25 + i * 2)); star4(hand.x + dx * f, hand.y + dy * f, 1.5 + 2.5 * tw, i % 2 ? '#c8c8c8' : '#ffffff', 0.4 + 0.6 * tw); }
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
   ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(spin);
   star4(0, 0, 13 * sc * pulse, '#ffffff');   // plain white star
   ctx.restore();
