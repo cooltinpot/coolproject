@@ -2324,12 +2324,6 @@ function drawSurvBody(d) {
 function drawRitualPlacing(d) {
   const A = d.act; if (!A || A.kind !== 'ritual') return;
   const R = RITUAL, p = A.at, T = performance.now() / 1000, t = A.t;
-  // Forming circle: starts glowing at the first stab, completes as he stands.
-  if (t >= R.stab1) {
-    const k = clamp((t - R.stab1) / (R.len - R.stab1), 0, 1);
-    ctx.globalAlpha = 0.3 + 0.5 * k; ctx.strokeStyle = '#c9a8ff'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(p.x, p.y, 26, -Math.PI / 2, -Math.PI / 2 + 6.283 * k); ctx.stroke(); ctx.globalAlpha = 1;
-  }
   // The dagger: lifted over his head (higher = drawn bigger, shadow on the floor), then plunged into the ground twice.
   if (t < R.raise * 0.5 || t >= R.standFrom) return;   // still in his hand / pulled back out as he stands
   let x, y, lift, up;
@@ -2349,20 +2343,47 @@ function drawRitualPlacing(d) {
   ctx.restore(); ctx.globalAlpha = 1;
   if (lift > 8 && Math.random() < 0.5) parts.push({ kind: 'trail', x: x + rand(-3, 3), y: y - lift + rand(-8, 8), c: Math.random() < 0.5 ? '#bff6ff' : '#ffffff', size: rand(1.5, 3), t: 0, life: 0.35 });
 }
+// Ritual symbol on the floor (white tribal sun), with sparkles, a passing white shimmer and twinkling glimmers.
+const RIT_IMG = new Image(); RIT_IMG.src = 'img/ritual.png';
+const RIT_SIZE = 76, ritMask = document.createElement('canvas'), ritMaskCtx = ritMask.getContext('2d');
+ritMask.width = ritMask.height = RIT_SIZE * 2;
+// Spots on the symbol's arms where glimmers appear (sampled from the image's opaque pixels).
+const ritGlints = [[-0.094,0.016],[-0.188,-0.156],[0.125,0.062],[0.062,-0.281],[0.172,-0.25],[0.312,0.188],[-0.406,-0.203],[0.125,0.047],[-0.062,0.25],[-0.031,-0.266],[0.078,0.172],[0.047,-0.094],[0.094,-0.297],[-0.141,-0.219],[-0.031,0.094],[0.031,0.078]];
+function drawRitualSymbol(x, y, reveal, full, seed) {
+  if (!RIT_IMG.complete || !RIT_IMG.naturalWidth) return;
+  const T = performance.now() / 1000, S = RIT_SIZE;
+  ctx.save(); ctx.translate(x, y);
+  if (reveal < 1) { ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, S, -Math.PI / 2, -Math.PI / 2 + 6.283 * reveal); ctx.closePath(); ctx.clip(); }   // draws in around the circle
+  // soft glow under it
+  const gl = ctx.createRadialGradient(0, 0, 4, 0, 0, S * 0.6), pulse = full ? 0.75 + 0.25 * Math.sin(T * 4) : 0.55;
+  gl.addColorStop(0, `rgba(255,255,255,${0.22 * pulse})`); gl.addColorStop(0.6, `rgba(201,168,255,${0.12 * pulse})`); gl.addColorStop(1, 'rgba(201,168,255,0)');
+  ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(0, 0, S * 0.6, 0, 6.3); ctx.fill();
+  ctx.globalAlpha = full ? 0.95 : 0.8; ctx.drawImage(RIT_IMG, -S / 2, -S / 2, S, S);
+  // Shimmer: a bright white band sweeping across the symbol (masked to its shape).
+  const m = ritMaskCtx, W2 = ritMask.width, ph = ((T * 0.45 + seed) % 1.6) - 0.3;
+  m.globalCompositeOperation = 'source-over'; m.clearRect(0, 0, W2, W2); m.drawImage(RIT_IMG, 0, 0, W2, W2);
+  m.globalCompositeOperation = 'source-in';
+  const band = m.createLinearGradient(W2 * (ph - 0.25), W2 * (ph - 0.25), W2 * (ph + 0.25), W2 * (ph + 0.25));
+  band.addColorStop(0, 'rgba(255,255,255,0)'); band.addColorStop(0.5, 'rgba(255,255,255,1)'); band.addColorStop(1, 'rgba(255,255,255,0)');
+  m.fillStyle = band; m.fillRect(0, 0, W2, W2);
+  ctx.globalAlpha = 0.9; ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(ritMask, -S / 2, -S / 2, S, S); ctx.globalCompositeOperation = 'source-over';
+  // Glimmers twinkling on its arms.
+  if (ritGlints) ritGlints.forEach(([gx, gy], i) => { const tw = Math.max(0, Math.sin(T * (2.2 + hash1(i) * 2) + i * 1.7 + seed * 5)); if (tw > 0.55) star4(gx * S, gy * S, 1.5 + 3.5 * (tw - 0.55) / 0.45, '#ffffff', (tw - 0.55) / 0.45); });
+  ctx.restore(); ctx.globalAlpha = 1;
+  // Tiny sparkles and white shimmers drifting around it.
+  if (reveal > 0.2 && Math.random() < (full ? 0.35 : 0.2)) {
+    const a = rand(0, 6.3), r = rand(S * 0.3, S * 0.62);
+    parts.push({ kind: 'star', x: x + Math.cos(a) * r, y: y + Math.sin(a) * r, c: Math.random() < 0.75 ? '#ffffff' : '#e9e4ff', size: rand(1, 2.6), t: 0, life: rand(0.35, 0.7) });
+  }
+}
 function drawRituals() {
-  const T = performance.now() / 1000;
   for (const d of dummies) {
-    const R = d.ritual; if (!R || d.kit !== 'twotime' || d.dead) continue;
-    const full = d.oblation >= 100;
-    // A circle of pale candles with a turning rune ring; glows brighter once Oblation is full.
-    ctx.save(); ctx.translate(R.x, R.y);
-    ctx.globalAlpha = full ? 0.35 + 0.15 * Math.sin(T * 4) : 0.18; ctx.fillStyle = '#c9a8ff'; ctx.beginPath(); ctx.arc(0, 0, 30, 0, 6.3); ctx.fill();
-    ctx.globalAlpha = full ? 0.95 : 0.6; ctx.strokeStyle = '#c9a8ff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(0, 0, 26, 0, 6.3); ctx.stroke();
-    ctx.rotate(T * 0.6); ctx.setLineDash([3, 5]); ctx.beginPath(); ctx.arc(0, 0, 20, 0, 6.3); ctx.stroke(); ctx.setLineDash([]); ctx.rotate(-T * 0.6);
-    for (let i = 0; i < 5; i++) { const a = i / 5 * 6.283 - Math.PI / 2, cx = Math.cos(a) * 26, cy = Math.sin(a) * 26;
-      ctx.fillStyle = '#e9e4ff'; ctx.fillRect(cx - 2, cy - 2, 4, 5); star4(cx, cy - 5, 2.5 + Math.sin(T * 9 + i) * 0.8, full ? '#ffffff' : '#bff6ff', 0.9); }
-    ctx.restore(); ctx.globalAlpha = 1;
-    label(R.x, R.y + 44, d.player ? 'YOUR RITUAL' : d.name + "'s Ritual", '#c9a8ff', '700 10px system-ui');
+    if (d.kit !== 'twotime' || d.dead) continue;
+    const A = d.act;
+    if (A && A.kind === 'ritual' && A.t >= RITUAL.stab1) drawRitualSymbol(A.at.x, A.at.y, clamp((A.t - RITUAL.stab1) / (RITUAL.len - RITUAL.stab1), 0, 1), false, d.id * 0.37);   // forming
+    const R = d.ritual; if (!R) continue;
+    drawRitualSymbol(R.x, R.y, 1, d.oblation >= 100, d.id * 0.37);
+    label(R.x, R.y + RIT_SIZE / 2 + 10, d.player ? 'YOUR RITUAL' : d.name + "'s Ritual", '#c9a8ff', '700 10px system-ui');
   }
 }
 function drawSurvExtras(d) {
