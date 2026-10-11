@@ -33,7 +33,7 @@
     <button id="nocd">No cooldowns: off</button>
   </div>
   <small>WASD move · Shift sprint · Mouse aim<br>
-  <b>LMB</b> Stab · <b>Q</b> Void Rush (Q again = re-rush, steer with mouse) · <b>E</b> Nova (E again = detonate) · <b>R</b> Observant (click a generator to teleport, R to leave)</small>
+  <b>LMB</b> Stab · <b>Q</b> Void Rush (hit a wall → press Q in the countdown to re-rush; Shift during a re-rush = 3s boost) · <b>E</b> Nova (E again = detonate) · <b>R</b> Observant (click a generator to teleport, R to leave)</small>
   <div id="log"></div>
 </div>
 <script>
@@ -67,7 +67,8 @@ const gens = [
 const KIT = {
   speed: { walk: 160, sprint: 270 }, stamina: { max: 110, drain: 10, regen: 20 },
   stab: { dmg: 25, perStack: 5, range: 62, arc: 0.9, cd: 2.0, windup: 0.18 },
-  rush: { cd: 20, cdStart: 10, cdCancel: 1.2, windup: 0.6, dur: 1.5, speed: 560, turn: 0.9, reRush: 0.85, burst: 1.35,
+  rush: { cd: 20, cdStart: 10, cdCancel: 1.2, windup: 0.6, dur: 2.5, speed: 560, turn: 0.9, reRush: 0.85, burst: 1.35,
+          boost: { time: 3, speed: 1.35, turn: 4.5 },
           hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
   nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, radius: 140, pull: 1.1 },
   obs: { cd: 30, cdStart: 25, cdLeave: 15, bands: [[20, 3], [50, 2], [100, 1]] },
@@ -158,25 +159,37 @@ function stabHit() {
 }
 
 function castRush() {
-  if (noli.state === 'rush') {
-    // Re-rush: snap to the cursor and start a fresh rush segment with a speed burst.
-    if (noli.rush.t < KIT.rush.reRush) { txt(noli.x, noli.y - 30, 'too early', '#777'); return; }
-    noli.rush.t = 0; noli.rush.chain++;
-    noli.ang = Math.atan2(world().y - noli.y, world().x - noli.x);
-    ring(noli.x, noli.y, 60, '#d36bff', 0.5);
-    ring(noli.x, noli.y, 30, '#ffffff', 0.25);
-    txt(noli.x, noli.y - 30, 'RE-RUSH x' + noli.rush.chain, '#c49bff');
-    log(`Re-rush x${noli.rush.chain} (slam now ${(KIT.rush.slamBase + KIT.rush.slamExtra + KIT.rush.perReRush * noli.rush.chain).toFixed(1)} dmg)`);
+  if (noli.state === 'reWindow') {
+    // Re-rush: only while not sprinting.
+    if (keys.shift) { txt(noli.x, noli.y - 30, 'let go of Shift', '#ff9fb4'); return; }
+    startRush(noli.rush.chain + 1);
     return;
   }
   if (noli.state === 'rushWind') { noli.state = 'free'; noli.cds.rush = KIT.rush.cdCancel; log('Void Rush cancelled (1.2s cooldown)'); return; }
   if (busy() || noli.stance || !ready('rush')) return;
   noli.state = 'rushWind'; noli.st = 0;
 }
+function startRush(chain) {
+  noli.state = 'rush';
+  noli.ang = Math.atan2(world().y - noli.y, world().x - noli.x);
+  noli.rush = { t: 0, chain, boostT: 0, boosted: false };
+  if (chain) {
+    ring(noli.x, noli.y, 60, '#d36bff', 0.5); ring(noli.x, noli.y, 30, '#ffffff', 0.25);
+    txt(noli.x, noli.y - 30, 'RE-RUSH x' + chain, '#c49bff');
+    log(`Re-rush x${chain} (slam now ${slamDmg(chain).toFixed(1)} dmg)`);
+  } else log('Void Rush!');
+}
+const slamDmg = (chain) => KIT.rush.slamBase + KIT.rush.slamExtra + KIT.rush.perReRush * chain;
+function rushWall() {
+  // Hitting a wall opens a short re-rush countdown.
+  noli.state = 'reWindow'; noli.rush.wt = KIT.rush.reRush;
+  ring(noli.x, noli.y, 36, '#ffffff', 0.3);
+  noli.shake = 0.15;
+}
 function rushHit() {
   const r = noli.rush;
   if (dummy.hall >= 2) {
-    const dmg = KIT.rush.slamBase + KIT.rush.slamExtra + KIT.rush.perReRush * r.chain;
+    const dmg = slamDmg(r.chain);
     damage(dmg, `Void Rush SLAM (re-rushes: ${r.chain})`, '#d36bff');
     dummy.hall = 0;
     dummy.knockT = KIT.rush.knock;
@@ -275,26 +288,36 @@ function update(dt) {
   const sprint = keys.shift && moving && noli.stamina > 0 && noli.state === 'free' && !noli.stance;
   noli.stamina = clamp(noli.stamina + (sprint ? -KIT.stamina.drain : KIT.stamina.regen) * dt, 0, KIT.stamina.max);
   let sp = sprint ? KIT.speed.sprint : KIT.speed.walk;
-  if (noli.stance || noli.state === 'rushWind' || noli.stunT > 0) sp = 0;
+  if (noli.stance || noli.state === 'rushWind' || noli.state === 'reWindow' || noli.stunT > 0) sp = 0;
   if (noli.state === 'stab') sp *= 0.4;
 
   if (noli.state === 'stab') { noli.st += dt; if (noli.st >= KIT.stab.windup && !noli.stabbed) { noli.stabbed = true; stabHit(); } if (noli.st > KIT.stab.windup + 0.25) { noli.state = 'free'; noli.stabbed = false; } }
-  if (noli.state === 'rushWind') { noli.st += dt; if (noli.st >= KIT.rush.windup) { noli.state = 'rush'; noli.rush = { t: 0, chain: 0 }; log('Void Rush!'); } }
+  if (noli.state === 'rushWind') { noli.st += dt; if (noli.st >= KIT.rush.windup) startRush(0); }
+  if (noli.state === 'reWindow') {
+    const r = noli.rush; r.wt -= dt;
+    if (r.wt <= 0) { endRush(); log(r.chain ? `Re-rush window missed (chain was x${r.chain})` : 'Void Rush ended on a wall'); }
+  }
   if (noli.state === 'rush') {
     const r = noli.rush; r.t += dt;
-    // Steer toward the cursor with a limited turn rate.
+    // Sprinting during a re-rush: 3s of extra speed and turning.
+    if (r.chain > 0 && keys.shift && !r.boosted) { r.boosted = true; r.boostT = KIT.rush.boost.time; txt(noli.x, noli.y - 30, 'BOOST', '#ffffff'); log(`Re-rush boost (${KIT.rush.boost.time}s)`); }
+    if (r.boostT > 0) r.boostT -= dt;
+    const B = r.boostT > 0 ? KIT.rush.boost : null;
     const want = Math.atan2(w.y - noli.y, w.x - noli.x);
     let d = ((want - noli.ang + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-    noli.ang += clamp(d, -KIT.rush.turn * dt, KIT.rush.turn * dt);
-    // Each segment starts with a burst and settles to rush speed.
-    const spd = KIT.rush.speed * (1 + (KIT.rush.burst - 1) * Math.max(0, 1 - r.t / 0.3));
+    const turn = B ? B.turn : KIT.rush.turn;
+    noli.ang += clamp(d, -turn * dt, turn * dt);
+    const spd = KIT.rush.speed * (B ? B.speed : 1) * (1 + (KIT.rush.burst - 1) * Math.max(0, 1 - r.t / 0.3));
     const vx = Math.cos(noli.ang) * spd * dt, vy = Math.sin(noli.ang) * spd * dt;
-    // Curves around walls: the blocked axis is dropped so Noli slides along the surface.
-    const res = moveCircle(noli, vx, vy);
-    if (res.bx && res.by) noli.ang += Math.PI * dt * 2;
-    if (Math.random() < 0.6) fx.push({ x: noli.x, y: noli.y, r: 14, c: '#5b2bbf', t: 0, life: 0.35, trail: true });
+    const ox = noli.x, oy = noli.y;
+    moveCircle(noli, vx, vy);
+    // Only a near head-on impact counts as hitting the wall; glancing contact slides along it.
+    const moved = Math.hypot(noli.x - ox, noli.y - oy), want2 = Math.hypot(vx, vy);
+    const blocked = r.t > 0.1 && moved < want2 * 0.45;
+    if (Math.random() < 0.6) fx.push({ x: noli.x, y: noli.y, r: B ? 18 : 14, c: B ? '#d36bff' : '#5b2bbf', t: 0, life: 0.35, trail: true });
     if (!dummy.dead && dist(noli, dummy) < noli.r + dummy.r + 4) rushHit();
-    else if (r.t > KIT.rush.dur) { endRush(); log('Void Rush ended'); }
+    else if (blocked) rushWall();
+    else if (r.t > Math.max(KIT.rush.dur, B ? r.t + 0.01 : 0)) { endRush(); log('Void Rush ran out'); }
   } else if (moving) {
     moveCircle(noli, mx * sp * dt, my * sp * dt);
   }
@@ -419,18 +442,20 @@ function hud() {
   ctx.fillStyle = '#14111f'; ctx.fillRect(bx, by, bw, 12);
   ctx.fillStyle = '#5aa9ff'; ctx.fillRect(bx, by, bw * noli.stamina / KIT.stamina.max, 12);
   label(W / 2, by - 4, 'STAMINA ' + Math.round(noli.stamina), '#e9e4ff');
-  if (noli.state === 'rush') {
-    const r = noli.rush, ok = r.t >= KIT.rush.reRush;
-    const pulse = ok ? 0.6 + 0.4 * Math.sin(performance.now() / 70) : 1;
-    ctx.globalAlpha = pulse;
-    label(W / 2, by - 26, ok ? `[Q] RE-RUSH NOW! · chain x${r.chain} · ${(KIT.rush.dur - r.t).toFixed(1)}s left` : `VOID RUSH · re-rush in ${(KIT.rush.reRush - r.t).toFixed(2)}s · chain x${r.chain}`, ok ? '#ffffff' : '#c49bff');
+  if (noli.state === 'reWindow') {
+    // Fast countdown: press Q (no Shift) before it hits zero.
+    const r = noli.rush, k = r.wt / KIT.rush.reRush;
+    const sx = (noli.x - cam.x) * cam.s, sy = (noli.y - cam.y) * cam.s;
+    ctx.strokeStyle = '#2c2540'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(sx, sy, 34, 0, 6.3); ctx.stroke();
+    ctx.strokeStyle = '#ffffff'; ctx.beginPath(); ctx.arc(sx, sy, 34, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k); ctx.stroke();
+    ctx.font = '900 18px system-ui'; label(sx, sy - 44, r.wt.toFixed(2), '#ffffff');
+    ctx.globalAlpha = 0.6 + 0.4 * Math.sin(performance.now() / 50);
+    label(W / 2, by - 26, `[Q] RE-RUSH! · next slam ${slamDmg(r.chain + 1).toFixed(1)} dmg`, '#ffffff');
     ctx.globalAlpha = 1;
-    // Re-rush timing bar: grey until 0.85s, purple window after.
-    const tw = 200, tx = W / 2 - tw / 2, ty = by - 48;
-    ctx.fillStyle = '#14111f'; ctx.fillRect(tx, ty, tw, 6);
-    ctx.fillStyle = '#3a3150'; ctx.fillRect(tx, ty, tw * KIT.rush.reRush / KIT.rush.dur, 6);
-    ctx.fillStyle = '#a26bff'; ctx.fillRect(tx + tw * KIT.rush.reRush / KIT.rush.dur, ty, tw * (1 - KIT.rush.reRush / KIT.rush.dur), 6);
-    ctx.fillStyle = '#fff'; ctx.fillRect(tx + tw * Math.min(1, r.t / KIT.rush.dur) - 1, ty - 3, 3, 12);
+  }
+  if (noli.state === 'rush') {
+    const r = noli.rush;
+    label(W / 2, by - 26, r.boostT > 0 ? `BOOST ${r.boostT.toFixed(1)}s · chain x${r.chain}` : r.chain ? `RE-RUSH x${r.chain} · Shift = 3s boost` : 'VOID RUSH · hit a wall to open the re-rush window', r.boostT > 0 ? '#ffffff' : '#c49bff');
   }
 }
 
