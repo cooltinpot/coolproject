@@ -426,7 +426,7 @@ function update(dt) {
   }
   noli.stunT = Math.max(0, noli.stunT - dt);
   const w = world();
-  if (noli.state !== 'rush') noli.ang = Math.atan2(w.y - noli.y, w.x - noli.x);
+  if (noli.state !== 'rush' && noli.state !== 'exec') noli.ang = Math.atan2(w.y - noli.y, w.x - noli.x);
 
   if (noli.stance) {
     if (mouse.click) { const g = gens.find((g) => Math.hypot(g.x - w.x, g.y - w.y) < 70); if (g) observantPick(g); }
@@ -551,7 +551,7 @@ function update(dt) {
 
   // Camera: Observant zooms out so every generator can be picked; wheel zoom otherwise.
   const fit = Math.min(W / (MAP.w + 80), H / (MAP.h + 160));
-  cam.s += ((noli.stance ? fit : cam.zoom) - cam.s) * Math.min(1, dt * 8);
+  cam.s += ((noli.stance ? fit : noli.state === 'exec' ? cam.zoom * EXEC.zoom : cam.zoom) - cam.s) * Math.min(1, dt * (noli.state === 'exec' ? 5 : 8));
   const vw = W / cam.s, vh = H / cam.s;
   cam.x = vw >= MAP.w ? (MAP.w - vw) / 2 : clamp(noli.x - vw / 2, -60, MAP.w - vw + 60);
   cam.y = vh >= MAP.h ? (MAP.h - vh) / 2 : clamp(noli.y - vh / 2, -60, MAP.h - vh + 60);
@@ -653,17 +653,32 @@ function drawParts() {
   }
 }
 // ------------------------------------------------------------- stab kill: drag, stomp, wait (PG: stars, no blood)
-const EXEC = { drag: 0.9, lift: 0.12, stomp: 0.08, after: 0.3 };   // after = 0.3s wait once the survivor is gone
+const EXEC = { drag: 0.9, lift: 0.2, stomp: 0.08, settle: 0.15, after: 0.3, zoom: 1.35 };   // after = 0.3s wait once the survivor is gone
 function startExec(d, dmg, stacks) {
   d.exec = true; d.hall = 0; d.hp = 0; d.vx = d.vy = 0; d.squash = 0; d.fade = 1;
   txt(d.x, d.y - 24, '-' + dmg, '#ff4d6d');
   log(`${d.name} — Stab (+${stacks} stack bonus): ${dmg} dmg — finished off`);
-  noli.state = 'exec'; noli.ex = { d, t: 0, from: { x: d.x, y: d.y }, stomped: false };
+  noli.state = 'exec'; noli.ex = { d, t: 0, from: { x: d.x, y: d.y }, stomped: false, baseAng: noli.ang };
+  sfx('kill', 0.9);   // plays the moment the kill starts
 }
-function execSpot() { return localToWorld(4, noli.r + 24); }   // just off his right side
+function execSpot() {   // right beside him, on his right side (relative to where he faced when the kill started)
+  const a = noli.ex.baseAng, lx = 2, ly = noli.r + 10;
+  return { x: noli.x + Math.cos(a) * lx - Math.sin(a) * ly, y: noli.y + Math.sin(a) * lx + Math.cos(a) * ly };
+}
+function noliScale() {
+  // Top-down stomp: he grows (rising toward the camera), slams down small, then settles.
+  const e = noli.ex; if (!e) return 1;
+  const t0 = EXEC.drag, t1 = t0 + EXEC.lift, t2 = t1 + EXEC.stomp, t3 = t2 + EXEC.settle;
+  if (e.t < t0) return 1;
+  if (e.t < t1) { const k = (e.t - t0) / EXEC.lift; return 1 + 0.4 * (1 - (1 - k) * (1 - k)); }
+  if (e.t < t2) { const k = (e.t - t1) / EXEC.stomp; return 1.4 - 0.55 * k * k; }
+  if (e.t < t3) { const k = (e.t - t2) / EXEC.settle; return 0.85 + 0.15 * k; }
+  return 1;
+}
 function updateExec(dt) {
   const e = noli.ex, d = e.d; e.t += dt;
-  const tDrag = EXEC.drag, tStomp = tDrag + EXEC.lift + EXEC.stomp, tEnd = tStomp + 0.25 + EXEC.after;
+  noli.ang = Math.atan2(d.y - noli.y, d.x - noli.x);   // looks at the survivor the whole time
+  const tDrag = EXEC.drag, tStomp = tDrag + EXEC.lift + EXEC.stomp, tEnd = tStomp + Math.max(0.25, EXEC.settle) + EXEC.after;
   if (e.t < tDrag) {
     // Dragged across the floor toward his right side while struggling to get away.
     const k = e.t / tDrag, ease = k * k * (3 - 2 * k), to = execSpot();
@@ -679,7 +694,6 @@ function updateExec(dt) {
   if (!e.stomped && e.t >= tStomp) {
     // The crush: stars, purple shockwaves, the survivor squashes and fades into sparkles.
     e.stomped = true; d.squash = 1;
-    sfx('kill', 0.9);
     ring(d.x, d.y, 50, '#ffffff', 0.35); ring(d.x, d.y, 90, '#c9a8ff', 0.6); ring(d.x, d.y, 130, '#7a3cff', 0.8);
     for (let i = 0; i < 50; i++) { const a = rand(0, 6.3), r = rand(0, 60); parts.push({ kind: 'star', x: d.x + Math.cos(a) * r, y: d.y + Math.sin(a) * r * 0.7, c: i % 3 === 0 ? '#000000' : i % 3 === 1 ? '#ffffff' : '#c9a8ff', size: rand(3, 10), t: rand(-0.3, 0), life: rand(0.5, 1.0) }); }
     for (let i = 0; i < 26; i++) { const a = rand(0, 6.3), sp = rand(60, 220); parts.push({ kind: 'spark', x: d.x, y: d.y, z: 6, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.8, vz: rand(160, 360), rot: rand(0, 6.3), spin: rand(6, 14), size: rand(3, 6), c: TP_COLORS[i % 3], t: 0, life: rand(0.8, 1.3) }); }
@@ -696,27 +710,11 @@ function drawExec() {
   const d = e.d, tDrag = EXEC.drag, T = performance.now() / 1000;
   // Void tether from his right hand to the survivor while dragging.
   if (e.t < tDrag + EXEC.lift + EXEC.stomp && !d.dead) {
-    const hand = localToWorld(6, noli.r);
+    const hand = localToWorld(noli.r * 0.8, noli.r * 0.35);
     ctx.save(); ctx.lineCap = 'round';
     for (let i = 0; i < 3; i++) { ctx.globalAlpha = 0.5 + 0.4 * Math.sin(T * 35 + i); ctx.strokeStyle = ['#ffffff', '#c9a8ff', '#9a9a9a'][i]; ctx.lineWidth = 2 - i * 0.4;
       ctx.beginPath(); ctx.moveTo(hand.x + i * 1.5, hand.y); ctx.lineTo(d.x + i * 1.5, d.y); ctx.stroke(); }
     ctx.restore(); ctx.globalAlpha = 1;
-  }
-  // Right leg: lifts, then crushes down.
-  const t0 = tDrag, t1 = tDrag + EXEC.lift, t2 = t1 + EXEC.stomp;
-  if (e.t >= t0 && e.t < t2 + 0.25) {
-    const spot = execSpot();
-    let h;   // how high the foot is
-    if (e.t < t1) h = (e.t - t0) / EXEC.lift; else if (e.t < t2) h = 1 - (e.t - t1) / EXEC.stomp; else h = 0;
-    const hip = localToWorld(2, noli.r * 0.6);
-    const foot = { x: spot.x, y: spot.y - h * 34 };
-    ctx.save(); ctx.lineCap = 'round';
-    ctx.strokeStyle = '#c9a8ff'; ctx.lineWidth = 13; ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(foot.x, foot.y); ctx.stroke();
-    ctx.strokeStyle = '#120d1f'; ctx.lineWidth = 9; ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(foot.x, foot.y); ctx.stroke();
-    ctx.fillStyle = '#120d1f'; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.ellipse(foot.x, foot.y, 13, 8, noli.ang, 0, 6.3); ctx.fill(); ctx.stroke();
-    if (h > 0.6) star4(foot.x, foot.y - 4, 6, '#c9a8ff', 0.8);
-    ctx.restore();
   }
 }
 // ------------------------------------------------------------- stab: void star grab -> thrust -> vanish
@@ -785,6 +783,7 @@ function drawStabStar() {
 function drawNoli() {
   const { x, y } = noli;
   ctx.save(); ctx.translate(x, y);
+  const sc = noliScale(); if (sc !== 1) ctx.scale(sc, sc);
   if (noli.state === 'rushWind') { ctx.strokeStyle = '#a26bff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, 22 + Math.min(1, noli.st / KIT.rush.windup) * 20, 0, 6.3); ctx.stroke(); if (noli.st >= KIT.rush.windup) { ctx.strokeStyle = '#ffffff'; ctx.beginPath(); ctx.arc(0, 0, 44, 0, 6.3); ctx.stroke(); } }
   ctx.fillStyle = 'rgba(162,107,255,0.18)'; ctx.beginPath(); ctx.arc(0, 0, 30, 0, 6.3); ctx.fill();
   ctx.rotate(noli.ang);
