@@ -92,7 +92,8 @@ const KIT = {
           box: { off: 10, w: 52, h: 52 }, hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
   nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, box: 28, blast: 280, pull: 1.1 },
   hallDur: 5,   // Hallucination wears off 5s after it was last applied
-  obs: { travel: 0.8, cd: 30, cdStart: 25, cdLeave: 15, bands: [[20, 3], [50, 2], [100, 1]] },
+  obs: { travel: 1.0,   // teleport lands at 00:01 of the teleport SFX
+          cd: 30, cdStart: 25, cdLeave: 15, bands: [[20, 3], [50, 2], [100, 1]] },
 };
 const slamDmg = (chain) => KIT.rush.slamBase + KIT.rush.slamExtra + KIT.rush.perReRush * chain;
 
@@ -296,6 +297,7 @@ function toggleObservant() {
 function observantPick(g) {
   // Short travel time before Noli arrives at the generator.
   noli.stance = false; noli.state = 'tp'; noli.st = 0; noli.tp = g;
+  sfx('observant_tp');
   ring(noli.x, noli.y, 50, '#a26bff', 0.8);
 }
 function observantTeleport(g) {
@@ -418,7 +420,13 @@ function update(dt) {
 
   if (noli.state === 'stab') { noli.st += dt; if (noli.st >= KIT.stab.windup && !noli.stabbed) { noli.stabbed = true; stabHit(); } if (noli.st > KIT.stab.windup + 0.25) { noli.state = 'free'; noli.stabbed = false; } }
   if (noli.state === 'rushWind') { noli.st += dt; if (noli.st >= KIT.rush.windup) { stopSfx('charge'); startRush(0); } }
-  if (noli.state === 'tp') { noli.st += dt; if (noli.st >= KIT.obs.travel) observantTeleport(noli.tp); }
+  if (noli.state === 'tp') {
+    // Follow the sound's own clock so the teleport lands exactly on 00:01, even if
+    // playback started late; fall back to the timer if audio isn't playing.
+    noli.st += dt;
+    const a = SFX.observant_tp, playing = a && !a.paused && a.currentTime > 0;
+    if (playing ? a.currentTime >= KIT.obs.travel : noli.st >= KIT.obs.travel + 0.25) observantTeleport(noli.tp);
+  }
   if (noli.state === 'reWindow') {
     const r = noli.rush; r.wt -= dt;
     // Missing the window lets hype_and_aura play out; everything else stops.
