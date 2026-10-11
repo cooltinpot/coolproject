@@ -1,327 +1,283 @@
-// Tile map, collision, line of sight, A* pathfinding and realm hazards.
+// Side-view tile world: solids, one-way catwalks, ladders, the hacker-only
+// wall, physics for boxes, line of sight, and the bot navigation graph.
 (function () {
   const G = window.G;
-  const T = G.TILE;
+  const T = (G.TILE = 32);
   const U = G.U;
 
-  class Heap {
-    constructor() { this.a = []; }
-    get size() { return this.a.length; }
-    push(item, pri) {
-      const a = this.a;
-      a.push([pri, item]);
-      let i = a.length - 1;
-      while (i > 0) {
-        const p = (i - 1) >> 1;
-        if (a[p][0] <= a[i][0]) break;
-        [a[p], a[i]] = [a[i], a[p]];
-        i = p;
-      }
-    }
-    pop() {
-      const a = this.a;
-      const top = a[0];
-      const last = a.pop();
-      if (a.length) {
-        a[0] = last;
-        let i = 0;
-        for (;;) {
-          const l = i * 2 + 1, r = l + 1;
-          let m = i;
-          if (l < a.length && a[l][0] < a[m][0]) m = l;
-          if (r < a.length && a[r][0] < a[m][0]) m = r;
-          if (m === i) break;
-          [a[m], a[i]] = [a[i], a[m]];
-          i = m;
-        }
-      }
-      return top[1];
-    }
-  }
+  G.PHYS = { gravity: 2100, maxFall: 1100, jump: 740, refRun: 220 };
 
-  const SOLID = new Set(['#', 'x', 'G', 'n', 'f', 'h', 'D']);
+  // Tiles that block everyone.
+  const SOLID = new Set(['#', 'b', 'h', 'p']);
 
   class World {
     constructor(def) {
       this.def = def;
       const rows = def.layout;
       this.h = rows.length;
-      this.w = Math.max(...rows.map((r) => r.length));
+      this.w = rows[0].length;
       this.pw = this.w * T;
       this.ph = this.h * T;
-      this.grid = new Array(this.w * this.h);
-      this.gens = [];
+      this.grid = [];
       this.spawnsS = [];
       this.spawnK = null;
-      this.teleVents = [];
-      this.bones = new Map();
-      this.barricades = new Map();
-      this.debris = [];
-      this.zones = [];
+      this.eggs = [];
       for (let y = 0; y < this.h; y++) {
         for (let x = 0; x < this.w; x++) {
-          let ch = rows[y][x] || '.';
-          if (x === 0 || y === 0 || x === this.w - 1 || y === this.h - 1) ch = '#';
-          const cx = x * T + T / 2, cy = y * T + T / 2;
-          if (ch === 'G') this.gens.push({ id: this.gens.length, tx: x, ty: y, x: cx, y: cy, progress: 0, done: false, repairers: 0, spark: 0 });
-          else if (ch === 'S') { this.spawnsS.push({ x: cx, y: cy }); ch = '.'; }
-          else if (ch === 'K') { this.spawnK = { x: cx, y: cy }; ch = '.'; }
-          else if (ch === 'O') this.teleVents.push({ tx: x, ty: y, x: cx, y: cy });
-          else if (ch === 'b') this.bones.set(y * this.w + x, { x: cx, y: cy, cd: 0 });
-          else if (ch === 'D') this.pedestal = this.pedestal || { x: cx, y: cy + T / 2 };
-          this.grid[y * this.w + x] = ch;
+          let c = rows[y][x] || '.';
+          if (c === 'S') { this.spawnsS.push({ x: x * T + T / 2, y: (y + 1) * T }); c = '.'; }
+          else if (c === 'K') { this.spawnK = { x: x * T + T / 2, y: (y + 1) * T }; c = '.'; }
+          else if ('CBLPUYM'.includes(c)) { this.eggs.push({ kind: c, x: x * T + T / 2, y: (y + 1) * T, found: false }); c = '.'; }
+          this.grid.push(c);
         }
       }
-      const half = Math.floor(this.teleVents.length / 2);
-      for (let i = 0; i < half; i++) {
-        this.teleVents[i].pair = this.teleVents[i + half];
-        this.teleVents[i + half].pair = this.teleVents[i];
-      }
-      if (def.id === 'cave') this.dim = { on: false, t: U.rand(30, 40) };
-      if (def.id === 'forums') this.post = { t: U.rand(25, 35) };
-      if (def.id === 'mit') this.debrisT = U.rand(4, 7);
-      this.openTiles = [];
-      for (let i = 0; i < this.grid.length; i++) {
-        const x = i % this.w, y = (i / this.w) | 0;
-        if (!this.isSolidT(x, y)) this.openTiles.push({ tx: x, ty: y, x: x * T + T / 2, y: y * T + T / 2 });
-      }
+      this.graphs = {};
     }
-
     at(tx, ty) {
-      if (tx < 0 || ty < 0 || tx >= this.w || ty >= this.h) return '#';
+      if (tx < 0 || tx >= this.w || ty < 0 || ty >= this.h) return '#';
       return this.grid[ty * this.w + tx];
     }
-    atPx(x, y) { return this.at(Math.floor(x / T), Math.floor(y / T)); }
-    hasBarricade(tx, ty) { return this.barricades.has(ty * this.w + tx); }
-    isSolidT(tx, ty) {
-      return SOLID.has(this.at(tx, ty)) || this.barricades.has(ty * this.w + tx);
+    solidFor(team, tx, ty) {
+      const c = this.at(tx, ty);
+      return SOLID.has(c) || (c === 'X' && team === 'survivor');
     }
-    isSolidPx(x, y) { return this.isSolidT(Math.floor(x / T), Math.floor(y / T)); }
-    blocksSight(tx, ty) { return this.at(tx, ty) === '#' || !!(this.barricades.get(ty * this.w + tx) || {}).opaque; }
-
+    blocksSight(tx, ty) { return SOLID.has(this.at(tx, ty)); }
+    isLadder(tx, ty) { return this.at(tx, ty) === 'H'; }
+    // Catwalks, and the top rung of a ladder, hold you up from above.
+    isOneWay(tx, ty) {
+      const c = this.at(tx, ty);
+      if (c === '=') return true;
+      return c === 'H' && this.at(tx, ty - 1) !== 'H' && !SOLID.has(this.at(tx, ty - 1));
+    }
     los(ax, ay, bx, by) {
       const d = Math.hypot(bx - ax, by - ay);
-      const n = Math.ceil(d / 10);
+      const n = Math.ceil(d / 12);
       for (let i = 1; i < n; i++) {
         const x = ax + ((bx - ax) * i) / n, y = ay + ((by - ay) * i) / n;
         if (this.blocksSight(Math.floor(x / T), Math.floor(y / T))) return false;
       }
       return true;
     }
-    clearPath(ax, ay, bx, by, r = 12) {
-      const d = Math.hypot(bx - ax, by - ay);
-      const n = Math.ceil(d / 8);
-      const o = r * 0.8;
-      for (let i = 1; i <= n; i++) {
-        const x = ax + ((bx - ax) * i) / n, y = ay + ((by - ay) * i) / n;
-        if (this.isSolidPx(x - o, y - o) || this.isSolidPx(x + o, y - o) || this.isSolidPx(x - o, y + o) || this.isSolidPx(x + o, y + o)) return false;
-      }
-      return true;
-    }
 
-    collide(e) {
-      const r = e.r;
-      const solid = e.flying ? (tx, ty) => this.at(tx, ty) === '#' : (tx, ty) => this.isSolidT(tx, ty);
-      const tx0 = Math.floor((e.x - r) / T), tx1 = Math.floor((e.x + r) / T);
-      const ty0 = Math.floor((e.y - r) / T), ty1 = Math.floor((e.y + r) / T);
-      let hit = false;
-      for (let ty = ty0; ty <= ty1; ty++) {
-        for (let tx = tx0; tx <= tx1; tx++) {
-          if (!solid(tx, ty)) continue;
-          const rx = tx * T, ry = ty * T;
-          const cx = U.clamp(e.x, rx, rx + T), cy = U.clamp(e.y, ry, ry + T);
-          const dx = e.x - cx, dy = e.y - cy;
-          const d = Math.hypot(dx, dy);
-          if (d < r) {
-            hit = true;
-            if (d < 1e-4) {
-              const l = e.x - rx, rr = rx + T - e.x, t = e.y - ry, b = ry + T - e.y;
-              const m = Math.min(l, rr, t, b);
-              if (m === l) e.x = rx - r; else if (m === rr) e.x = rx + T + r; else if (m === t) e.y = ry - r; else e.y = ry + T + r;
-            } else {
-              e.x = cx + (dx / d) * r;
-              e.y = cy + (dy / d) * r;
+    // ---------------------------------------------------------------- physics
+    // b: {x (center), y (feet), w, h, vx, vy, team, drop, climbing, flying}
+    // Moves the box by its velocity, resolving tiles. Returns {hitX, hitY}.
+    move(b, dt) {
+      const res = { hitX: false, hitY: false, landed: false };
+      const steps = Math.max(1, Math.ceil(Math.max(Math.abs(b.vx), Math.abs(b.vy)) * dt / 8));
+      const sdt = dt / steps;
+      for (let i = 0; i < steps; i++) {
+        // Horizontal.
+        if (b.vx) {
+          b.x += b.vx * sdt;
+          const top = Math.floor((b.y - b.h + 1) / T), bot = Math.floor((b.y - 1) / T);
+          if (b.vx > 0) {
+            const tx = Math.floor((b.x + b.w / 2) / T);
+            for (let ty = top; ty <= bot; ty++) if (this.solidFor(b.team, tx, ty) && !b.ghost) { b.x = tx * T - b.w / 2 - 0.01; res.hitX = true; break; }
+          } else {
+            const tx = Math.floor((b.x - b.w / 2) / T);
+            for (let ty = top; ty <= bot; ty++) if (this.solidFor(b.team, tx, ty) && !b.ghost) { b.x = (tx + 1) * T + b.w / 2 + 0.01; res.hitX = true; break; }
+          }
+        }
+        // Vertical.
+        if (b.vy) {
+          const oldY = b.y;
+          b.y += b.vy * sdt;
+          const l = Math.floor((b.x - b.w / 2 + 1) / T), r = Math.floor((b.x + b.w / 2 - 1) / T);
+          if (b.vy > 0) {
+            const ty = Math.floor(b.y / T);
+            for (let tx = l; tx <= r; tx++) {
+              const solid = this.solidFor(b.team, tx, ty) && !b.ghost;
+              const plat = !b.drop && !b.climbing && this.isOneWay(tx, ty) && oldY <= ty * T + 0.5;
+              if (solid || plat) { b.y = ty * T; b.vy = 0; res.hitY = true; res.landed = true; break; }
+            }
+          } else {
+            const ty = Math.floor((b.y - b.h) / T);
+            for (let tx = l; tx <= r; tx++) {
+              if (this.solidFor(b.team, tx, ty) && !b.ghost) { b.y = (ty + 1) * T + b.h; b.vy = 0; res.hitY = true; break; }
             }
           }
         }
       }
-      return hit;
+      b.x = U.clamp(b.x, T + b.w / 2, this.pw - T - b.w / 2);
+      return res;
     }
-
-    // Cost of walking a tile right now (bots avoid danger).
-    hazardCost(tx, ty, team) {
-      const c = this.at(tx, ty);
-      let cost = 0;
-      if (c === '~') cost += 3;
-      if (c === 'b' && team === 'survivor') cost += 2;
-      const x = tx * T + T / 2, y = ty * T + T / 2;
-      for (const d of this.debris) if (Math.hypot(d.x - x, d.y - y) < d.r + 20) cost += 50;
-      if (team === 'survivor') {
-        for (const z of this.zones) {
-          if (Math.hypot(z.x - x, z.y - y) > z.r + 10) continue;
-          if (z.kind === 'fire') cost += 60;
-          else if (z.kind === 'grease') cost += 12;
-          else if (z.kind === 'vines') cost += 10;
-        }
+    onGround(b) {
+      const ty = Math.floor((b.y + 1) / T);
+      if (Math.abs(b.y - ty * T) > 1.5) return false;
+      const l = Math.floor((b.x - b.w / 2 + 1) / T), r = Math.floor((b.x + b.w / 2 - 1) / T);
+      for (let tx = l; tx <= r; tx++) {
+        if (this.solidFor(b.team, tx, ty)) return true;
+        if (!b.drop && this.isOneWay(tx, ty)) return true;
       }
-      return cost;
-    }
-    dangerAt(x, y) {
-      for (const d of this.debris) if (Math.hypot(d.x - x, d.y - y) < d.r + 16) return true;
-      for (const z of this.zones) if (z.kind === 'fire' && Math.hypot(z.x - x, z.y - y) < z.r + 10) return true;
       return false;
     }
-    safeNear(x, y) {
-      const sx = Math.floor(x / T), sy = Math.floor(y / T);
-      for (let rad = 1; rad < 8; rad++) {
-        let best = null, bd = Infinity;
-        for (let dy = -rad; dy <= rad; dy++) for (let dx = -rad; dx <= rad; dx++) {
-          const tx = sx + dx, ty = sy + dy;
-          if (this.isSolidT(tx, ty) || this.hazardCost(tx, ty, 'survivor') > 3) continue;
-          const d = dx * dx + dy * dy;
-          if (d < bd) { bd = d; best = { x: tx * T + T / 2, y: ty * T + T / 2 }; }
-        }
-        if (best) return best;
-      }
-      return { x, y };
+    ladderAt(b) {
+      const tx = Math.floor(b.x / T);
+      const t1 = Math.floor((b.y - 2) / T), t2 = Math.floor((b.y - b.h / 2) / T);
+      if (this.isLadder(tx, t1) || this.isLadder(tx, t2)) return tx;
+      return -1;
+    }
+    // Is the ladder continuing below the feet (to climb down from a ladder top)?
+    ladderBelow(b) {
+      const tx = Math.floor(b.x / T);
+      return this.isLadder(tx, Math.floor((b.y + 2) / T)) ? tx : -1;
     }
 
-    findPath(sx, sy, gx, gy, opt = {}) {
-      const w = this.w, h = this.h;
-      const pass = (tx, ty) => {
-        if (tx < 0 || ty < 0 || tx >= w || ty >= h) return false;
-        if (!this.isSolidT(tx, ty)) return true;
-        const b = this.barricades.get(ty * w + tx);
-        return !!opt.breakable && !!b && !b.unbreakable && !SOLID.has(this.at(tx, ty));
+    // ------------------------------------------------------ navigation graph
+    // One graph per (team, box size). Nodes are tile cells where feet can rest.
+    graph(team, w, h) {
+      const key = team + w + 'x' + h;
+      if (!this.graphs[key]) this.graphs[key] = this.buildGraph(team, w, h);
+      return this.graphs[key];
+    }
+    clear(team, tx, ty, h) {
+      const rows = Math.ceil(h / T);
+      for (let i = 0; i < rows; i++) if (this.solidFor(team, tx, ty - i)) return false;
+      return true;
+    }
+    standable(team, tx, ty, h) {
+      if (!this.clear(team, tx, ty, h)) return false;
+      return this.solidFor(team, tx, ty + 1) || this.isOneWay(tx, ty + 1);
+    }
+    buildGraph(team, w, h) {
+      const W = this.w;
+      const nodes = new Map();
+      const add = (tx, ty, kind) => {
+        const k = ty * W + tx;
+        if (!nodes.has(k)) nodes.set(k, { k, tx, ty, x: tx * T + T / 2, y: (ty + 1) * T, kind, edges: [] });
+        return nodes.get(k);
       };
-      let stx = Math.floor(sx / T), sty = Math.floor(sy / T);
-      let gtx = Math.floor(gx / T), gty = Math.floor(gy / T);
-      if (!pass(stx, sty)) {
-        const n = this.nearestPass(stx, sty, pass);
-        if (!n) return null;
-        [stx, sty] = n;
+      for (let ty = 1; ty < this.h - 1; ty++) for (let tx = 1; tx < W - 1; tx++) {
+        if (this.standable(team, tx, ty, h)) add(tx, ty, 'ground');
+        else if (this.isLadder(tx, ty) && this.clear(team, tx, ty, h)) add(tx, ty, 'ladder');
       }
-      let exactGoal = true;
-      if (!pass(gtx, gty)) {
-        const n = this.nearestPass(gtx, gty, pass, sx, sy);
-        if (!n) return null;
-        [gtx, gty] = n;
-        exactGoal = false;
-      }
-      const start = sty * w + stx, goal = gty * w + gtx;
-      if (start === goal) return [{ x: exactGoal ? gx : gtx * T + T / 2, y: exactGoal ? gy : gty * T + T / 2, tx: gtx, ty: gty }];
-      const gs = new Float32Array(w * h).fill(Infinity);
-      const came = new Int32Array(w * h).fill(-1);
-      const closed = new Uint8Array(w * h);
-      const heap = new Heap();
-      gs[start] = 0;
-      heap.push(start, 0);
-      const hfn = (i) => {
-        const dx = Math.abs((i % w) - gtx), dy = Math.abs(((i / w) | 0) - gty);
-        return Math.max(dx, dy) + 0.414 * Math.min(dx, dy);
-      };
-      let iter = 0, found = false;
-      const dirs = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414]];
-      while (heap.size && iter++ < 6000) {
-        const cur = heap.pop();
-        if (cur === goal) { found = true; break; }
-        if (closed[cur]) continue;
-        closed[cur] = 1;
-        const cx = cur % w, cy = (cur / w) | 0;
-        for (const [dx, dy, c] of dirs) {
-          const nx = cx + dx, ny = cy + dy;
-          if (!pass(nx, ny)) continue;
-          if (dx && dy && (!pass(cx + dx, cy) || !pass(cx, cy + dy))) continue;
-          const ni = ny * w + nx;
-          if (closed[ni]) continue;
-          let cost = c + this.hazardCost(nx, ny, opt.team) * (opt.hazardScale ?? 1);
-          if (opt.breakable && this.hasBarricade(nx, ny)) cost += 6;
-          if (opt.costFn) cost += opt.costFn(nx, ny);
-          const ng = gs[cur] + cost;
-          if (ng < gs[ni]) {
-            gs[ni] = ng;
-            came[ni] = cur;
-            heap.push(ni, ng + hfn(ni));
+      const get = (tx, ty) => nodes.get(ty * W + tx);
+      const link = (a, b, type, cost, extra) => { if (a && b && a !== b) a.edges.push(Object.assign({ to: b.k, type, cost }, extra)); };
+      for (const n of nodes.values()) {
+        // Walking.
+        if (n.kind === 'ground') {
+          for (const d of [-1, 1]) {
+            const m = get(n.tx + d, n.ty);
+            if (m && m.kind === 'ground') link(n, m, 'walk', 1);
           }
         }
+        // Ladders: climb between vertically adjacent ladder-ish nodes.
+        if (this.isLadder(n.tx, n.ty) || this.isLadder(n.tx, n.ty - 1)) link(n, get(n.tx, n.ty - 1), 'climb', 1.3);
+        if (this.isLadder(n.tx, n.ty) || this.isLadder(n.tx, n.ty + 1)) link(n, get(n.tx, n.ty + 1), 'climb', 1.1);
       }
-      if (!found) return null;
-      const pts = [];
-      let c = goal;
-      while (c !== -1 && c !== start) {
-        pts.push({ x: (c % w) * T + T / 2, y: ((c / w) | 0) * T + T / 2, tx: c % w, ty: (c / w) | 0 });
-        c = came[c];
+      // Jumps, falls and drops, found by simulating the real physics.
+      const P = G.PHYS;
+      const sim = (sx, sy, vx, vy, drop) => {
+        const b = { x: sx, y: sy, w, h, vx, vy, team, drop: drop ? 0.25 : 0, climbing: false };
+        let t = 0, left = false;
+        for (let i = 0; i < 150; i++) {
+          const dt = 1 / 60;
+          t += dt;
+          b.vy = Math.min(P.maxFall, b.vy + P.gravity * dt);
+          if (b.drop) { b.drop = Math.max(0, b.drop - dt); }
+          const r = this.move(b, dt);
+          if (r.hitX) b.vx = 0;
+          if (b.y - sy < -2 || Math.abs(b.y - sy) > 2 || Math.abs(b.x - sx) > T) left = true;
+          if (r.landed && left && t > 0.05) {
+            const tx = Math.floor(b.x / T), ty = Math.floor((b.y - 1) / T);
+            return { node: get(tx, ty), t };
+          }
+        }
+        return null;
+      };
+      for (const n of nodes.values()) {
+        if (n.kind !== 'ground') continue;
+        for (const dir of [-1, 1]) {
+          for (const frac of [0.3, 0.6, 1.0]) {
+            const r = sim(n.x, n.y, dir * frac * P.refRun, -P.jump, false);
+            if (r && r.node && r.node !== n && r.node.kind === 'ground') link(n, r.node, 'jump', 2 + r.t * 3, { dir, frac });
+          }
+          const side = get(n.tx + dir, n.ty);
+          if (!side && !this.solidFor(team, n.tx + dir, n.ty) && this.clear(team, n.tx + dir, n.ty, h)) {
+            const r = sim(n.x + dir * T * 0.6, n.y, dir * 150, 0, false);
+            if (r && r.node && r.node !== n) link(n, r.node, 'fall', 1 + r.t * 2, { dir });
+          }
+        }
+        const up = sim(n.x, n.y, 0, -P.jump, false);
+        if (up && up.node && up.node !== n && up.node.kind === 'ground') link(n, up.node, 'jump', 2 + up.t * 3, { dir: 0, frac: 0 });
+        if (this.at(n.tx, n.ty + 1) === '=') {
+          const r = sim(n.x, n.y + 2, 0, 50, true);
+          if (r && r.node && r.node !== n) link(n, r.node, 'drop', 1 + r.t * 2);
+        }
       }
-      pts.reverse();
-      if (exactGoal && pts.length) { pts[pts.length - 1].x = gx; pts[pts.length - 1].y = gy; }
-      return pts;
+      return { nodes, team, w, h };
     }
-    nearestPass(tx, ty, pass, fromX, fromY) {
+
+    nodeAt(graph, x, y, maxR = 4) {
+      const tx = Math.floor(x / T), ty = Math.floor((y - 1) / T);
+      const n = graph.nodes.get(ty * this.w + tx);
+      if (n) return n;
       let best = null, bd = Infinity;
-      for (let rad = 1; rad < 6 && !best; rad++) {
-        for (let dy = -rad; dy <= rad; dy++) for (let dx = -rad; dx <= rad; dx++) {
-          if (Math.max(Math.abs(dx), Math.abs(dy)) !== rad) continue;
-          if (!pass(tx + dx, ty + dy)) continue;
-          let d = dx * dx + dy * dy;
-          if (fromX !== undefined) d += Math.hypot((tx + dx) * T + 20 - fromX, (ty + dy) * T + 20 - fromY) / 400;
-          if (d < bd) { bd = d; best = [tx + dx, ty + dy]; }
+      for (let r = 1; r <= maxR && !best; r++) {
+        for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+          const m = graph.nodes.get((ty + dy) * this.w + tx + dx);
+          if (!m) continue;
+          const d = Math.abs(dx) + Math.abs(dy) * 1.5 + (dy < 0 ? 1 : 0);
+          if (d < bd) { bd = d; best = m; }
         }
       }
       return best;
     }
 
-    update(dt, game) {
-      this.zones = game.zones;
-      for (const [k, b] of this.barricades) if ((b.t -= dt) <= 0) this.barricades.delete(k);
-      for (const b of this.bones.values()) if (b.cd > 0) b.cd -= dt;
-
-      // MIT: falling debris.
-      if (this.debrisT !== undefined && !game.finale) {
-        this.debrisT -= dt;
-        if (this.debrisT <= 0) {
-          this.debrisT = U.rand(3.5, 6.5);
-          // Prefer spots near people so it matters.
-          const near = U.choice(game.ents.filter((e) => !e.dead));
-          const pool = this.openTiles.filter((o) => near && U.dist(o, near) < 260);
-          const p = U.choice(pool.length ? pool : this.openTiles);
-          this.debris.push({ x: p.x + U.rand(-10, 10), y: p.y + U.rand(-10, 10), r: 55, t: 1.6, max: 1.6 });
+    // Dijkstra from a node: distance map (used for fleeing and hunting).
+    distances(graph, start, limit = 9999) {
+      const dist = new Map([[start.k, 0]]);
+      const open = [[0, start.k]];
+      while (open.length) {
+        let bi = 0;
+        for (let i = 1; i < open.length; i++) if (open[i][0] < open[bi][0]) bi = i;
+        const [d, k] = open.splice(bi, 1)[0];
+        if (d > (dist.get(k) ?? Infinity) || d > limit) continue;
+        for (const e of graph.nodes.get(k).edges) {
+          const nd = d + e.cost;
+          if (nd < (dist.get(e.to) ?? Infinity)) { dist.set(e.to, nd); open.push([nd, e.to]); }
         }
-        for (const d of this.debris) {
-          d.t -= dt;
-          if (d.t > 0) continue;
-          d.done = true;
-          game.burst(d.x, d.y, '#7a8494', 22);
-          game.fx.push({ type: 'ring', x: d.x, y: d.y, r0: 10, r1: d.r, t: 0, dur: 0.3, color: '#c9d6e8', fill: true });
-          if (game.nearPlayer(d.x, d.y, 600)) { G.Audio.play('slam', 0.6); game.shake(5); }
-          for (const e of game.ents) {
-            if (e.dead || e.decoy || U.dist(e, d) > d.r + e.r * 0.5) continue;
-            if (e.team === 'survivor') G.Ent.damage(game, e, 35, null, { cause: 'falling debris' });
-            else G.Ent.stun(game, e, 1.5, null, true);
+      }
+      return dist;
+    }
+
+    findPath(graph, from, to, costFn) {
+      if (!from || !to) return null;
+      if (from === to) return [];
+      const g = new Map([[from.k, 0]]);
+      const came = new Map();
+      const hf = (n) => (Math.abs(n.tx - to.tx) + Math.abs(n.ty - to.ty)) * 0.9;
+      const open = [[hf(from), from.k]];
+      const closed = new Set();
+      let iter = 0;
+      while (open.length && iter++ < 5000) {
+        let bi = 0;
+        for (let i = 1; i < open.length; i++) if (open[i][0] < open[bi][0]) bi = i;
+        const k = open.splice(bi, 1)[0][1];
+        if (k === to.k) break;
+        if (closed.has(k)) continue;
+        closed.add(k);
+        const n = graph.nodes.get(k);
+        for (const e of n.edges) {
+          const m = graph.nodes.get(e.to);
+          const ng = g.get(k) + e.cost + (costFn ? costFn(m) : 0);
+          if (ng < (g.get(e.to) ?? Infinity)) {
+            g.set(e.to, ng);
+            came.set(e.to, { from: k, edge: e });
+            open.push([ng + hf(m), e.to]);
           }
         }
-        this.debris = this.debris.filter((d) => !d.done);
       }
-
-      // Forums: a new post goes up and everyone's position is announced.
-      if (this.post && !game.finale) {
-        this.post.t -= dt;
-        if (this.post.t <= 0) {
-          this.post.t = U.rand(28, 40);
-          for (const s of game.survivors) if (!s.dead) G.Ent.add(s, 'revealed', 3);
-          game.announce('📢 NEW FORUM POST', '#ffbf00', 2, 'Every survivor\'s location was announced');
-          G.Audio.play('crown', 0.6);
-        }
+      if (!came.has(to.k)) return null;
+      const path = [];
+      let k = to.k;
+      while (k !== from.k) {
+        const c = came.get(k);
+        path.push(Object.assign({ node: graph.nodes.get(k) }, c.edge));
+        k = c.from;
       }
-
-      // Cave: THE END whispers and the dark closes in.
-      if (this.dim && !game.finale) {
-        this.dim.t -= dt;
-        if (this.dim.t <= 0) {
-          this.dim.on = !this.dim.on;
-          this.dim.t = this.dim.on ? 6 : U.rand(35, 48);
-          if (this.dim.on) { game.announce('THE END whispers…', '#b3122a', 2.2); G.Audio.play('creak'); }
-        }
-      }
+      return path.reverse();
     }
   }
 
