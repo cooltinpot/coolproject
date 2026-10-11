@@ -85,10 +85,11 @@ function showBox(b, c, life = 0.15) { hitboxes.push({ ...b, c, t: 0, life }); }
 const KIT = {
   speed: { walk: 160, sprint: 270 }, stamina: { max: 110, drain: 10, regen: 20 },
   stab: { dmg: 25, perStack: 5, cd: 2.0, windup: 0.18, box: { off: 38, w: 60, h: 60 } },
-  rush: { cd: 20, cdStart: 10, cdCancel: 1.2, windup: 0.6, dur: 2.5, speed: 560, turn: 0.9, reRush: 0.85, burst: 1.35,
+  rush: { cd: 20, cdStart: 10, cdCancel: 1.2, windup: 0.6, dur: 2.5, speed: 560, turn: 0.9, reRush: 0.85, burst: 1.35, reSpeed: 1.4,
           boost: { time: 1, speed: 1.35, turn: 4.5 },
           box: { off: 10, w: 52, h: 52 }, hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
   nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, box: 28, blast: 280, pull: 1.1 },
+  hallDur: 5,   // Hallucination wears off 5s after it was last applied
   obs: { cd: 30, cdStart: 25, cdLeave: 15, bands: [[20, 3], [50, 2], [100, 1]] },
 };
 const slamDmg = (chain) => KIT.rush.slamBase + KIT.rush.slamExtra + KIT.rush.perReRush * chain;
@@ -225,7 +226,8 @@ function startRush(chain, ignore = null) {
 }
 function rushHit(d) {
   const r = noli.rush;
-  if (d.hall >= 2) {
+  // Any Hallucination turns the hit into a slam.
+  if (d.hall >= 1) {
     damage(d, slamDmg(r.chain), `Void Rush SLAM (chain x${r.chain})`, '#d36bff');
     d.hall = 0; d.knockT = KIT.rush.knock;
     ring(d.x, d.y, 70, '#a26bff', 0.6);
@@ -391,7 +393,7 @@ function update(dt) {
     const B = r.boostT > 0 ? KIT.rush.boost : null;
     const turn = B ? B.turn : KIT.rush.turn;
     noli.ang += clamp(angDiff(Math.atan2(w.y - noli.y, w.x - noli.x), noli.ang), -turn * dt, turn * dt);
-    const spd = KIT.rush.speed * (B ? B.speed : 1) * (1 + (KIT.rush.burst - 1) * Math.max(0, 1 - r.t / 0.3));
+    const spd = KIT.rush.speed * (r.chain ? KIT.rush.reSpeed : 1) * (B ? B.speed : 1) * (1 + (KIT.rush.burst - 1) * Math.max(0, 1 - r.t / 0.3));
     const vx = Math.cos(noli.ang) * spd * dt, vy = Math.sin(noli.ang) * spd * dt;
     const ox = noli.x, oy = noli.y;
     moveCircle(noli, vx, vy);
@@ -435,7 +437,7 @@ function update(dt) {
   for (const d of dummies) {
     if (d.dead) { d.deadT += dt; if (d.deadT > 3) respawnDummy(d); continue; }
     d.knockT = Math.max(0, d.knockT - dt);
-    if (d.hall > 0) { d.hallT += dt; if (d.hallT > 20) { d.hall--; d.hallT = 0; } }
+    if (d.hall > 0) { d.hallT += dt; if (d.hallT > KIT.hallDur) { d.hall = 0; d.hallT = 0; txt(d.x, d.y - 36, 'hallucination wore off', '#9a90bf'); } }
     const dragging = mouse.drag && mouse.drag.o === d;
     const ai = dragging ? null : dummyThink(d, dt);
     if (ai) moveCircle(d, ai.mx * ai.sp * dt, ai.my * ai.sp * dt);
