@@ -199,6 +199,7 @@ function busy() { return noli.state !== 'free' || noli.stunT > 0; }
 function stab() {
   if (busy() || noli.stance || !ready('stab')) return;
   noli.state = 'stab'; noli.st = 0; noli.cds.stab = KIT.stab.cd;
+  sfx('stab');
 }
 function stabHit() {
   // Stab hits the closest survivor inside its square hitbox.
@@ -206,6 +207,7 @@ function stabHit() {
   const t = alive().filter((d) => boxHits(box, d)).sort((a, b) => dist(noli, a) - dist(noli, b))[0];
   showBox(box, t ? '#ff3b5c' : '#ff9fb4', 0.2);
   if (!t) return;
+  stopSfx('stab'); sfx('stabhit');   // a landed stab swaps the stab sound for the hit sound
   const stacks = t.hall;
   damage(t, KIT.stab.dmg + stacks * KIT.stab.perStack, `Stab (+${stacks} stack bonus)`);
   if (stacks) { t.hall = 0; txt(t.x, t.y - 48, 'STACKS CLEARED', '#9a90bf'); }
@@ -385,7 +387,11 @@ function creativeInput() {
 
 // ------------------------------------------------------------- update
 function update(dt) {
-  for (const k in noli.cds) noli.cds[k] = Math.max(0, noli.cds[k] - dt);
+  for (const k in noli.cds) {
+    const was = noli.cds[k];
+    noli.cds[k] = Math.max(0, was - dt);
+    if (was > 0 && noli.cds[k] === 0 && (k === 'stab' || k === 'nova')) sfx('star');   // Stab / Nova back off cooldown
+  }
   noli.stunT = Math.max(0, noli.stunT - dt);
   const w = world();
   if (noli.state !== 'rush') noli.ang = Math.atan2(w.y - noli.y, w.x - noli.x);
@@ -637,7 +643,7 @@ for (const b of document.querySelectorAll('.panel')) b.addEventListener('mousedo
 defaultMap();
 log('Noli spawned. Void Rush ready in 10s, Observant in 25s (round-start cooldowns).');
 let last = performance.now();
-function loop(now) { const dt = Math.min(0.05, (now - last) / 1000); last = now; update(dt); render(); requestAnimationFrame(loop); }
+function loop(now) { const dt = clamp((now - last) / 1000, 0, 0.05); last = now; update(dt); render(); requestAnimationFrame(loop); }
 window.__t = { noli, get dummies() { return dummies; }, cam, setTool };
 requestAnimationFrame(loop);
 })();
