@@ -253,6 +253,7 @@ function startRush(chain, ignore = null) {
   noli.rush = { t: 0, chain, boostT: 0, boosted: false, ignore, last: null };
   // Every rush (first and re-rush) plays NewVoidRush; the rush ends when it finishes.
   stopSfx('voidrush'); sfx('voidrush');
+  sfx(chain ? 'dash2' : 'dash1');   // first rush vs. every re-rush
   if (chain) {
     ring(noli.x, noli.y, 60, '#d36bff', 0.5); ring(noli.x, noli.y, 30, '#ffffff', 0.25);
     txt(noli.x, noli.y - 30, 'RE-RUSH x' + chain, '#c49bff');
