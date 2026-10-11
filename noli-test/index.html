@@ -250,13 +250,17 @@ function releaseRush() {
 }
 // ------------------------------------------------------------- Nova recast: star pulled back to his hand
 let novaReturn = null;
-const NOVA_RETURN = { delay: 0.18, travel: 0.5 };   // reappears, then gets drawn back
+const NOVA_RETURN = { delay: 0.2, travel: 0.4 };   // reappears, then gets drawn back
 function novaReturnFx(dt) {
   const R = novaReturn; if (!R) return;
   R.t += dt;
-  const hand = localToWorld(6, noli.r + 14);
+  // From his opposite (left) side across to his main (right) hand, following him as he moves.
+  const from = localToWorld(4, -(noli.r + 16)), hand = localToWorld(6, noli.r + 14);
   const k = clamp((R.t - NOVA_RETURN.delay) / NOVA_RETURN.travel, 0, 1), e = k * k * (3 - 2 * k);
-  R.x = R.sx + (hand.x - R.sx) * e; R.y = R.sy + (hand.y - R.sy) * e;
+  // Arc around the front of him rather than straight through his body.
+  const mid = localToWorld(noli.r + 22, 0);
+  const a1 = { x: from.x + (mid.x - from.x) * e, y: from.y + (mid.y - from.y) * e }, a2 = { x: mid.x + (hand.x - mid.x) * e, y: mid.y + (hand.y - mid.y) * e };
+  R.x = a1.x + (a2.x - a1.x) * e; R.y = a1.y + (a2.y - a1.y) * e;
   if (k > 0 && k < 1 && Math.random() < dt * 40) parts.push({ kind: 'star', x: R.x + rand(-6, 6), y: R.y + rand(-6, 6), c: Math.random() < 0.6 ? '#ffffff' : '#c9a8ff', size: rand(2, 5), t: 0, life: rand(0.3, 0.5) });
   if (k >= 1) { stabBurst(hand, 8, 10); novaReturn = null; }   // caught
 }
@@ -431,7 +435,7 @@ function throwNova() {
 function detonate(n, why) {
   n.boom = true; n.bt = 0;
   // Recast: the star reappears and an unseen hand pulls it back to Noli's hand.
-  if (why === 'recast') { novaReturn = { x: n.x, y: n.y, t: 0, sx: n.x, sy: n.y }; ring(n.x, n.y, 24, '#ffffff', 0.3); }
+  if (why === 'recast') { novaReturn = { t: 0, x: 0, y: 0 }; const l = localToWorld(4, -(noli.r + 16)); stabBurst(l, 8, 10); }   // reappears at his opposite side
   // Explosion is louder the nearer Noli is.
   sfx('nova_boom', clamp(1 - dist(noli, n) / KIT.nova.boomRange, 0, 1));
   ring(n.x, n.y, KIT.nova.blast / 2, '#c9a8ff', 0.9); ring(n.x, n.y, KIT.nova.blast / 3, '#ffffff', 0.6);
