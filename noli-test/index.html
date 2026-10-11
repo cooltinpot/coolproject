@@ -5,35 +5,54 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Noli Test Map</title>
 <style>
-  :root { --bg:#07060c; --panel:#14111f; --line:#2c2540; --ink:#e9e4ff; --dim:#9a90bf; --void:#a26bff; --hot:#ff4d6d; }
+  :root { --bg:#07060c; --panel:#14111f; --line:#2c2540; --ink:#e9e4ff; --dim:#9a90bf; --void:#a26bff; }
   * { box-sizing:border-box; }
   html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:14px/1.35 system-ui,Segoe UI,Roboto,sans-serif; overflow:hidden; }
   canvas { display:block; width:100vw; height:100vh; cursor:crosshair; }
-  #side { position:fixed; top:12px; right:12px; width:260px; max-width:calc(100vw - 24px); background:rgba(20,17,31,.92); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
-  #side h2 { margin:0 0 6px; font-size:15px; color:var(--void); letter-spacing:.5px; }
-  #side .row { display:flex; flex-wrap:wrap; gap:5px; margin:6px 0; }
-  #side button { background:#211b33; color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:4px 8px; cursor:pointer; font-size:12px; }
-  #side button.on { background:var(--void); color:#120a22; border-color:var(--void); font-weight:700; }
-  #side small { color:var(--dim); display:block; margin-top:6px; }
-  #log { margin-top:6px; max-height:150px; overflow:auto; font:12px ui-monospace,monospace; color:var(--dim); }
+  .panel { position:fixed; background:rgba(20,17,31,.94); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  #side { top:12px; right:12px; width:270px; max-width:calc(100vw - 24px); }
+  #tools { top:12px; left:12px; width:200px; }
+  .panel h2 { margin:0 0 6px; font-size:14px; color:var(--void); letter-spacing:.5px; }
+  .panel h3 { margin:8px 0 4px; font-size:12px; color:var(--dim); font-weight:600; text-transform:uppercase; letter-spacing:.6px; }
+  .row { display:flex; flex-wrap:wrap; gap:5px; }
+  .panel button { background:#211b33; color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:4px 8px; cursor:pointer; font-size:12px; }
+  .panel button.on { background:var(--void); color:#120a22; border-color:var(--void); font-weight:700; }
+  .tool { width:100%; text-align:left; display:flex; justify-content:space-between; }
+  .tool kbd { opacity:.6; font-size:11px; }
+  .panel small { color:var(--dim); display:block; margin-top:6px; }
+  #log { margin-top:6px; max-height:160px; overflow:auto; font:12px ui-monospace,monospace; color:var(--dim); }
   #log div:first-child { color:var(--ink); }
-  #hide { position:fixed; top:12px; right:12px; display:none; }
-  @media (max-width:700px){ #side{ top:auto; bottom:12px; width:auto; left:12px; } #log{max-height:70px} }
+  #toggleUi { position:fixed; bottom:12px; left:12px; }
+  @media (max-width:760px){ #side{ top:auto; bottom:12px; left:12px; width:auto; } #log{max-height:60px} #tools{ width:170px; } }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="side">
-  <h2>NOLI — TEST MAP</h2>
-  <div>Dummy behaviour</div>
+<div id="tools" class="panel">
+  <h2>CREATIVE</h2>
+  <div id="toolList"></div>
+  <h3>New dummies</h3>
   <div class="row" id="modes"></div>
+  <div class="row" style="margin-top:5px" id="hps"></div>
+  <h3>Map</h3>
   <div class="row">
-    <button id="respawn">Respawn dummy</button>
+    <button id="applyAll">Apply to all</button>
+    <button id="respawn">Respawn all</button>
+    <button id="clearD">Clear dummies</button>
+    <button id="clearAll">Empty map</button>
+    <button id="resetMap">Default map</button>
+  </div>
+  <small>Mouse wheel = zoom</small>
+</div>
+<div id="side" class="panel">
+  <h2>NOLI</h2>
+  <div class="row">
     <button id="reset">Reset cooldowns</button>
     <button id="nocd">No cooldowns: off</button>
   </div>
   <small>WASD move · Shift sprint · Mouse aim<br>
-  <b>LMB</b> Stab · <b>Q</b> Void Rush (hit a wall → press Q in the countdown to re-rush; Shift during a re-rush = 3s boost) · <b>E</b> Nova (E again = detonate) · <b>R</b> Observant (click a generator to teleport, R to leave)</small>
+  <b>LMB</b> Stab (Play tool) · <b>Q</b> Void Rush · <b>E</b> Nova (E again = detonate) · <b>R</b> Observant<br>
+  <b>Void Rush:</b> hit a survivor → quick countdown → <b>Q</b> to re-rush off them. Chains stack slam damage. Shift during a re-rush = 3s boost.</small>
   <div id="log"></div>
 </div>
 <script>
@@ -49,19 +68,7 @@ const MAP = { w: 2000, h: 1400 };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const rand = (a, b) => a + Math.random() * (b - a);
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-
-// Empty map: border walls plus a few pillars so Void Rush curving and Nova wall-pulls can be tested.
-const walls = [
-  { x: 0, y: 0, w: MAP.w, h: 30 }, { x: 0, y: MAP.h - 30, w: MAP.w, h: 30 },
-  { x: 0, y: 0, w: 30, h: MAP.h }, { x: MAP.w - 30, y: 0, w: 30, h: MAP.h },
-  { x: 620, y: 380, w: 70, h: 70 }, { x: 1310, y: 380, w: 70, h: 70 },
-  { x: 620, y: 950, w: 70, h: 70 }, { x: 1310, y: 950, w: 70, h: 70 },
-  { x: 940, y: 640, w: 120, h: 120 },
-];
-const gens = [
-  { x: 260, y: 240, fake: false, prog: 0 }, { x: 1740, y: 240, fake: false, prog: 0 },
-  { x: 260, y: 1160, fake: false, prog: 0 }, { x: 1740, y: 1160, fake: true, prog: 0 }, // Prankster fake
-];
+const angDiff = (a, b) => ((a - b + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
 
 // ------------------------------------------------------------- kit numbers
 const KIT = {
@@ -73,34 +80,63 @@ const KIT = {
   nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, radius: 140, pull: 1.1 },
   obs: { cd: 30, cdStart: 25, cdLeave: 15, bands: [[20, 3], [50, 2], [100, 1]] },
 };
+const slamDmg = (chain) => KIT.rush.slamBase + KIT.rush.slamExtra + KIT.rush.perReRush * chain;
+
+// ------------------------------------------------------------- map
+const BORDER = [
+  { x: 0, y: 0, w: MAP.w, h: 30, fixed: true }, { x: 0, y: MAP.h - 30, w: MAP.w, h: 30, fixed: true },
+  { x: 0, y: 0, w: 30, h: MAP.h, fixed: true }, { x: MAP.w - 30, y: 0, w: 30, h: MAP.h, fixed: true },
+];
+let walls = [], gens = [], dummies = [];
+function defaultMap() {
+  walls = [...BORDER, { x: 620, y: 380, w: 70, h: 70 }, { x: 1310, y: 380, w: 70, h: 70 }, { x: 620, y: 950, w: 70, h: 70 }, { x: 1310, y: 950, w: 70, h: 70 }];
+  gens = [{ x: 260, y: 240, fake: false, prog: 0 }, { x: 1740, y: 240, fake: false, prog: 0 }, { x: 260, y: 1160, fake: false, prog: 0 }, { x: 1740, y: 1160, fake: true, prog: 0 }];
+  dummies = [];
+  addDummy(1000, 500, 'stand'); addDummy(800, 650, 'stand'); addDummy(1200, 650, 'stand');
+}
 
 // ------------------------------------------------------------- entities
 const noli = { x: 1000, y: 1150, r: 18, ang: -Math.PI / 2, stamina: KIT.stamina.max, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart },
   state: 'free', st: 0, rush: null, stance: false, stunT: 0 };
-const dummy = { x: 1000, y: 500, r: 16, hp: 100, maxHp: 100, hall: 0, hallT: 0, vx: 0, vy: 0, knockT: 0, stunT: 0, dead: false, deadT: 0,
-  goal: null, genT: 0, repair: null };
-let mode = 'wander', noCd = false;
+let newMode = 'stand', newHp = 100, noCd = false, tool = 'play', dummyN = 0;
 const novas = [], fx = [], texts = [];
+function addDummy(x, y, mode = newMode, hp = newHp) {
+  const d = { id: ++dummyN, name: 'Dummy ' + dummyN, home: { x, y }, x, y, r: 16, maxHp: hp, hp, inf: hp === Infinity, hall: 0, hallT: 0, vx: 0, vy: 0, knockT: 0,
+    dead: false, deadT: 0, mode, goal: null, genT: 0, repair: null };
+  if (d.inf) { d.maxHp = 100; d.hp = 100; }
+  dummies.push(d); return d;
+}
+const alive = () => dummies.filter((d) => !d.dead);
+
 const logEl = document.getElementById('log');
-function log(s) { const d = document.createElement('div'); d.textContent = s; logEl.prepend(d); while (logEl.children.length > 30) logEl.lastChild.remove(); }
+function log(s) { const d = document.createElement('div'); d.textContent = s; logEl.prepend(d); while (logEl.children.length > 40) logEl.lastChild.remove(); }
 function txt(x, y, s, c) { texts.push({ x, y, s, c, t: 0 }); }
 function ring(x, y, r, c, life = 0.4) { fx.push({ x, y, r, c, t: 0, life }); }
 
 // ------------------------------------------------------------- input
-const keys = {}; const mouse = { x: 0, y: 0, down: false, click: false };
-addEventListener('keydown', (e) => { const k = e.key.toLowerCase(); if (!keys[k]) press(k); keys[k] = true; if (['q', 'e', 'r', ' '].includes(k)) e.preventDefault(); });
+const keys = {}; const mouse = { x: 0, y: 0, down: false, click: false, drag: null };
+addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if (!keys[k]) press(k);
+  keys[k] = true;
+  if (['q', 'e', 'r', ' ', 'tab'].includes(k)) e.preventDefault();
+});
 addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 cv.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
 cv.addEventListener('mousedown', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; mouse.down = true; mouse.click = true; });
-addEventListener('mouseup', () => { mouse.down = false; });
-cv.addEventListener('touchstart', (e) => { const t = e.touches[0]; mouse.x = t.clientX; mouse.y = t.clientY; mouse.click = true; e.preventDefault(); }, { passive: false });
-const cam = { x: 0, y: 0, s: 1 };
+addEventListener('mouseup', () => { mouse.down = false; mouse.up = true; });
+cv.addEventListener('wheel', (e) => { cam.zoom = clamp(cam.zoom * (e.deltaY > 0 ? 0.9 : 1.1), 0.35, 1.6); e.preventDefault(); }, { passive: false });
+cv.addEventListener('touchstart', (e) => { const t = e.touches[0]; mouse.x = t.clientX; mouse.y = t.clientY; mouse.click = true; mouse.down = true; e.preventDefault(); }, { passive: false });
+cv.addEventListener('touchend', () => { mouse.down = false; mouse.up = true; });
+const cam = { x: 0, y: 0, s: 1, zoom: 1 };
 const world = () => ({ x: mouse.x / cam.s + cam.x, y: mouse.y / cam.s + cam.y });
 
 function press(k) {
   if (k === 'q') castRush();
   if (k === 'e') castNova();
   if (k === 'r') toggleObservant();
+  const t = TOOLS.find((t) => t.key === k);
+  if (t) setTool(t.id);
 }
 
 // ------------------------------------------------------------- collisions
@@ -117,24 +153,22 @@ function moveCircle(e, dx, dy) {
   if (!hitWall(e.x, e.y + dy, e.r)) e.y += dy; else by = true;
   return { bx, by };
 }
-function wallNear(x, y, r) { return !!hitWall(x, y, r); }
 
-// ------------------------------------------------------------- hallucination
-function addHall(n, why) {
-  if (dummy.dead) return;
-  const before = dummy.hall;
-  dummy.hall = clamp(Math.max(dummy.hall, 0) + n, 0, 3);
-  dummy.hallT = 0;
-  if (dummy.hall !== before) { txt(dummy.x, dummy.y - 36, 'HALLUCINATION ' + 'I'.repeat(dummy.hall), '#c49bff'); log(`${why}: Hallucination ${before} → ${dummy.hall}`); }
+// ------------------------------------------------------------- hallucination / damage
+function addHall(d, n, why) {
+  if (d.dead) return;
+  const before = d.hall;
+  d.hall = clamp(d.hall + n, 0, 3); d.hallT = 0;
+  if (d.hall !== before) { txt(d.x, d.y - 36, 'HALLUCINATION ' + 'I'.repeat(d.hall), '#c49bff'); log(`${d.name} — ${why}: Hallucination ${before} → ${d.hall}`); }
 }
-function setHall(n, why) { if (dummy.hall < n) addHall(n - dummy.hall, why); }
-
-function damage(amt, why, color = '#ff4d6d') {
-  if (dummy.dead) return;
-  dummy.hp -= amt;
-  txt(dummy.x, dummy.y - 24, '-' + amt.toFixed(amt % 1 ? 1 : 0), color);
-  log(`${why}: ${amt.toFixed(1)} dmg (${Math.max(0, dummy.hp).toFixed(1)} HP left)`);
-  if (dummy.hp <= 0) { dummy.dead = true; dummy.deadT = 0; dummy.hall = 0; log('Dummy died — respawning in 3s'); }
+function setHall(d, n, why) { if (d.hall < n) addHall(d, n - d.hall, why); }
+function damage(d, amt, why, color = '#ff4d6d') {
+  if (d.dead) return;
+  d.hp -= amt;
+  txt(d.x, d.y - 24, '-' + amt.toFixed(amt % 1 ? 1 : 0), color);
+  log(`${d.name} — ${why}: ${amt.toFixed(1)} dmg` + (d.inf ? '' : ` (${Math.max(0, d.hp).toFixed(1)} HP left)`));
+  if (d.inf) { if (d.hp <= 0) d.hp = d.maxHp; return; }
+  if (d.hp <= 0) { d.dead = true; d.deadT = 0; d.hall = 0; log(`${d.name} died — respawning in 3s`); }
 }
 
 // ------------------------------------------------------------- abilities
@@ -147,125 +181,160 @@ function stab() {
 }
 function stabHit() {
   ring(noli.x + Math.cos(noli.ang) * 40, noli.y + Math.sin(noli.ang) * 40, KIT.stab.range * 0.7, '#ff6b8a', 0.2);
-  if (dummy.dead) return;
-  const d = dist(noli, dummy), a = Math.atan2(dummy.y - noli.y, dummy.x - noli.x);
-  let da = Math.abs(((a - noli.ang + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
-  if (d < KIT.stab.range + dummy.r && da < KIT.stab.arc) {
-    const stacks = dummy.hall;
-    damage(KIT.stab.dmg + stacks * KIT.stab.perStack, `Stab (+${stacks} stack bonus)`);
-    if (stacks) { dummy.hall = 0; txt(dummy.x, dummy.y - 48, 'STACKS CLEARED', '#9a90bf'); }
-    dummy.vx += Math.cos(noli.ang) * 120; dummy.vy += Math.sin(noli.ang) * 120;
-  }
+  // Stab hits the closest survivor in the arc.
+  const t = alive().filter((d) => dist(noli, d) < KIT.stab.range + d.r && Math.abs(angDiff(Math.atan2(d.y - noli.y, d.x - noli.x), noli.ang)) < KIT.stab.arc)
+    .sort((a, b) => dist(noli, a) - dist(noli, b))[0];
+  if (!t) return;
+  const stacks = t.hall;
+  damage(t, KIT.stab.dmg + stacks * KIT.stab.perStack, `Stab (+${stacks} stack bonus)`);
+  if (stacks) { t.hall = 0; txt(t.x, t.y - 48, 'STACKS CLEARED', '#9a90bf'); }
+  t.vx += Math.cos(noli.ang) * 120; t.vy += Math.sin(noli.ang) * 120;
 }
 
 function castRush() {
   if (noli.state === 'reWindow') {
-    // Re-rush: only while not sprinting.
-    if (keys.shift) { txt(noli.x, noli.y - 30, 'let go of Shift', '#ff9fb4'); return; }
-    startRush(noli.rush.chain + 1);
+    // Re-rush off the survivor you just hit.
+    startRush(noli.rush.chain + 1, noli.rush.last);
     return;
   }
   if (noli.state === 'rushWind') { noli.state = 'free'; noli.cds.rush = KIT.rush.cdCancel; log('Void Rush cancelled (1.2s cooldown)'); return; }
   if (busy() || noli.stance || !ready('rush')) return;
   noli.state = 'rushWind'; noli.st = 0;
 }
-function startRush(chain) {
+function startRush(chain, ignore = null) {
   noli.state = 'rush';
   noli.ang = Math.atan2(world().y - noli.y, world().x - noli.x);
-  noli.rush = { t: 0, chain, boostT: 0, boosted: false };
+  noli.rush = { t: 0, chain, boostT: 0, boosted: false, ignore, last: null };
   if (chain) {
     ring(noli.x, noli.y, 60, '#d36bff', 0.5); ring(noli.x, noli.y, 30, '#ffffff', 0.25);
     txt(noli.x, noli.y - 30, 'RE-RUSH x' + chain, '#c49bff');
     log(`Re-rush x${chain} (slam now ${slamDmg(chain).toFixed(1)} dmg)`);
   } else log('Void Rush!');
 }
-const slamDmg = (chain) => KIT.rush.slamBase + KIT.rush.slamExtra + KIT.rush.perReRush * chain;
-function rushWall() {
-  // Hitting a wall opens a short re-rush countdown.
-  noli.state = 'reWindow'; noli.rush.wt = KIT.rush.reRush;
-  ring(noli.x, noli.y, 36, '#ffffff', 0.3);
-  noli.shake = 0.15;
-}
-function rushHit() {
+function rushHit(d) {
   const r = noli.rush;
-  if (dummy.hall >= 2) {
-    const dmg = slamDmg(r.chain);
-    damage(dmg, `Void Rush SLAM (re-rushes: ${r.chain})`, '#d36bff');
-    dummy.hall = 0;
-    dummy.knockT = KIT.rush.knock;
-    ring(dummy.x, dummy.y, 70, '#a26bff', 0.6);
-    txt(dummy.x, dummy.y - 48, 'KNOCKED DOWN', '#ffffff');
+  if (d.hall >= 2) {
+    damage(d, slamDmg(r.chain), `Void Rush SLAM (chain x${r.chain})`, '#d36bff');
+    d.hall = 0; d.knockT = KIT.rush.knock;
+    ring(d.x, d.y, 70, '#a26bff', 0.6);
+    txt(d.x, d.y - 48, 'KNOCKED DOWN', '#ffffff');
   } else {
-    damage(KIT.rush.hitDmg, 'Void Rush hit');
-    setHall(2, 'Void Rush');
-    dummy.vx += Math.cos(noli.ang) * 260; dummy.vy += Math.sin(noli.ang) * 260;
+    damage(d, KIT.rush.hitDmg, `Void Rush hit (chain x${r.chain})`);
+    setHall(d, 2, 'Void Rush');
+    d.vx += Math.cos(noli.ang) * 200; d.vy += Math.sin(noli.ang) * 200;
   }
-  endRush();
+  // Hitting a survivor opens the re-rush countdown.
+  noli.x -= Math.cos(noli.ang) * 10; noli.y -= Math.sin(noli.ang) * 10;
+  noli.state = 'reWindow'; r.wt = KIT.rush.reRush; r.last = d;
+  ring(noli.x, noli.y, 36, '#ffffff', 0.3);
 }
-function endRush() { noli.state = 'free'; noli.rush = null; noli.cds.rush = KIT.rush.cd; }
+function endRush(why) { noli.state = 'free'; noli.rush = null; noli.cds.rush = KIT.rush.cd; if (why) log(why); }
 
 function castNova() {
   const live = novas.find((n) => !n.boom);
   if (live && live.t >= KIT.nova.recast) { detonate(live, 'recast'); return; }
   if (busy() || noli.stance || !ready('nova') || live) return;
   const w = world(), a = Math.atan2(w.y - noli.y, w.x - noli.x);
-  novas.push({ x: noli.x + Math.cos(a) * 26, y: noli.y + Math.sin(a) * 26, vx: Math.cos(a) * KIT.nova.speed, vy: Math.sin(a) * KIT.nova.speed, t: 0, boom: false, bt: 0, hit: false });
+  novas.push({ x: noli.x + Math.cos(a) * 26, y: noli.y + Math.sin(a) * 26, r: 10, vx: Math.cos(a) * KIT.nova.speed, vy: Math.sin(a) * KIT.nova.speed, t: 0, boom: false, bt: 0, carry: null });
   noli.cds.nova = KIT.nova.cd;
 }
 function detonate(n, why) {
   n.boom = true; n.bt = 0;
   ring(n.x, n.y, KIT.nova.radius, '#7a3cff', 0.5);
-  if (!dummy.dead && dist(n, dummy) < KIT.nova.radius) damage(KIT.nova.dmg, `Nova (${why})`, '#b98cff');
+  for (const d of alive()) if (dist(n, d) < KIT.nova.radius) damage(d, KIT.nova.dmg, `Nova (${why})`, '#b98cff');
 }
 
 function toggleObservant() {
   if (noli.stance) { noli.stance = false; noli.cds.obs = KIT.obs.cdLeave; log('Left Observant (15s cooldown)'); return; }
   if (busy() || !ready('obs')) return;
+  if (!gens.length) { log('Observant needs a generator — place one'); return; }
   noli.stance = true; log('Observant: click a generator to teleport');
 }
 function observantTeleport(g) {
   noli.x = g.x; noli.y = g.y + 46; noli.stance = false; noli.cds.obs = KIT.obs.cd;
   ring(g.x, g.y, 90, '#a26bff', 0.7);
-  if (dummy.dead) return;
-  const studs = dist(noli, dummy) / STUD;
-  for (const [range, lvl] of KIT.obs.bands) if (studs <= range) { setHall(lvl, `Observant (${studs.toFixed(0)} studs)`); return; }
-  log(`Observant: dummy ${studs.toFixed(0)} studs away — out of range`);
+  for (const d of alive()) {
+    const studs = dist(noli, d) / STUD;
+    const band = KIT.obs.bands.find(([range]) => studs <= range);
+    if (band) setHall(d, band[1], `Observant (${studs.toFixed(0)} studs)`);
+  }
 }
 
 // ------------------------------------------------------------- dummy AI
-function dummyThink(dt) {
-  if (dummy.dead) { dummy.deadT += dt; if (dummy.deadT > 3) respawn(); return; }
-  if (dummy.knockT > 0 || dummy.stunT > 0) return { mx: 0, my: 0, sp: 0 };
-  let tx = dummy.x, ty = dummy.y, sp = 0;
-  if (mode === 'wander') {
-    if (!dummy.goal || dist(dummy, dummy.goal) < 20) dummy.goal = { x: rand(120, MAP.w - 120), y: rand(120, MAP.h - 120) };
-    tx = dummy.goal.x; ty = dummy.goal.y; sp = 120;
-  } else if (mode === 'flee') {
-    const a = Math.atan2(dummy.y - noli.y, dummy.x - noli.x);
-    tx = dummy.x + Math.cos(a) * 100; ty = dummy.y + Math.sin(a) * 100; sp = dist(dummy, noli) < 500 ? 210 : 120;
-    if (hitWall(tx, ty, dummy.r + 30)) { const b = a + Math.PI / 2; tx = dummy.x + Math.cos(b) * 100; ty = dummy.y + Math.sin(b) * 100; }
-  } else if (mode === 'repair') {
-    if (!dummy.repair || dummy.repair.prog >= 1) dummy.repair = gens.filter((g) => g.prog < 1).sort((a, b) => dist(a, dummy) - dist(b, dummy))[0] || null;
-    if (dummy.repair) {
-      const g = dummy.repair;
-      if (dist(dummy, g) > 44) { tx = g.x; ty = g.y + 40; sp = 140; }
+function dummyThink(d, dt) {
+  if (d.knockT > 0) return null;
+  let tx = d.x, ty = d.y, sp = 0;
+  if (d.mode === 'wander') {
+    if (!d.goal || dist(d, d.goal) < 20) d.goal = { x: rand(120, MAP.w - 120), y: rand(120, MAP.h - 120) };
+    tx = d.goal.x; ty = d.goal.y; sp = 120;
+  } else if (d.mode === 'flee') {
+    const a = Math.atan2(d.y - noli.y, d.x - noli.x);
+    tx = d.x + Math.cos(a) * 100; ty = d.y + Math.sin(a) * 100; sp = dist(d, noli) < 500 ? 210 : 120;
+    if (hitWall(tx, ty, d.r + 30)) { const b = a + Math.PI / 2; tx = d.x + Math.cos(b) * 100; ty = d.y + Math.sin(b) * 100; }
+  } else if (d.mode === 'repair') {
+    if (!d.repair || d.repair.prog >= 1 || !gens.includes(d.repair)) d.repair = gens.filter((g) => g.prog < 1).sort((a, b) => dist(a, d) - dist(b, d))[0] || null;
+    if (d.repair) {
+      const g = d.repair;
+      if (dist(d, g) > 44) { tx = g.x; ty = g.y + 40; sp = 140; }
       else {
-        g.prog += dt / 8;
-        dummy.genT += dt;
-        if (g.fake && dummy.genT > 2.2) { dummy.genT = 0; addHall(1, 'Prankster puzzle'); }
+        g.prog += dt / 8; d.genT += dt;
+        if (g.fake && d.genT > 2.2) { d.genT = 0; addHall(d, 1, 'Prankster puzzle'); }
         if (g.prog >= 1) {
-          if (g.fake) { setHall(3, 'Prankster fake generator completed'); txt(g.x, g.y - 40, 'IT WAS FAKE', '#ff4d6d'); }
+          if (g.fake) { setHall(d, 3, 'Prankster fake generator completed'); txt(g.x, g.y - 40, 'IT WAS FAKE', '#ff4d6d'); }
           else txt(g.x, g.y - 40, 'GENERATOR DONE', '#7dffa8');
           setTimeout(() => (g.prog = 0), 4000);
-          dummy.repair = null;
+          d.repair = null;
         }
       }
     }
   }
-  const a = Math.atan2(ty - dummy.y, tx - dummy.x), d = Math.hypot(tx - dummy.x, ty - dummy.y);
-  return d > 4 && sp ? { mx: Math.cos(a), my: Math.sin(a), sp } : { mx: 0, my: 0, sp: 0 };
+  const a = Math.atan2(ty - d.y, tx - d.x), dd = Math.hypot(tx - d.x, ty - d.y);
+  return dd > 4 && sp ? { mx: Math.cos(a), my: Math.sin(a), sp } : null;
 }
-function respawn() { Object.assign(dummy, { x: 1000, y: 500, hp: 100, hall: 0, dead: false, deadT: 0, knockT: 0, vx: 0, vy: 0, repair: null }); log('Dummy respawned'); }
+function respawnDummy(d) { Object.assign(d, { x: d.home.x, y: d.home.y, hp: d.maxHp, hall: 0, dead: false, deadT: 0, knockT: 0, vx: 0, vy: 0, repair: null, goal: null }); }
+
+// ------------------------------------------------------------- creative tools
+const TOOLS = [
+  { id: 'play', key: '1', name: 'Play (Stab)' },
+  { id: 'dummy', key: '2', name: 'Place dummy' },
+  { id: 'wall', key: '3', name: 'Draw wall' },
+  { id: 'gen', key: '4', name: 'Generator' },
+  { id: 'fake', key: '5', name: 'Fake generator' },
+  { id: 'move', key: '6', name: 'Move' },
+  { id: 'erase', key: '7', name: 'Erase' },
+];
+function pick(p) {
+  const d = dummies.slice().reverse().find((d) => dist(d, p) < d.r + 8); if (d) return { kind: 'dummy', o: d };
+  const g = gens.find((g) => Math.abs(g.x - p.x) < 28 && Math.abs(g.y - p.y) < 22); if (g) return { kind: 'gen', o: g };
+  const w = walls.slice().reverse().find((w) => !w.fixed && p.x >= w.x && p.x <= w.x + w.w && p.y >= w.y && p.y <= w.y + w.h); if (w) return { kind: 'wall', o: w };
+  return null;
+}
+function creativeInput() {
+  const p = world();
+  if (mouse.click) {
+    if (tool === 'dummy') { if (!hitWall(p.x, p.y, 16)) { const d = addDummy(p.x, p.y); ring(p.x, p.y, 30, '#7dffa8'); log(`Placed ${d.name} (${d.mode}, ${d.inf ? '∞' : d.maxHp} HP)`); } }
+    else if (tool === 'gen' || tool === 'fake') { gens.push({ x: p.x, y: p.y, fake: tool === 'fake', prog: 0 }); ring(p.x, p.y, 30, '#a26bff'); }
+    else if (tool === 'wall') mouse.drag = { kind: 'newWall', x0: p.x, y0: p.y };
+    else if (tool === 'move') { const h = pick(p); if (h) mouse.drag = { ...h, ox: p.x - (h.o.x), oy: p.y - (h.o.y) }; }
+    else if (tool === 'erase') {
+      const h = pick(p);
+      if (h) { const arr = h.kind === 'dummy' ? dummies : h.kind === 'gen' ? gens : walls; arr.splice(arr.indexOf(h.o), 1); ring(p.x, p.y, 26, '#ff4d6d', 0.3); }
+    }
+  }
+  const dr = mouse.drag;
+  if (dr && dr.kind !== 'newWall' && mouse.down) {
+    dr.o.x = p.x - dr.ox; dr.o.y = p.y - dr.oy;
+    if (dr.kind === 'dummy') { dr.o.home = { x: dr.o.x, y: dr.o.y }; dr.o.vx = dr.o.vy = 0; }
+  }
+  if (mouse.up) {
+    if (dr && dr.kind === 'newWall') {
+      const x = Math.min(dr.x0, p.x), y = Math.min(dr.y0, p.y), w = Math.abs(p.x - dr.x0), h = Math.abs(p.y - dr.y0);
+      if (w > 8 && h > 8) walls.push({ x, y, w, h });
+      else walls.push({ x: dr.x0 - 35, y: dr.y0 - 35, w: 70, h: 70 });   // click = a pillar
+    }
+    mouse.drag = null;
+  }
+}
 
 // ------------------------------------------------------------- update
 function update(dt) {
@@ -274,12 +343,12 @@ function update(dt) {
   const w = world();
   if (noli.state !== 'rush') noli.ang = Math.atan2(w.y - noli.y, w.x - noli.x);
 
-  if (mouse.click) {
-    mouse.click = false;
-    if (noli.stance) { const g = gens.find((g) => Math.hypot(g.x - w.x, g.y - w.y) < 70); if (g) observantTeleport(g); }
-    else stab();
-  }
-  if (mouse.down && !noli.stance) stab();
+  if (noli.stance) {
+    if (mouse.click) { const g = gens.find((g) => Math.hypot(g.x - w.x, g.y - w.y) < 70); if (g) observantTeleport(g); }
+  } else if (tool === 'play') {
+    if (mouse.down) stab();
+  } else creativeInput();
+  mouse.click = false; mouse.up = false;
 
   // movement
   let mx = (keys.d ? 1 : 0) - (keys.a ? 1 : 0), my = (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
@@ -295,7 +364,7 @@ function update(dt) {
   if (noli.state === 'rushWind') { noli.st += dt; if (noli.st >= KIT.rush.windup) startRush(0); }
   if (noli.state === 'reWindow') {
     const r = noli.rush; r.wt -= dt;
-    if (r.wt <= 0) { endRush(); log(r.chain ? `Re-rush window missed (chain was x${r.chain})` : 'Void Rush ended on a wall'); }
+    if (r.wt <= 0) endRush(`Re-rush window closed (chain x${r.chain})`);
   }
   if (noli.state === 'rush') {
     const r = noli.rush; r.t += dt;
@@ -303,21 +372,19 @@ function update(dt) {
     if (r.chain > 0 && keys.shift && !r.boosted) { r.boosted = true; r.boostT = KIT.rush.boost.time; txt(noli.x, noli.y - 30, 'BOOST', '#ffffff'); log(`Re-rush boost (${KIT.rush.boost.time}s)`); }
     if (r.boostT > 0) r.boostT -= dt;
     const B = r.boostT > 0 ? KIT.rush.boost : null;
-    const want = Math.atan2(w.y - noli.y, w.x - noli.x);
-    let d = ((want - noli.ang + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
     const turn = B ? B.turn : KIT.rush.turn;
-    noli.ang += clamp(d, -turn * dt, turn * dt);
+    noli.ang += clamp(angDiff(Math.atan2(w.y - noli.y, w.x - noli.x), noli.ang), -turn * dt, turn * dt);
     const spd = KIT.rush.speed * (B ? B.speed : 1) * (1 + (KIT.rush.burst - 1) * Math.max(0, 1 - r.t / 0.3));
     const vx = Math.cos(noli.ang) * spd * dt, vy = Math.sin(noli.ang) * spd * dt;
     const ox = noli.x, oy = noli.y;
     moveCircle(noli, vx, vy);
-    // Only a near head-on impact counts as hitting the wall; glancing contact slides along it.
-    const moved = Math.hypot(noli.x - ox, noli.y - oy), want2 = Math.hypot(vx, vy);
-    const blocked = r.t > 0.1 && moved < want2 * 0.45;
+    const blocked = r.t > 0.1 && Math.hypot(noli.x - ox, noli.y - oy) < Math.hypot(vx, vy) * 0.45;
     if (Math.random() < 0.6) fx.push({ x: noli.x, y: noli.y, r: B ? 18 : 14, c: B ? '#d36bff' : '#5b2bbf', t: 0, life: 0.35, trail: true });
-    if (!dummy.dead && dist(noli, dummy) < noli.r + dummy.r + 4) rushHit();
-    else if (blocked) rushWall();
-    else if (r.t > Math.max(KIT.rush.dur, B ? r.t + 0.01 : 0)) { endRush(); log('Void Rush ran out'); }
+    if (r.ignore && r.t > 0.3) r.ignore = null;
+    const hit = alive().find((d) => d !== r.ignore && dist(noli, d) < noli.r + d.r + 4);
+    if (hit) rushHit(hit);
+    else if (blocked) endRush(r.chain ? `Void Rush hit a wall (chain x${r.chain} lost)` : 'Void Rush hit a wall');
+    else if (r.t > KIT.rush.dur && !B) endRush('Void Rush ran out');
   } else if (moving) {
     moveCircle(noli, mx * sp * dt, my * sp * dt);
   }
@@ -326,30 +393,32 @@ function update(dt) {
   for (const n of novas) {
     if (!n.boom) {
       n.t += dt;
-      const r = moveCircle(n, n.vx * dt, n.vy * dt);
-      // Pulls survivors it touches.
-      if (!dummy.dead && dist(n, dummy) < dummy.r + 16) { n.vx *= 0.5; n.vy *= 0.5; n.carry = true; }
-      if (n.carry && !dummy.dead) { dummy.x += (n.x - dummy.x) * Math.min(1, dt * 10); dummy.y += (n.y - dummy.y) * Math.min(1, dt * 10); }
-      if (r.bx || r.by) detonate(n, n.carry ? 'slammed into wall' : 'wall');
+      const res = moveCircle(n, n.vx * dt, n.vy * dt);
+      // Grabs the first survivor it touches and drags them along.
+      if (!n.carry) { const d = alive().find((d) => dist(n, d) < d.r + 16); if (d) { n.carry = d; n.vx *= 0.5; n.vy *= 0.5; } }
+      if (n.carry && !n.carry.dead) { const d = n.carry; d.x += (n.x - d.x) * Math.min(1, dt * 10); d.y += (n.y - d.y) * Math.min(1, dt * 10); }
+      if (res.bx || res.by) detonate(n, n.carry ? 'slammed into wall' : 'wall');
       else if (n.t > KIT.nova.life) detonate(n, 'expired');
     } else {
       n.bt += dt;
-      if (!dummy.dead && n.bt < KIT.nova.pull) {
-        const d = dist(n, dummy);
-        if (d < KIT.nova.radius && d > 6) { const a = Math.atan2(n.y - dummy.y, n.x - dummy.x); moveCircle(dummy, Math.cos(a) * 240 * dt, Math.sin(a) * 240 * dt); }
+      if (n.bt < KIT.nova.pull) for (const d of alive()) {
+        const dd = dist(n, d);
+        if (dd < KIT.nova.radius && dd > 6) { const a = Math.atan2(n.y - d.y, n.x - d.x); moveCircle(d, Math.cos(a) * 240 * dt, Math.sin(a) * 240 * dt); }
       }
     }
   }
   for (let i = novas.length - 1; i >= 0; i--) if (novas[i].boom && novas[i].bt > KIT.nova.pull) novas.splice(i, 1);
 
-  // dummy
-  const ai = dummyThink(dt);
-  dummy.knockT = Math.max(0, dummy.knockT - dt);
-  if (!dummy.dead) {
-    if (dummy.hall > 0) { dummy.hallT += dt; if (dummy.hallT > 20) { dummy.hall--; dummy.hallT = 0; } }
-    if (ai) moveCircle(dummy, ai.mx * ai.sp * dt, ai.my * ai.sp * dt);
-    moveCircle(dummy, dummy.vx * dt, dummy.vy * dt);
-    dummy.vx *= Math.pow(0.02, dt); dummy.vy *= Math.pow(0.02, dt);
+  // dummies
+  for (const d of dummies) {
+    if (d.dead) { d.deadT += dt; if (d.deadT > 3) respawnDummy(d); continue; }
+    d.knockT = Math.max(0, d.knockT - dt);
+    if (d.hall > 0) { d.hallT += dt; if (d.hallT > 20) { d.hall--; d.hallT = 0; } }
+    const dragging = mouse.drag && mouse.drag.o === d;
+    const ai = dragging ? null : dummyThink(d, dt);
+    if (ai) moveCircle(d, ai.mx * ai.sp * dt, ai.my * ai.sp * dt);
+    moveCircle(d, d.vx * dt, d.vy * dt);
+    d.vx *= Math.pow(0.02, dt); d.vy *= Math.pow(0.02, dt);
   }
 
   for (const f of fx) f.t += dt;
@@ -357,15 +426,16 @@ function update(dt) {
   for (const t of texts) { t.t += dt; t.y -= 30 * dt; }
   for (let i = texts.length - 1; i >= 0; i--) if (texts[i].t > 1.4) texts.splice(i, 1);
 
-  // Observant zooms out so every generator can be picked.
+  // Camera: Observant zooms out so every generator can be picked; wheel zoom otherwise.
   const fit = Math.min(W / (MAP.w + 80), H / (MAP.h + 160));
-  cam.s += ((noli.stance ? fit : 1) - cam.s) * Math.min(1, dt * 8);
+  cam.s += ((noli.stance ? fit : cam.zoom) - cam.s) * Math.min(1, dt * 8);
   const vw = W / cam.s, vh = H / cam.s;
   cam.x = vw >= MAP.w ? (MAP.w - vw) / 2 : clamp(noli.x - vw / 2, -60, MAP.w - vw + 60);
   cam.y = vh >= MAP.h ? (MAP.h - vh) / 2 : clamp(noli.y - vh / 2, -60, MAP.h - vh + 60);
 }
 
 // ------------------------------------------------------------- render
+function label(x, y, s, c, font = '700 12px system-ui') { ctx.font = font; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.strokeText(s, x, y); ctx.fillStyle = c; ctx.fillText(s, x, y); }
 function drawNoli() {
   const { x, y } = noli;
   ctx.save(); ctx.translate(x, y);
@@ -374,29 +444,28 @@ function drawNoli() {
   ctx.rotate(noli.ang);
   ctx.fillStyle = '#120d1f'; ctx.strokeStyle = '#a26bff'; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.arc(0, 0, noli.r, 0, 6.3); ctx.fill(); ctx.stroke();
-  // void-star face
   ctx.fillStyle = '#e9e4ff';
   ctx.beginPath(); for (let i = 0; i < 10; i++) { const rr = i % 2 ? 4 : 9, a = i * Math.PI / 5; ctx.lineTo(8 + Math.cos(a) * rr, Math.sin(a) * rr); } ctx.fill();
   if (noli.state === 'stab') { ctx.fillStyle = '#ff6b8a'; ctx.fillRect(16, -3, 26 * Math.min(1, noli.st / KIT.stab.windup), 6); }
   ctx.restore();
   label(x, y - 34, 'NOLI', '#c49bff');
 }
-function drawDummy() {
-  if (dummy.dead) { label(1000, 500, 'respawning…', '#9a90bf'); return; }
-  const { x, y } = dummy;
+function drawDummy(d) {
+  if (d.dead) { ctx.globalAlpha = 0.35; ctx.strokeStyle = '#9a90bf'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(d.home.x, d.home.y, 16, 0, 6.3); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; label(d.home.x, d.home.y - 22, 'respawning…', '#9a90bf'); return; }
+  const { x, y } = d;
   ctx.save(); ctx.translate(x, y);
-  if (dummy.knockT > 0) ctx.rotate(Math.PI / 2);
+  if (d.knockT > 0) ctx.rotate(Math.PI / 2);
   // default Roblox-style NPC: yellow head, blue torso, green legs (top-down)
   ctx.fillStyle = '#1f7a3a'; ctx.fillRect(-11, 4, 22, 12);
   ctx.fillStyle = '#2a63c9'; ctx.fillRect(-14, -8, 28, 16);
   ctx.fillStyle = '#f5cd30'; ctx.beginPath(); ctx.arc(0, -2, 9, 0, 6.3); ctx.fill();
   ctx.restore();
-  if (dummy.hall) { ctx.strokeStyle = `rgba(196,155,255,${0.3 + dummy.hall * 0.2})`; ctx.lineWidth = 2; for (let i = 0; i < dummy.hall; i++) { ctx.beginPath(); ctx.arc(x, y, 22 + i * 6 + Math.sin(performance.now() / 200 + i) * 2, 0, 6.3); ctx.stroke(); } }
+  if (noli.rush && noli.rush.last === d && noli.state === 'reWindow') { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 26, 0, 6.3); ctx.stroke(); }
+  if (d.hall) { ctx.strokeStyle = `rgba(196,155,255,${0.3 + d.hall * 0.2})`; ctx.lineWidth = 2; for (let i = 0; i < d.hall; i++) { ctx.beginPath(); ctx.arc(x, y, 22 + i * 6 + Math.sin(performance.now() / 200 + i) * 2, 0, 6.3); ctx.stroke(); } }
   const bw = 46; ctx.fillStyle = '#2a0f18'; ctx.fillRect(x - bw / 2, y - 36, bw, 6);
-  ctx.fillStyle = '#7dffa8'; ctx.fillRect(x - bw / 2, y - 36, bw * Math.max(0, dummy.hp) / dummy.maxHp, 6);
-  label(x, y - 42, 'Dummy' + (dummy.hall ? '  H' + 'I'.repeat(dummy.hall) : ''), '#e9e4ff');
+  ctx.fillStyle = d.inf ? '#ffd23f' : '#7dffa8'; ctx.fillRect(x - bw / 2, y - 36, bw * Math.max(0, d.hp) / d.maxHp, 6);
+  label(x, y - 42, d.name + (d.hall ? '  H' + 'I'.repeat(d.hall) : ''), '#e9e4ff');
 }
-function label(x, y, s, c) { ctx.font = '700 12px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.strokeText(s, x, y); ctx.fillStyle = c; ctx.fillText(s, x, y); }
 
 function render() {
   ctx.fillStyle = '#07060c'; ctx.fillRect(0, 0, W, H);
@@ -405,34 +474,45 @@ function render() {
   ctx.strokeStyle = '#1b1628'; ctx.lineWidth = 1;
   for (let x = 0; x <= MAP.w; x += 100) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, MAP.h); ctx.stroke(); }
   for (let y = 0; y <= MAP.h; y += 100) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(MAP.w, y); ctx.stroke(); }
-  ctx.fillStyle = '#2a2340'; for (const w of walls) ctx.fillRect(w.x, w.y, w.w, w.h);
-  // generators
+  const p = world();
+  const hover = tool === 'move' || tool === 'erase' ? pick(p) : null;
+  for (const w of walls) { ctx.fillStyle = hover && hover.o === w ? (tool === 'erase' ? '#6b2a3c' : '#4a3d70') : '#2a2340'; ctx.fillRect(w.x, w.y, w.w, w.h); }
   for (const g of gens) {
-    const hot = noli.stance && Math.hypot(g.x - world().x, g.y - world().y) < 50;
-    ctx.fillStyle = hot ? '#a26bff' : '#3a3150'; ctx.fillRect(g.x - 24, g.y - 18, 48, 36);
+    const hot = (noli.stance && Math.hypot(g.x - p.x, g.y - p.y) < 70) || (hover && hover.o === g);
+    ctx.fillStyle = hot ? (tool === 'erase' && !noli.stance ? '#6b2a3c' : '#a26bff') : '#3a3150'; ctx.fillRect(g.x - 24, g.y - 18, 48, 36);
     ctx.fillStyle = '#7dffa8'; ctx.fillRect(g.x - 22, g.y + 12, 44 * g.prog, 4);
     label(g.x, g.y - 24, g.fake ? 'Generator (fake)' : 'Generator', g.fake ? '#ff9fb4' : '#9a90bf');
     if (noli.stance) { ctx.strokeStyle = '#a26bff'; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.arc(g.x, g.y, 50, 0, 6.3); ctx.stroke(); ctx.setLineDash([]); }
   }
-  // observant range bands around dummy preview
-  if (noli.stance && !dummy.dead) for (const [r, l] of KIT.obs.bands) { ctx.strokeStyle = `rgba(196,155,255,${0.15 * l})`; ctx.beginPath(); ctx.arc(dummy.x, dummy.y, r * STUD, 0, 6.3); ctx.stroke(); }
+  if (noli.stance) for (const d of alive()) for (const [r, l] of KIT.obs.bands) { ctx.strokeStyle = `rgba(196,155,255,${0.15 * l})`; ctx.beginPath(); ctx.arc(d.x, d.y, r * STUD, 0, 6.3); ctx.stroke(); }
   for (const f of fx) { const k = f.t / f.life; ctx.globalAlpha = 1 - k; if (f.trail) { ctx.fillStyle = f.c; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1 - k * 0.5), 0, 6.3); ctx.fill(); } else { ctx.strokeStyle = f.c; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (0.4 + k * 0.6), 0, 6.3); ctx.stroke(); } ctx.globalAlpha = 1; }
   for (const n of novas) {
     if (!n.boom) { ctx.fillStyle = '#000'; ctx.strokeStyle = '#c49bff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(n.x, n.y, 12, 0, 6.3); ctx.fill(); ctx.stroke(); }
     else { const k = n.bt / KIT.nova.pull; ctx.fillStyle = `rgba(40,10,80,${0.5 * (1 - k)})`; ctx.beginPath(); ctx.arc(n.x, n.y, KIT.nova.radius * (1 - k * 0.6), 0, 6.3); ctx.fill(); }
   }
-  drawDummy(); drawNoli();
+  for (const d of dummies) drawDummy(d);
+  if (hover && hover.kind === 'dummy') { ctx.strokeStyle = tool === 'erase' ? '#ff4d6d' : '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hover.o.x, hover.o.y, 24, 0, 6.3); ctx.stroke(); }
+  drawNoli();
+  // placement ghost
+  if (!noli.stance && tool !== 'play') {
+    ctx.globalAlpha = 0.45;
+    if (tool === 'dummy') { ctx.fillStyle = '#2a63c9'; ctx.fillRect(p.x - 14, p.y - 8, 28, 16); ctx.fillStyle = '#f5cd30'; ctx.beginPath(); ctx.arc(p.x, p.y - 2, 9, 0, 6.3); ctx.fill(); }
+    if (tool === 'gen' || tool === 'fake') { ctx.fillStyle = tool === 'fake' ? '#ff9fb4' : '#a26bff'; ctx.fillRect(p.x - 24, p.y - 18, 48, 36); }
+    if (tool === 'wall') { const dr = mouse.drag; ctx.fillStyle = '#4a3d70'; if (dr && dr.kind === 'newWall') ctx.fillRect(Math.min(dr.x0, p.x), Math.min(dr.y0, p.y), Math.abs(p.x - dr.x0), Math.abs(p.y - dr.y0)); else ctx.fillRect(p.x - 35, p.y - 35, 70, 70); }
+    ctx.globalAlpha = 1;
+  }
   for (const t of texts) { ctx.globalAlpha = 1 - t.t / 1.4; label(t.x, t.y, t.s, t.c); ctx.globalAlpha = 1; }
   ctx.restore();
   if (noli.stance) { ctx.fillStyle = 'rgba(60,20,120,0.18)'; ctx.fillRect(0, 0, W, H); label(W / 2, 40, 'OBSERVANT — click a generator · R to leave', '#c49bff'); }
   hud();
 }
 function hud() {
-  const slots = [['LMB', 'Stab', 'stab', KIT.stab.cd], ['Q', noli.state === 'rush' ? 'Re-Rush' : 'Void Rush', 'rush', KIT.rush.cd], ['E', novas.some((n) => !n.boom) ? 'Detonate' : 'Nova', 'nova', KIT.nova.cd], ['R', noli.stance ? 'Leave' : 'Observant', 'obs', KIT.obs.cd]];
+  const inWindow = noli.state === 'reWindow';
+  const slots = [['LMB', 'Stab', 'stab', KIT.stab.cd], ['Q', inWindow ? 'RE-RUSH' : 'Void Rush', 'rush', KIT.rush.cd], ['E', novas.some((n) => !n.boom) ? 'Detonate' : 'Nova', 'nova', KIT.nova.cd], ['R', noli.stance ? 'Leave' : 'Observant', 'obs', KIT.obs.cd]];
   const S = 70, gap = 8, total = slots.length * S + (slots.length - 1) * gap, x0 = W / 2 - total / 2, y0 = H - S - 18;
   slots.forEach(([key, name, id, max], i) => {
-    const x = x0 + i * (S + gap), cd = noCd ? 0 : noli.cds[id];
-    ctx.fillStyle = '#14111f'; ctx.fillRect(x, y0, S, S); ctx.strokeStyle = '#2c2540'; ctx.strokeRect(x, y0, S, S);
+    const x = x0 + i * (S + gap), cd = noCd || (id === 'rush' && inWindow) ? 0 : noli.cds[id];
+    ctx.fillStyle = id === 'rush' && inWindow ? '#5b2bbf' : '#14111f'; ctx.fillRect(x, y0, S, S); ctx.strokeStyle = '#2c2540'; ctx.strokeRect(x, y0, S, S);
     if (cd > 0) { ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(x, y0 + S * (1 - Math.min(1, cd / max)), S, S * Math.min(1, cd / max)); }
     ctx.textAlign = 'left'; ctx.font = '700 11px system-ui'; ctx.fillStyle = '#a26bff'; ctx.fillText(key, x + 5, y0 + 13);
     ctx.textAlign = 'center'; ctx.font = '700 11px system-ui'; ctx.fillStyle = cd > 0 ? '#777' : '#e9e4ff'; ctx.fillText(name, x + S / 2, y0 + S / 2 + 2);
@@ -442,39 +522,56 @@ function hud() {
   ctx.fillStyle = '#14111f'; ctx.fillRect(bx, by, bw, 12);
   ctx.fillStyle = '#5aa9ff'; ctx.fillRect(bx, by, bw * noli.stamina / KIT.stamina.max, 12);
   label(W / 2, by - 4, 'STAMINA ' + Math.round(noli.stamina), '#e9e4ff');
-  if (noli.state === 'reWindow') {
-    // Fast countdown: press Q (no Shift) before it hits zero.
+  if (inWindow) {
+    // Fast countdown around Noli: press Q before it runs out.
     const r = noli.rush, k = r.wt / KIT.rush.reRush;
     const sx = (noli.x - cam.x) * cam.s, sy = (noli.y - cam.y) * cam.s;
     ctx.strokeStyle = '#2c2540'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(sx, sy, 34, 0, 6.3); ctx.stroke();
     ctx.strokeStyle = '#ffffff'; ctx.beginPath(); ctx.arc(sx, sy, 34, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k); ctx.stroke();
-    ctx.font = '900 18px system-ui'; label(sx, sy - 44, r.wt.toFixed(2), '#ffffff');
+    label(sx, sy - 44, r.wt.toFixed(2), '#ffffff', '900 18px system-ui');
     ctx.globalAlpha = 0.6 + 0.4 * Math.sin(performance.now() / 50);
     label(W / 2, by - 26, `[Q] RE-RUSH! · next slam ${slamDmg(r.chain + 1).toFixed(1)} dmg`, '#ffffff');
     ctx.globalAlpha = 1;
   }
   if (noli.state === 'rush') {
     const r = noli.rush;
-    label(W / 2, by - 26, r.boostT > 0 ? `BOOST ${r.boostT.toFixed(1)}s · chain x${r.chain}` : r.chain ? `RE-RUSH x${r.chain} · Shift = 3s boost` : 'VOID RUSH · hit a wall to open the re-rush window', r.boostT > 0 ? '#ffffff' : '#c49bff');
+    label(W / 2, by - 26, r.boostT > 0 ? `BOOST ${r.boostT.toFixed(1)}s · chain x${r.chain}` : r.chain ? `RE-RUSH x${r.chain} · Shift = 3s boost` : 'VOID RUSH · hit a survivor to open the re-rush window', r.boostT > 0 ? '#ffffff' : '#c49bff');
   }
+  label(W / 2, 22, `Tool: ${TOOLS.find((t) => t.id === tool).name}  ·  ${dummies.length} dumm${dummies.length === 1 ? 'y' : 'ies'}`, '#9a90bf');
 }
 
 // ------------------------------------------------------------- UI
-const modesEl = document.getElementById('modes');
-for (const m of ['stand', 'wander', 'flee', 'repair']) {
-  const b = document.createElement('button'); b.textContent = m[0].toUpperCase() + m.slice(1); b.dataset.m = m;
-  b.onclick = () => { mode = m; dummy.goal = null; dummy.repair = null; for (const x of modesEl.children) x.classList.toggle('on', x.dataset.m === m); };
-  if (m === mode) b.classList.add('on'); modesEl.appendChild(b);
+const toolList = document.getElementById('toolList');
+function setTool(id) { tool = id; mouse.drag = null; for (const b of toolList.children) b.classList.toggle('on', b.dataset.t === id); }
+for (const t of TOOLS) {
+  const b = document.createElement('button'); b.className = 'tool'; b.dataset.t = t.id;
+  b.innerHTML = `<span>${t.name}</span><kbd>${t.key}</kbd>`; b.onclick = () => setTool(t.id);
+  toolList.appendChild(b); toolList.appendChild(document.createElement('div')).style.height = '4px';
 }
-document.getElementById('respawn').onclick = respawn;
+setTool('play');
+function segment(el, items, get, set) {
+  for (const [v, name] of items) {
+    const b = document.createElement('button'); b.textContent = name;
+    b.onclick = () => { set(v); for (const x of el.children) x.classList.toggle('on', x === b); };
+    if (v === get()) b.classList.add('on'); el.appendChild(b);
+  }
+}
+segment(document.getElementById('modes'), [['stand', 'Stand'], ['wander', 'Wander'], ['flee', 'Flee'], ['repair', 'Repair']], () => newMode, (v) => (newMode = v));
+segment(document.getElementById('hps'), [[100, '100 HP'], [250, '250 HP'], [Infinity, '∞ HP']], () => newHp, (v) => (newHp = v));
+document.getElementById('applyAll').onclick = () => { for (const d of dummies) { d.mode = newMode; d.goal = null; d.repair = null; d.inf = newHp === Infinity; d.maxHp = d.inf ? 100 : newHp; d.hp = d.maxHp; } log(`All dummies → ${newMode}, ${newHp === Infinity ? '∞' : newHp} HP`); };
+document.getElementById('respawn').onclick = () => { for (const d of dummies) respawnDummy(d); log('Dummies respawned'); };
+document.getElementById('clearD').onclick = () => { dummies = []; log('Dummies cleared'); };
+document.getElementById('clearAll').onclick = () => { walls = [...BORDER]; gens = []; dummies = []; log('Map emptied'); };
+document.getElementById('resetMap').onclick = () => { defaultMap(); log('Default map loaded'); };
 document.getElementById('reset').onclick = () => { for (const k in noli.cds) noli.cds[k] = 0; log('Cooldowns reset'); };
 document.getElementById('nocd').onclick = (e) => { noCd = !noCd; e.target.textContent = 'No cooldowns: ' + (noCd ? 'on' : 'off'); e.target.classList.toggle('on', noCd); };
-for (const b of document.querySelectorAll('#side button')) b.addEventListener('mousedown', (e) => e.stopPropagation());
-log('Noli spawned. Void Rush ready in 10s, Observant in 25s (round-start cooldowns).');
+for (const b of document.querySelectorAll('.panel')) b.addEventListener('mousedown', (e) => e.stopPropagation());
 
+defaultMap();
+log('Noli spawned. Void Rush ready in 10s, Observant in 25s (round-start cooldowns).');
 let last = performance.now();
 function loop(now) { const dt = Math.min(0.05, (now - last) / 1000); last = now; update(dt); render(); requestAnimationFrame(loop); }
-window.__t = { noli, dummy, novas, cam };
+window.__t = { noli, get dummies() { return dummies; }, cam, setTool };
 requestAnimationFrame(loop);
 })();
 </script>
