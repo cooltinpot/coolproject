@@ -1105,10 +1105,9 @@ function drawChargeUI() {
   ctx.font = '17px Georgia, "Times New Roman", serif'; ctx.textAlign = 'center';
   if (chargeUI.cap) {
     // The "didn't charge it long enough" message is red with a dark red outline.
-    // Tinted captions: dark green for the air slam, dark red for a cancelled charge.
-    const tc = chargeUI.tint === 'green' ? ['#7fc48c', '#0d2a14'] : chargeUI.tint === 'red' ? ['#c45454', '#2a0606'] : ['#e8e8e8', '#000000'];
-    ctx.lineWidth = 3; ctx.strokeStyle = tc[1]; ctx.strokeText(chargeUI.cap, cx, cy + R + 32);
-    ctx.fillStyle = tc[0]; ctx.fillText(chargeUI.cap, cx, cy + R + 32);
+    // Tinted captions have no outline; the text itself takes the ring's dark green / dark red tint.
+    if (chargeUI.tint) { ctx.fillStyle = TINTS[chargeUI.tint][0]; ctx.fillText(chargeUI.cap, cx, cy + R + 32); }
+    else { ctx.lineWidth = 3; ctx.strokeStyle = '#000000'; ctx.strokeText(chargeUI.cap, cx, cy + R + 32); ctx.fillStyle = '#e8e8e8'; ctx.fillText(chargeUI.cap, cx, cy + R + 32); }
   }
   ctx.restore();
 }
