@@ -52,7 +52,7 @@
     <button id="hbx" class="on">Hitboxes: on</button>
   </div>
   <small>WASD move · Shift sprint · Mouse aim<br>
-  <b>LMB</b> Stab (Play tool) · <b>Q</b> Void Rush (hold to charge, let go to rush) · <b>E</b> Nova (E again = detonate) · <b>R</b> Observant<br>
+  <b>LMB</b> Stab (Play tool) · <b>Q</b> Void Rush (hold to charge — rushes when charged, letting go early cancels) · <b>E</b> Nova (E again = detonate) · <b>R</b> Observant<br>
   <b>Void Rush:</b> hit a survivor → quick countdown → <b>Q</b> to re-rush off them. Chains stack slam damage. Shift during the first 1s of a re-rush = boost (ends at 1s).</small>
   <div id="log"></div>
 </div>
@@ -85,7 +85,8 @@ function showBox(b, c, life = 0.15) { hitboxes.push({ ...b, c, t: 0, life }); }
 const KIT = {
   speed: { walk: 160, sprint: 270 }, stamina: { max: 110, drain: 10, regen: 20 },
   stab: { dmg: 25, perStack: 5, cd: 2.0, windup: 0.18, box: { off: 38, w: 60, h: 60 } },
-  rush: { cd: 20, cdStart: 10, cdCancel: 1.2, windup: 0.6, dur: 2.5, speed: 560, turn: 1.8, reRush: 0.85, burst: 1.35, reSpeed: 1.4,
+  rush: { cd: 20, cdStart: 10, cdCancel: 1.2, windup: 1.2, dur: 3.59,   // windup = charge SFX length, dur = NewVoidRush length
+          speed: 560, turn: 1.8, reRush: 0.85, burst: 1.35, reSpeed: 1.4,
           boost: { time: 1, speed: 1.35, turn: 4.5 },
           box: { off: 10, w: 52, h: 52 }, hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
   nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, box: 28, blast: 280, pull: 1.1 },
@@ -224,16 +225,16 @@ function castRush() {
 function releaseRush() {
   if (noli.state !== 'rushWind') return;
   stopSfx('charge');
-  if (noli.st >= KIT.rush.windup) { sfx('voidrush'); startRush(0); }
-  else { noli.state = 'free'; noli.cds.rush = KIT.rush.cdCancel; log('Void Rush let go too early (1.2s cooldown)'); }
+  // Letting go before the charge finishes cancels it.
+  noli.state = 'free'; noli.cds.rush = KIT.rush.cdCancel; log('Void Rush let go too early (1.2s cooldown)');
 }
 function startRush(chain, ignore = null) {
   noli.state = 'rush';
   noli.ang = Math.atan2(world().y - noli.y, world().x - noli.x);
   noli.rush = { t: 0, chain, boostT: 0, boosted: false, ignore, last: null };
+  // Every rush (first and re-rush) plays NewVoidRush; the rush ends when it finishes.
+  stopSfx('voidrush'); sfx('voidrush');
   if (chain) {
-    stopSfx('voidrush');
-    sfx(chain >= 4 ? 'rush4' : 'rush3');   // x1/x2 borrow Three_rush until their sounds arrive
     ring(noli.x, noli.y, 60, '#d36bff', 0.5); ring(noli.x, noli.y, 30, '#ffffff', 0.25);
     txt(noli.x, noli.y - 30, 'RE-RUSH x' + chain, '#c49bff');
     log(`Re-rush x${chain} (slam now ${slamDmg(chain).toFixed(1)} dmg)`);
@@ -403,7 +404,7 @@ function update(dt) {
   if (noli.state === 'stab') sp *= 0.4;
 
   if (noli.state === 'stab') { noli.st += dt; if (noli.st >= KIT.stab.windup && !noli.stabbed) { noli.stabbed = true; stabHit(); } if (noli.st > KIT.stab.windup + 0.25) { noli.state = 'free'; noli.stabbed = false; } }
-  if (noli.state === 'rushWind') noli.st += dt;
+  if (noli.state === 'rushWind') { noli.st += dt; if (noli.st >= KIT.rush.windup) { stopSfx('charge'); startRush(0); } }
   if (noli.state === 'tp') { noli.st += dt; if (noli.st >= KIT.obs.travel) observantTeleport(noli.tp); }
   if (noli.state === 'reWindow') {
     const r = noli.rush; r.wt -= dt;
@@ -431,7 +432,7 @@ function update(dt) {
     const hit = alive().find((d) => d !== r.ignore && boxHits(rbox, d));
     if (hit) rushHit(hit);
     else if (blocked) endRush(r.chain ? `Void Rush hit a wall (chain x${r.chain} lost)` : 'Void Rush hit a wall');
-    else if (r.t > KIT.rush.dur && !B) endRush('Void Rush ran out');
+    else if (r.t >= KIT.rush.dur) endRush('Void Rush ran out');
   } else if (moving) {
     moveCircle(noli, mx * sp * dt, my * sp * dt);
   }
@@ -591,7 +592,7 @@ function hud() {
     label(W / 2, by - 26, `[Q] RE-RUSH! · next slam ${slamDmg(r.chain + 1).toFixed(1)} dmg`, '#ffffff');
     ctx.globalAlpha = 1;
   }
-  if (noli.state === 'rushWind') label(W / 2, by - 26, noli.st >= KIT.rush.windup ? 'VOID RUSH CHARGED · let go of Q' : `CHARGING ${Math.round(noli.st / KIT.rush.windup * 100)}% · hold Q`, noli.st >= KIT.rush.windup ? '#ffffff' : '#c49bff');
+  if (noli.state === 'rushWind') label(W / 2, by - 26, `CHARGING ${Math.round(noli.st / KIT.rush.windup * 100)}% · hold Q`, noli.st >= KIT.rush.windup ? '#ffffff' : '#c49bff');
   if (noli.state === 'rush') {
     const r = noli.rush;
     label(W / 2, by - 26, r.boostT > 0 ? `BOOST ${r.boostT.toFixed(1)}s · chain x${r.chain}` : r.chain ? (r.t < KIT.rush.boost.time ? `RE-RUSH x${r.chain} · Shift = boost (${(KIT.rush.boost.time - r.t).toFixed(1)}s window)` : `RE-RUSH x${r.chain} · boost window over`) : 'VOID RUSH · hit a survivor to open the re-rush window', r.boostT > 0 ? '#ffffff' : '#c49bff');
