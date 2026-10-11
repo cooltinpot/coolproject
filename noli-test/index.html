@@ -88,7 +88,7 @@ function showBox(b, c, life = 0.15) { hitboxes.push({ ...b, c, t: 0, life }); }
 // ------------------------------------------------------------- kit numbers
 const KIT = {
   speed: { walk: 160, sprint: 270 }, stamina: { max: 110, drain: 10, regen: 20 },
-  stab: { dmg: 25, perStack: 5, cd: 2.0, windup: 0.18, box: { off: 38, w: 60, h: 60 } },
+  stab: { dmg: 25, perStack: 5, cd: 2.0, windup: 0.18, active: 0.2, box: { off: 38, w: 60, h: 60 } },
   rush: { cd: 20, cdStart: 10, cdCancel: 1.2, windup: 1.2, dur: 3.59,   // windup = charge SFX length, dur = NewVoidRush length
           speed: 560, turn: 1.8, reRush: 2.37,   // re-rush window length
           burst: 1.35, reSpeed: 1.4, holdGrace: 0.3, endSlow: { time: 0.9, mult: 0.3 }, windowMove: 0.3,
@@ -208,16 +208,17 @@ function stab() {
   sfx('stab');
 }
 function stabHit() {
-  // Stab hits the closest survivor inside its square hitbox.
+  // Active for 0.2s after the windup: the first survivor inside the square hitbox gets stabbed.
   const box = fwdBox(KIT.stab.box);
   const t = alive().filter((d) => boxHits(box, d)).sort((a, b) => dist(noli, a) - dist(noli, b))[0];
-  showBox(box, t ? '#ff3b5c' : '#ff9fb4', 0.2);
-  if (!t) return;
+  showBox(box, t ? '#ff3b5c' : '#ff9fb4', 0.05);
+  if (!t) return false;
   stopSfx('stab'); sfx('stabhit');   // a landed stab swaps the stab sound for the hit sound
   const stacks = t.hall;
   damage(t, KIT.stab.dmg + stacks * KIT.stab.perStack, `Stab (+${stacks} stack bonus)`);
   if (stacks) { t.hall = 0; txt(t.x, t.y - 48, 'STACKS CLEARED', '#9a90bf'); }
   t.vx += Math.cos(noli.ang) * 120; t.vy += Math.sin(noli.ang) * 120;
+  return true;
 }
 
 function castRush() {
@@ -442,17 +443,17 @@ function update(dt) {
   if (noli.stance || noli.state === 'rushWind' || noli.stunT > 0) sp = 0;
   if (noli.state === 'tp') sp *= KIT.obs.waitMove;   // 80% slower while waiting to teleport
   if (noli.state === 'reWindow') sp *= KIT.rush.windowMove;   // walk/sprint at 70% less speed while the re-rush window is open
-  if (noli.state === 'stab') sp *= 0.4;
   if (noli.state === 'novaWind') sp *= KIT.nova.windMove;   // 30% slower during the Nova windup
   if (noli.slowT > 0) { noli.slowT -= dt; sp *= KIT.rush.endSlow.mult; }   // slowed after cancelling a rush / missing the window
 
   if (noli.stabVis) {
     noli.stabVis.t += dt;
-    if (noli.stabVis.t > KIT.stab.windup + STAB_FX.thrust + STAB_FX.retrieve) noli.stabVis = null; else stabFx(dt);
+    if (noli.stabVis.t > KIT.stab.windup + STAB_FX.thrust + STAB_FX.hold + STAB_FX.retrieve) noli.stabVis = null; else stabFx(dt);
   }
   if (noli.state === 'stab') {
     noli.st += dt;
-    if (noli.st >= KIT.stab.windup && !noli.stabbed) { noli.stabbed = true; stabHit(); }
+    // Hitbox stays out for 0.2s after the windup (until it lands on someone).
+    if (noli.st >= KIT.stab.windup && noli.st <= KIT.stab.windup + KIT.stab.active && !noli.stabbed) { if (stabHit()) noli.stabbed = true; }
     if (noli.st > KIT.stab.windup + 0.25) { noli.state = 'free'; noli.stabbed = false; }
   }
   if (noli.state === 'novaWind') { noli.st += dt; if (noli.st >= KIT.nova.windup) throwNova(); }
@@ -649,7 +650,7 @@ function drawParts() {
 }
 // ------------------------------------------------------------- stab: void star grab -> thrust -> vanish
 // Phases (seconds into the stab): grab on his left, thrust forward, vanish growing 50%.
-const STAB_FX = { thrust: 0.1, retrieve: 0.55 };
+const STAB_FX = { thrust: 0.1, hold: 0.2, retrieve: 0.55 };
 const STAB_LEFT = { x: 4, y: -28 }, STAB_FRONT = { x: 52, y: 0 };
 function localToWorld(lx, ly) { const c = Math.cos(noli.ang), s = Math.sin(noli.ang); return { x: noli.x + c * lx - s * ly, y: noli.y + s * lx + c * ly }; }
 function stabStar() {
@@ -659,7 +660,8 @@ function stabStar() {
   if (t < w + STAB_FX.thrust) { const k = (t - w) / STAB_FX.thrust, e = 1 - (1 - k) * (1 - k);
     return { p: localToWorld(STAB_LEFT.x + (STAB_FRONT.x - STAB_LEFT.x) * e, STAB_LEFT.y + (STAB_FRONT.y - STAB_LEFT.y) * e), scale: 1, alpha: 1, phase: 'thrust' }; }
   // Retrieve: drawn back to his left hand, fading out and growing 50%.
-  const k = Math.min(1, (t - w - STAB_FX.thrust) / STAB_FX.retrieve), e = k * (2 - k);
+  if (t < w + STAB_FX.thrust + STAB_FX.hold) return { p: localToWorld(STAB_FRONT.x, STAB_FRONT.y), scale: 1, alpha: 1, phase: 'thrust' };   // held out while the hitbox is active
+  const k = Math.min(1, (t - w - STAB_FX.thrust - STAB_FX.hold) / STAB_FX.retrieve), e = k * (2 - k);
   return { p: localToWorld(STAB_FRONT.x + (STAB_LEFT.x - STAB_FRONT.x) * e, STAB_FRONT.y + (STAB_LEFT.y - STAB_FRONT.y) * e), scale: 1 + 0.5 * k, alpha: 1 - k, phase: 'retrieve' };
 }
 function stabBurst(p, n, spread, sizeMul = 1) {
