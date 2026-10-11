@@ -67,7 +67,7 @@ addEventListener('resize', resize); resize();
 const STUD = 10;
 // Generator art: 4-frame sprite sheet (from the animated image), frame times in ms.
 const GEN_IMG = new Image(); GEN_IMG.src = 'img/gen_anim.png';
-const GEN_FRAMES = [100, 80, 80, 80], GEN_LOOP = GEN_FRAMES.reduce((a, b) => a + b, 0), GEN_SIZE = 84;
+const GEN_FRAMES = [100, 80, 80, 80], GEN_LOOP = GEN_FRAMES.reduce((a, b) => a + b, 0), GEN_SIZE = 101;
 function genFrame(t) { let ms = (t * 1000) % GEN_LOOP; for (let i = 0; i < GEN_FRAMES.length; i++) { if (ms < GEN_FRAMES[i]) return i; ms -= GEN_FRAMES[i]; } return 0; }                  // px per stud
 const MAP = { w: 2000, h: 1400 };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -570,7 +570,8 @@ function render() {
     const hot = (noli.stance && Math.hypot(g.x - p.x, g.y - p.y) < 70) || (hover && hover.o === g);
     // Idle: 80% slower and 50% transparent. Hovered: normal speed, 10% transparent.
     if (hot && tool === 'erase' && !noli.stance) { ctx.fillStyle = 'rgba(255,77,109,0.35)'; ctx.fillRect(g.x - GEN_SIZE / 2, g.y - GEN_SIZE / 2, GEN_SIZE, GEN_SIZE); }
-    if (GEN_IMG.complete && GEN_IMG.naturalWidth) {
+    // The art only shows while choosing a generator in Observant; it disappears once one is picked.
+    if (noli.stance && GEN_IMG.complete && GEN_IMG.naturalWidth) {
       const fw = GEN_IMG.naturalWidth / GEN_FRAMES.length, fr = genFrame(g.animT || 0);
       ctx.globalAlpha = g.hov ? 0.9 : 0.5;
       ctx.drawImage(GEN_IMG, fr * fw, 0, fw, GEN_IMG.naturalHeight, g.x - GEN_SIZE / 2, g.y - GEN_SIZE / 2, GEN_SIZE, GEN_SIZE);
@@ -578,7 +579,7 @@ function render() {
     } else { ctx.fillStyle = '#3a3150'; ctx.fillRect(g.x - 24, g.y - 18, 48, 36); }
     ctx.fillStyle = '#7dffa8'; ctx.fillRect(g.x - 30, g.y + GEN_SIZE / 2 + 2, 60 * g.prog, 4);
     label(g.x, g.y - GEN_SIZE / 2 - 4, g.fake ? 'Generator (fake)' : 'Generator', g.fake ? '#ff9fb4' : '#9a90bf');
-    if (noli.stance) { ctx.strokeStyle = '#a26bff'; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.arc(g.x, g.y, 50, 0, 6.3); ctx.stroke(); ctx.setLineDash([]); }
+    if (noli.stance) { ctx.strokeStyle = '#a26bff'; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.arc(g.x, g.y, GEN_SIZE / 2 + 6, 0, 6.3); ctx.stroke(); ctx.setLineDash([]); }
   }
   if (noli.stance) for (const d of alive()) for (const [r, l] of KIT.obs.bands) { ctx.strokeStyle = `rgba(196,155,255,${0.15 * l})`; ctx.strokeRect(d.x - r * STUD, d.y - r * STUD, r * STUD * 2, r * STUD * 2); }
   for (const f of fx) { const k = f.t / f.life; ctx.globalAlpha = 1 - k; if (f.trail) { ctx.fillStyle = f.c; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1 - k * 0.5), 0, 6.3); ctx.fill(); } else { ctx.strokeStyle = f.c; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (0.4 + k * 0.6), 0, 6.3); ctx.stroke(); } ctx.globalAlpha = 1; }
