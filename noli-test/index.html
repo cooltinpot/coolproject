@@ -1059,7 +1059,7 @@ function drawChargeUI() {
       : inWin < REFILL ? 1 - clamp(inWin / REFILL, 0, 1)
       : clamp((inWin - REFILL) / (KIT.rush.reRush - REFILL), 0, 1);
   }
-  if (rushing) chargeUI.cap = st === 'rushWind' ? 'Charge VoidRush by holding down' : st === 'reWindow' ? 'Hit the voidrush key again to charge again!' : '';
+  if (rushing) chargeUI.cap = st === 'rushWind' ? 'Charge VoidRush by holding down' : st === 'reWindow' ? 'Hit the voidrush key again to charge again!' : 'Release the Voidrush button to cancel';
   chargeUI.a = clamp(chargeUI.a + (on ? dt * 8 : -dt * 5), 0, 1);
   if (chargeUI.a <= 0) return;
   // Sits just below Noli on screen (above him if he's near the bottom edge).
