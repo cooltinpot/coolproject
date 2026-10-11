@@ -77,3 +77,39 @@ js/render.js            map, character cosmetics, telegraphs, fog, HUD
 js/game.js              round logic, projectiles, generators, main loop
 js/menu.js              Codex book, setup, pause, results
 ```
+
+---
+
+# SCRATED
+
+A second game in this repo, in `scrated/`, based on **SCRATED: A Mythological Story** by peppinospaletti. Open `scrated/index.html` to play.
+
+SC's realm runs the rounds. Three survivors stolen from heaven try to last until SC resets the round, while one of five hackers pulled from broken dimensions hunts them. Compiling Code Terminals brings the reset closer.
+
+**The menu is the story.** Click the grey DESTROY block to open it. The book holds the complete story, chapters I–X and the Epilogue, word for word. It also has a page for every hacker and survivor (lore, abilities with windups and cooldowns, how to use them, synergy and counters), the realms, the between-rounds life, and the PLAY button.
+
+| Hacker | Class | Abilities | Look |
+|---|---|---|---|
+| SC | Power | DESTROY Laser, Reshape (code walls), Flight; passive *Fed by THE END* | pale 0.4 cat, grey eyes, crown, the block |
+| PROTOCOL2 | Chaos | Account Hack (reversed controls), Arson, Royal Decree; passive *Boredom* | cape, silver crown, scrolling code visor |
+| BURGERS | Adaptive | ROAR, Deletion Dive, Grease Slick; passive *Adapt* (stuns make him stronger) | robot with a chef hat and spatula |
+| THE CREAKER | Stealth | Vine Lash, Overgrowth, Echo of the Deleted; no heartbeat | vine-covered robot with a cracked, glowing face |
+| THE REVENGEST | Speed | Fork Throw + Warp, Quickdraw, Corruption; passive *Father's Scarf* | glowing orange, sheriff hat, scarf, fork |
+
+| Survivor | Class | Abilities |
+|---|---|---|
+| Scratchy | Support | Lesson Plan (team buff), Charm Offensive; compiles faster |
+| GRIFFPATCH | Stuns | Showstopper, Create Clone of Myself; Quiet Regen |
+| NANO | Health | General's Guard (parry), Rally Banner; Became Better |
+
+**Realms:**
+
+- **The Forums:** it's always snowing. The fountain water slows everyone, and forum posts reveal survivors.
+- **MIT Ruins:** debris falls from above, laser holes scar the floor, and survivors can ride service elevators.
+- **The Mountain Cave:** it's dark. Bones crack and give survivors away, and THE END whispers.
+
+**The Final Round** unlocks after you finish one round. You play GRIFFPATCH in round 500 and the story's ending plays out, ending in a cutscene (Esc skips it).
+
+**Balance:** in AI-only runs on Normal, hackers won about 47% of rounds. Each hacker's win rate fell between 25% and 67% over 12 rounds.
+
+Controls are the same as Hollowed, with F to compile and Q/E (+R for hackers) for abilities.
