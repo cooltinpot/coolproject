@@ -678,6 +678,20 @@ function stabFx(dt) {
 function drawStabStar() {
   if (noli.state !== 'stab') return;
   const s = stabStar(), T = performance.now() / 1000, sc = s.scale;
+  // Strands tying the star to his left hand: straight white/grey lines with sparkles along them.
+  const hand = localToWorld(0, -noli.r);
+  const dx = s.p.x - hand.x, dy = s.p.y - hand.y, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+  ctx.save(); ctx.lineCap = 'round';
+  for (let i = 0; i < 4; i++) {
+    const o = (i - 1.5) * 2.2, flick = 0.55 + 0.45 * Math.sin(T * 40 + i * 1.7);
+    ctx.globalAlpha = s.alpha * flick; ctx.strokeStyle = i % 2 ? '#9a9a9a' : '#ffffff'; ctx.lineWidth = i % 2 ? 1 : 1.5;
+    ctx.beginPath(); ctx.moveTo(hand.x + nx * o, hand.y + ny * o); ctx.lineTo(s.p.x + nx * o * 0.4, s.p.y + ny * o * 0.4); ctx.stroke();
+  }
+  for (let i = 0; i < 7; i++) {
+    const f = ((T * 2.5 + i / 7) % 1), tw = Math.abs(Math.sin(T * 25 + i * 2));
+    star4(hand.x + dx * f + nx * Math.sin(i * 3.1) * 3, hand.y + dy * f + ny * Math.sin(i * 3.1) * 3, 1.5 + 2.5 * tw, i % 2 ? '#c8c8c8' : '#ffffff', s.alpha * (0.4 + 0.6 * tw));
+  }
+  ctx.restore(); ctx.globalAlpha = 1;
   ctx.save(); ctx.globalAlpha = s.alpha;
   const g = ctx.createRadialGradient(s.p.x, s.p.y, 2, s.p.x, s.p.y, 24 * sc);
   g.addColorStop(0, 'rgba(201,168,255,0.6)'); g.addColorStop(1, 'rgba(201,168,255,0)');
