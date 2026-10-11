@@ -230,7 +230,7 @@ function releaseRush() {
   if (noli.state !== 'rushWind') return;
   stopSfx('charge');
   // Letting go before the charge finishes cancels it.
-  noli.state = 'free'; noli.cds.rush = KIT.rush.cdCancel; log('Void Rush let go too early (1.2s cooldown)');
+  noli.state = 'free'; noli.cds.rush = KIT.rush.cdCancel; sfx('cancel'); log('Void Rush let go too early (1.2s cooldown)');
 }
 function startRush(chain, ignore = null) {
   noli.state = 'rush';
