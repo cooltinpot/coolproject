@@ -278,6 +278,7 @@ function updateAirSlam(d, dt) {
   }
   if (!A.hit && A.t >= AIR.impact) {
     A.hit = true;
+    if (noli.slamCam && noli.slamCam.d === d) { noli.slamCam.hitT = 0; cam.shake = 12; }
     damage(d, slamDmg(A.chain), `Void Rush AIR SLAM (chain x${A.chain})`, '#d36bff');
     d.knockT = KIT.rush.knock;
     txt(d.x, d.y - 48, 'SLAMMED', '#ffffff');
@@ -295,6 +296,7 @@ function rushHit(d) {
     stopSfx('voidrush'); stopWindowSfx(); for (let i = 1; i <= 5; i++) stopSfx('hit' + i);
     startAirSlam(d, r.chain);
     noli.state = 'slamHold'; noli.st = 0; noli.rush = null; noli.cds.rush = KIT.rush.cd;
+    noli.slamCam = { d, hitT: null };   // cinematic camera for the air slam
     return;
   } else if (d.hall >= 1) {
     damage(d, slamDmg(r.chain), `Void Rush SLAM (chain x${r.chain})`, '#d36bff');
@@ -605,10 +607,18 @@ function update(dt) {
   if (ex && !ex.stomped) { zTarget = cam.zoom * EXEC.followZoom; zRate = 5; }
   else if (ex && ex.punchT < EXEC.punchTime) { zTarget = cam.zoom * EXEC.punch; zRate = 30; }
   else if (ex) { zTarget = cam.zoom; zRate = 4; }
+  // Air slam: lock onto the survivor and push in as they rise, punch in on impact, then back to Noli.
+  const sl = noli.state === 'slamHold' ? noli.slamCam : null;
+  let slFocus = null;
+  if (sl) {
+    if (sl.hitT === null) { const rise = sl.d.air ? Math.min(1, sl.d.air.t / AIR.rise) : 1; zTarget = cam.zoom * (1 + 0.35 * rise); zRate = 5; slFocus = sl.d; }
+    else { sl.hitT += dt; if (sl.hitT < EXEC.punchTime) { zTarget = cam.zoom * 1.75; zRate = 30; slFocus = sl.d; } else { zTarget = cam.zoom; zRate = 4; } }
+  }
   cam.s += (zTarget - cam.s) * Math.min(1, dt * zRate);
-  const focus = ex && !ex.stomped ? ex.d : noli;
-  // Smooth only around the kill; otherwise the camera sticks to Noli.
-  cam.ease = ex ? 0.5 : Math.max(0, (cam.ease || 0) - dt);
+  const focus = ex && !ex.stomped ? ex.d : slFocus || noli;
+  cam.shake = Math.max(0, (cam.shake || 0) - dt * 40);
+  // Smooth only around the kill / slam; otherwise the camera sticks to Noli.
+  cam.ease = ex || sl ? 0.5 : Math.max(0, (cam.ease || 0) - dt);
   const fk = cam.ease > 0 && cam.fx !== undefined ? Math.min(1, dt * 12) : 1;
   cam.fx = cam.fx === undefined ? focus.x : cam.fx + (focus.x - cam.fx) * fk;
   cam.fy = cam.fy === undefined ? focus.y : cam.fy + (focus.y - cam.fy) * fk;
@@ -923,7 +933,8 @@ function drawDummy(d) {
 
 function render() {
   ctx.fillStyle = '#07060c'; ctx.fillRect(0, 0, W, H);
-  ctx.save(); ctx.scale(cam.s, cam.s); ctx.translate(-cam.x, -cam.y);
+  const shx = cam.shake ? rand(-cam.shake, cam.shake) : 0, shy = cam.shake ? rand(-cam.shake, cam.shake) : 0;   // screen shake (visual only)
+  ctx.save(); ctx.translate(shx, shy); ctx.scale(cam.s, cam.s); ctx.translate(-cam.x, -cam.y);
   ctx.fillStyle = '#100d18'; ctx.fillRect(0, 0, MAP.w, MAP.h);
   ctx.strokeStyle = '#1b1628'; ctx.lineWidth = 1;
   for (let x = 0; x <= MAP.w; x += 100) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, MAP.h); ctx.stroke(); }
