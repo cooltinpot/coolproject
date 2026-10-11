@@ -86,7 +86,7 @@ const KIT = {
   speed: { walk: 160, sprint: 270 }, stamina: { max: 110, drain: 10, regen: 20 },
   stab: { dmg: 25, perStack: 5, cd: 2.0, windup: 0.18, box: { off: 38, w: 60, h: 60 } },
   rush: { cd: 20, cdStart: 10, cdCancel: 1.2, windup: 1.2, dur: 3.59,   // windup = charge SFX length, dur = NewVoidRush length
-          speed: 560, turn: 1.8, reRush: 0.85, burst: 1.35, reSpeed: 1.4,
+          speed: 560, turn: 1.8, reRush: 0.85, burst: 1.35, reSpeed: 1.4, windowMove: 0.3,
           boost: { time: 1, speed: 1.35, turn: 4.5 },
           box: { off: 10, w: 52, h: 52 }, hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
   nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, box: 28, blast: 280, pull: 1.1 },
@@ -402,10 +402,11 @@ function update(dt) {
   let mx = (keys.d ? 1 : 0) - (keys.a ? 1 : 0), my = (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
   const ml = Math.hypot(mx, my) || 1; mx /= ml; my /= ml;
   const moving = mx || my;
-  const sprint = keys.shift && moving && noli.stamina > 0 && noli.state === 'free' && !noli.stance;
+  const sprint = keys.shift && moving && noli.stamina > 0 && (noli.state === 'free' || noli.state === 'reWindow') && !noli.stance;
   noli.stamina = clamp(noli.stamina + (sprint ? -KIT.stamina.drain : KIT.stamina.regen) * dt, 0, KIT.stamina.max);
   let sp = sprint ? KIT.speed.sprint : KIT.speed.walk;
-  if (noli.stance || noli.state === 'rushWind' || noli.state === 'reWindow' || noli.state === 'tp' || noli.stunT > 0) sp = 0;
+  if (noli.stance || noli.state === 'rushWind' || noli.state === 'tp' || noli.stunT > 0) sp = 0;
+  if (noli.state === 'reWindow') sp *= KIT.rush.windowMove;   // walk/sprint at 70% less speed while the re-rush window is open
   if (noli.state === 'stab') sp *= 0.4;
 
   if (noli.state === 'stab') { noli.st += dt; if (noli.st >= KIT.stab.windup && !noli.stabbed) { noli.stabbed = true; stabHit(); } if (noli.st > KIT.stab.windup + 0.25) { noli.state = 'free'; noli.stabbed = false; } }
