@@ -93,7 +93,7 @@ const KIT = {
           speed: 560, turn: 1.8, reRush: 2.37,   // re-rush window length
           burst: 1.35, reSpeed: 1.4, holdGrace: 0.3, endSlow: { time: 0.9, mult: 0.3 }, windowMove: 0.3,
           boost: { time: 1, speed: 1.35, turn: 4.5 },
-          box: { off: 10, w: 52, h: 52 }, launch: 380, hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
+          box: { off: 10, w: 52, h: 52 }, launch: 380, dashDeath: 0.9, hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
   nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, box: 28, blast: 280, pull: 1.1, fx: 2.2, windup: 0.5, windMove: 0.7, boomRange: 819 },   // fx = implosion visual length; boomRange = explosion hearing radius
   hallDur: 5,   // Hallucination wears off 5s after it was last applied
   obs: { travel: 1.0, waitMove: 0.2, landRoot: 0.5, stallRange: 300,   // teleport lands at 00:01 of the teleport SFX
@@ -126,7 +126,7 @@ function addDummy(x, y, mode = newMode, hp = newHp) {
   if (d.inf) { d.maxHp = 100; d.hp = 100; }
   dummies.push(d); return d;
 }
-const alive = () => dummies.filter((d) => !d.dead && !d.exec && !d.air);
+const alive = () => dummies.filter((d) => !d.dead && !d.exec && !d.air && !d.dying);
 
 const logEl = document.getElementById('log');
 function log(s) { const d = document.createElement('div'); d.textContent = s; logEl.prepend(d); while (logEl.children.length > 40) logEl.lastChild.remove(); }
@@ -188,12 +188,18 @@ function addHall(d, n, why) {
   if (d.hall !== before) { txt(d.x, d.y - 36, 'HALLUCINATION ' + 'I'.repeat(d.hall), '#c49bff'); log(`${d.name} — ${why}: Hallucination ${before} → ${d.hall}`); }
 }
 function setHall(d, n, why) { if (d.hall < n) addHall(d, n - d.hall, why); }
-function damage(d, amt, why, color = '#ff4d6d') {
-  if (d.dead) return;
+function damage(d, amt, why, color = '#ff4d6d', opt = {}) {
+  if (d.dead || d.dying) return;
   d.hp -= amt;
   txt(d.x, d.y - 24, '-' + amt.toFixed(amt % 1 ? 1 : 0), color);
   log(`${d.name} — ${why}: ${amt.toFixed(1)} dmg` + (d.inf ? '' : ` (${Math.max(0, d.hp).toFixed(1)} HP left)`));
   if (d.inf) { if (d.hp <= 0) d.hp = d.maxHp; return; }
+  if (d.hp <= 0 && opt.dash) {
+    // Killed by Void Rush: no crush and no kill sound; they're launched, then fade into sparkles.
+    d.hp = 0; d.hall = 0; d.dying = KIT.rush.dashDeath; if (!d.rag) ragdoll(d);
+    log(`${d.name} was slammed down for good — respawning in 3s`);
+    return;
+  }
   if (d.hp <= 0) { sfx('kill', 0.9); d.dead = true; d.deadT = 0; d.hall = 0; log(`${d.name} died — respawning in 3s`); }
 }
 
@@ -279,8 +285,8 @@ function updateAirSlam(d, dt) {
   if (!A.hit && A.t >= AIR.impact) {
     A.hit = true;
     if (noli.slamCam && noli.slamCam.d === d) { noli.slamCam.hitT = 0; cam.shake = 12; }
-    damage(d, slamDmg(A.chain), `Void Rush AIR SLAM (chain x${A.chain})`, '#d36bff');
-    ragdoll(d);
+    damage(d, slamDmg(A.chain), `Void Rush AIR SLAM (chain x${A.chain})`, '#d36bff', { dash: true });
+    if (!d.dying) ragdoll(d);
     txt(d.x, d.y - 48, 'SLAMMED', '#ffffff');
     ring(d.x, d.y, 45, '#ffffff', 0.35); ring(d.x, d.y, 95, '#c9a8ff', 0.6); ring(d.x, d.y, 145, '#7a3cff', 0.85);
     for (let i = 0; i < 45; i++) { const a2 = rand(0, 6.3), r = rand(0, 70); parts.push({ kind: 'star', x: d.x + Math.cos(a2) * r, y: d.y + Math.sin(a2) * r * 0.7, c: i % 3 === 0 ? '#000000' : i % 3 === 1 ? '#ffffff' : '#c9a8ff', size: rand(3, 10), t: rand(-0.3, 0), life: rand(0.5, 1.0) }); }
@@ -305,12 +311,12 @@ function rushHit(d) {
     noli.slamCam = { d, hitT: null };   // cinematic camera for the air slam
     return;
   } else if (d.hall >= 1) {
-    damage(d, slamDmg(r.chain), `Void Rush SLAM (chain x${r.chain})`, '#d36bff');
-    d.hall = 0; ragdoll(d);
+    damage(d, slamDmg(r.chain), `Void Rush SLAM (chain x${r.chain})`, '#d36bff', { dash: true });
+    d.hall = 0; if (!d.dying) ragdoll(d);   // a lethal slam already launched them
     ring(d.x, d.y, 70, '#a26bff', 0.6);
     txt(d.x, d.y - 48, 'KNOCKED DOWN', '#ffffff');
   } else {
-    damage(d, KIT.rush.hitDmg, `Void Rush hit (chain x${r.chain})`);
+    damage(d, KIT.rush.hitDmg, `Void Rush hit (chain x${r.chain})`, undefined, { dash: true });
     setHall(d, 2, 'Void Rush');
     d.vx += Math.cos(noli.ang) * 200; d.vy += Math.sin(noli.ang) * 200;
   }
@@ -422,7 +428,7 @@ function dummyThink(d, dt) {
   const a = Math.atan2(ty - d.y, tx - d.x), dd = Math.hypot(tx - d.x, ty - d.y);
   return dd > 4 && sp ? { mx: Math.cos(a), my: Math.sin(a), sp } : null;
 }
-function respawnDummy(d) { Object.assign(d, { x: d.home.x, y: d.home.y, hp: d.maxHp, hall: 0, dead: false, air: null, rag: null, exec: false, squash: 0, fade: 1, wiggle: 0, deadT: 0, knockT: 0, vx: 0, vy: 0, repair: null, goal: null }); }
+function respawnDummy(d) { Object.assign(d, { x: d.home.x, y: d.home.y, hp: d.maxHp, hall: 0, dead: false, dying: 0, air: null, rag: null, exec: false, squash: 0, fade: 1, wiggle: 0, deadT: 0, knockT: 0, vx: 0, vy: 0, repair: null, goal: null }); }
 
 // ------------------------------------------------------------- creative tools
 const TOOLS = [
@@ -585,6 +591,12 @@ function update(dt) {
     if (d.dead) { d.deadT += dt; if (d.deadT > 3) respawnDummy(d); continue; }
     if (d.exec) continue;   // the execution moves them
     if (d.air) { updateAirSlam(d, dt); if (d.air && !d.air.hit) continue; }   // held in place while airborne
+    if (d.dying) {
+      // Slides out the ragdoll, then fades into sparkles.
+      d.dying = Math.max(0, d.dying - dt);
+      if (d.dying < 0.45 && Math.random() < dt * 35) parts.push({ kind: 'star', x: d.x + rand(-16, 16), y: d.y + rand(-12, 12), c: Math.random() < 0.5 ? '#ffffff' : '#c9a8ff', size: rand(3, 7), t: 0, life: 0.5 });
+      if (d.dying === 0) { d.dead = true; d.deadT = 0; d.dying = 0; d.rag = null; d.knockT = 0; continue; }
+    }
     d.knockT = Math.max(0, d.knockT - dt);
     if (d.rag) { d.rag.rot += d.rag.spin * dt; d.rag.spin *= Math.pow(0.03, dt); if (d.knockT === 0) d.rag = null; }
     if (d.hall > 0) { d.hallT += dt; if (d.hallT > KIT.hallDur) { d.hall = 0; d.hallT = 0; txt(d.x, d.y - 36, 'hallucination wore off', '#9a90bf'); } }
@@ -923,6 +935,7 @@ function drawDummy(d) {
   }
   ctx.save(); ctx.translate(x, y);
   // Knocked down: tumbled rotation while lying, rotating back upright as they get up (last 0.3s).
+  if (d.dying) ctx.globalAlpha = Math.min(1, d.dying / 0.45);
   if (d.knockT > 0) ctx.rotate(((d.rag ? d.rag.rot : 0) + Math.PI / 2) * Math.min(1, d.knockT / 0.3));
   if (d.air) { const sc = airScale(d); ctx.translate(0, -(sc - 1) * 18); ctx.rotate(d.air.t < AIR.impact ? d.air.t * 4 : 0); ctx.scale(sc, sc); }
   if (d.exec) { ctx.globalAlpha = d.fade ?? 1; ctx.rotate(d.wiggle || 0); ctx.scale(1 + (d.squash || 0) * 0.6, 1 - (d.squash || 0) * 0.8); }
