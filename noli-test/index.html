@@ -269,7 +269,7 @@ function drawRushStar() {
   g.addColorStop(0, 'rgba(255,255,255,0.75)'); g.addColorStop(0.5, 'rgba(201,168,255,0.35)'); g.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 22 * sc, 0, 6.3); ctx.fill();
   ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(spin);
-  star4(0, 0, 14 * sc * pulse, '#000000'); star4(0, 0, 11 * sc * pulse, '#c9a8ff'); star4(0, 0, 6 * sc * pulse, '#ffffff');
+  star4(0, 0, 13 * sc * pulse, '#ffffff');   // plain white star
   ctx.restore();
 }
 function startRush(chain, ignore = null) {
@@ -582,11 +582,11 @@ function update(dt) {
     const ox = noli.x, oy = noli.y;
     moveCircle(noli, vx, vy);
     const blocked = r.t > 0.1 && Math.hypot(noli.x - ox, noli.y - oy) < Math.hypot(vx, vy) * 0.45;
-    if (Math.random() < 0.6) fx.push({ x: noli.x, y: noli.y, r: B ? 18 : 14, c: B ? '#d36bff' : '#5b2bbf', t: 0, life: 0.35, trail: true });
+    if (Math.random() < 0.6) fx.push({ x: noli.x, y: noli.y, r: B ? 18 : 14, c: B ? '#d36bff' : '#5b2bbf', t: 0, life: 0.6, trail: true });
     // Black void wisps, white specks and stars streaming out behind him.
     const bx = noli.x - Math.cos(noli.ang) * 16, by2 = noli.y - Math.sin(noli.ang) * 16;
-    for (let i = 0; i < 3; i++) parts.push({ kind: 'trail', x: bx + rand(-10, 10), y: by2 + rand(-10, 10), c: i === 0 ? '#ffffff' : i === 1 ? '#c9a8ff' : '#000000', size: i === 2 ? rand(4, 7) : rand(1.5, 3.5), t: 0, life: rand(0.45, 0.8) });
-    if (Math.random() < dt * 25) parts.push({ kind: 'star', x: bx + rand(-14, 14), y: by2 + rand(-14, 14), c: Math.random() < 0.5 ? '#ffffff' : '#c9a8ff', size: rand(3, 7), t: 0, life: rand(0.35, 0.6) });
+    for (let i = 0; i < 3; i++) parts.push({ kind: 'trail', x: bx + rand(-10, 10), y: by2 + rand(-10, 10), c: i === 0 ? '#ffffff' : i === 1 ? '#c9a8ff' : '#000000', size: i === 2 ? rand(4, 7) : rand(1.5, 3.5), t: 0, life: rand(0.8, 1.4) });
+    if (Math.random() < dt * 25) parts.push({ kind: 'star', x: bx + rand(-14, 14), y: by2 + rand(-14, 14), c: Math.random() < 0.5 ? '#ffffff' : '#c9a8ff', size: rand(3, 7), t: 0, life: rand(0.6, 1.0) });
     if (r.ignore && r.t > 0.3) r.ignore = null;
     // Q must be held for the whole rush. Right after hitting a survivor there is a
     // 0.3s grace where letting go doesn't end the re-rush.
