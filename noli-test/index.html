@@ -413,7 +413,8 @@ function update(dt) {
   if (noli.state === 'tp') { noli.st += dt; if (noli.st >= KIT.obs.travel) observantTeleport(noli.tp); }
   if (noli.state === 'reWindow') {
     const r = noli.rush; r.wt -= dt;
-    if (r.wt <= 0) endRush(`Re-rush window closed (chain x${r.chain})`);
+    // Missing the window lets hype_and_aura play out; everything else stops.
+    if (r.wt <= 0) { SFX.hype = null; endRush(`Re-rush window closed (chain x${r.chain})`); }
   }
   if (noli.state === 'rush') {
     const r = noli.rush; r.t += dt;
