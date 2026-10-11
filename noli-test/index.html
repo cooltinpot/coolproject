@@ -498,9 +498,9 @@ function update(dt) {
   let mx = (keys.d ? 1 : 0) - (keys.a ? 1 : 0), my = (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
   const ml = Math.hypot(mx, my) || 1; mx /= ml; my /= ml;
   const moving = mx || my;
-  const sprint = keys.shift && moving && noli.stamina > 0 && (noli.state === 'free' || noli.state === 'novaWind' || noli.state === 'rushWind') && !noli.stance;   // no sprinting while dashing / in the window
-  // Stamina is frozen while dashing and in the re-rush window: no drain, no regen.
-  const inVoidRush = noli.state === 'rush' || noli.state === 'reWindow';   // charging still uses stamina normally
+  const sprint = keys.shift && moving && noli.stamina > 0 && (noli.state === 'free' || noli.state === 'novaWind' || noli.state === 'rushWind' || noli.state === 'reWindow') && !noli.stance;   // no sprinting while dashing
+  // Stamina is frozen only while dashing: no drain, no regen.
+  const inVoidRush = noli.state === 'rush';   // charging and the re-rush window still use stamina normally
   if (!inVoidRush) noli.stamina = clamp(noli.stamina + (sprint ? -KIT.stamina.drain : KIT.stamina.regen) * dt, 0, KIT.stamina.max);
   let sp = sprint ? KIT.speed.sprint : KIT.speed.walk;
   if (noli.stance || noli.state === 'exec' || noli.state === 'slamHold' || noli.stunT > 0) sp = 0;
