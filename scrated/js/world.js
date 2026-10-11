@@ -47,6 +47,8 @@
     isOneWay(tx, ty) {
       const c = this.at(tx, ty);
       if (c === '=') return true;
+      // The top of the hacker-only wall works like a catwalk for hackers.
+      if (c === 'X') return this.at(tx, ty - 1) !== 'X';
       return c === 'H' && this.at(tx, ty - 1) !== 'H' && !SOLID.has(this.at(tx, ty - 1));
     }
     los(ax, ay, bx, by) {
@@ -83,7 +85,9 @@
         if (b.vy) {
           const oldY = b.y;
           b.y += b.vy * sdt;
-          const l = Math.floor((b.x - b.w / 2 + 1) / T), r = Math.floor((b.x + b.w / 2 - 1) / T);
+          // On a ladder the body is narrow, so wide hackers fit through ladder holes.
+          const hw = b.climbing ? Math.min(b.w, 18) / 2 : b.w / 2;
+          const l = Math.floor((b.x - hw + 1) / T), r = Math.floor((b.x + hw - 1) / T);
           if (b.vy > 0) {
             const ty = Math.floor(b.y / T);
             for (let tx = l; tx <= r; tx++) {
@@ -201,7 +205,8 @@
         }
         const up = sim(n.x, n.y, 0, -P.jump, false);
         if (up && up.node && up.node !== n && up.node.kind === 'ground') link(n, up.node, 'jump', 2 + up.t * 3, { dir: 0, frac: 0 });
-        if (this.at(n.tx, n.ty + 1) === '=') {
+        const under = this.at(n.tx, n.ty + 1);
+        if (under === '=' || (under === 'X' && team !== 'survivor')) {
           const r = sim(n.x, n.y + 2, 0, 50, true);
           if (r && r.node && r.node !== n) link(n, r.node, 'drop', 1 + r.t * 2);
         }

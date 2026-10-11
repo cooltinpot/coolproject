@@ -173,3 +173,48 @@
     },
   };
 })();
+
+// Real SCRATED sound effects (assets/sfx) and the OVERTIME / LMS tracks.
+(function () {
+  const G = window.G;
+  G.Sfx = {
+    pool: {},
+    muted: false,
+    play(name, vol = 1) {
+      if (this.muted || vol <= 0.02) return;
+      const list = (this.pool[name] = this.pool[name] || []);
+      let a = list.find((x) => x.paused || x.ended);
+      if (!a) {
+        if (list.length >= 4) return;
+        a = new Audio('assets/sfx/' + name + '.mp3');
+        list.push(a);
+      }
+      try {
+        a.currentTime = 0;
+        a.volume = Math.max(0, Math.min(1, vol * 0.8));
+        const p = a.play();
+        if (p && p.catch) p.catch(() => {});
+      } catch (e) { /* audio unavailable */ }
+    },
+  };
+  G.Music = {
+    tracks: {},
+    current: null,
+    volume: 0.55,
+    play(name) {
+      if (this.current === name) return;
+      this.stop();
+      const a = (this.tracks[name] = this.tracks[name] || new Audio('assets/music/' + name + '.mp3'));
+      a.loop = true;
+      a.volume = this.volume;
+      a.currentTime = 0;
+      const p = a.play();
+      if (p && p.catch) p.catch(() => {});
+      this.current = name;
+    },
+    stop() {
+      for (const a of Object.values(this.tracks)) { a.pause(); }
+      this.current = null;
+    },
+  };
+})();
