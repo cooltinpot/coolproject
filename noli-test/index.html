@@ -52,7 +52,7 @@
     <button id="hbx" class="on">Hitboxes: on</button>
   </div>
   <small>WASD move · Shift sprint · Mouse aim<br>
-  <b>LMB</b> Stab (Play tool) · <b>Q</b> Void Rush · <b>E</b> Nova (E again = detonate) · <b>R</b> Observant<br>
+  <b>LMB</b> Stab (Play tool) · <b>Q</b> Void Rush (hold to charge, let go to rush) · <b>E</b> Nova (E again = detonate) · <b>R</b> Observant<br>
   <b>Void Rush:</b> hit a survivor → quick countdown → <b>Q</b> to re-rush off them. Chains stack slam damage. Shift during the first 1s of a re-rush = boost (ends at 1s).</small>
   <div id="log"></div>
 </div>
@@ -140,7 +140,7 @@ addEventListener('keydown', (e) => {
   keys[k] = true;
   if (['q', 'e', 'r', ' ', 'tab'].includes(k)) e.preventDefault();
 });
-addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+addEventListener('keyup', (e) => { const k = e.key.toLowerCase(); keys[k] = false; if (k === 'q') releaseRush(); });
 cv.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
 cv.addEventListener('mousedown', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; mouse.down = true; mouse.click = true; });
 addEventListener('mouseup', () => { mouse.down = false; mouse.up = true; });
@@ -216,10 +216,16 @@ function castRush() {
     startRush(noli.rush.chain + 1, noli.rush.last);
     return;
   }
-  if (noli.state === 'rushWind') { stopSfx('voidrush'); noli.state = 'free'; noli.cds.rush = KIT.rush.cdCancel; log('Void Rush cancelled (1.2s cooldown)'); return; }
   if (busy() || noli.stance || !ready('rush')) return;
+  // Hold Q to charge; the charge sound stops when you let go.
   noli.state = 'rushWind'; noli.st = 0;
-  sfx('voidrush');
+  sfx('charge');
+}
+function releaseRush() {
+  if (noli.state !== 'rushWind') return;
+  stopSfx('charge');
+  if (noli.st >= KIT.rush.windup) { sfx('voidrush'); startRush(0); }
+  else { noli.state = 'free'; noli.cds.rush = KIT.rush.cdCancel; log('Void Rush let go too early (1.2s cooldown)'); }
 }
 function startRush(chain, ignore = null) {
   noli.state = 'rush';
@@ -397,7 +403,7 @@ function update(dt) {
   if (noli.state === 'stab') sp *= 0.4;
 
   if (noli.state === 'stab') { noli.st += dt; if (noli.st >= KIT.stab.windup && !noli.stabbed) { noli.stabbed = true; stabHit(); } if (noli.st > KIT.stab.windup + 0.25) { noli.state = 'free'; noli.stabbed = false; } }
-  if (noli.state === 'rushWind') { noli.st += dt; if (noli.st >= KIT.rush.windup) startRush(0); }
+  if (noli.state === 'rushWind') noli.st += dt;
   if (noli.state === 'tp') { noli.st += dt; if (noli.st >= KIT.obs.travel) observantTeleport(noli.tp); }
   if (noli.state === 'reWindow') {
     const r = noli.rush; r.wt -= dt;
@@ -485,7 +491,7 @@ function label(x, y, s, c, font = '700 12px system-ui') { ctx.font = font; ctx.t
 function drawNoli() {
   const { x, y } = noli;
   ctx.save(); ctx.translate(x, y);
-  if (noli.state === 'rushWind') { ctx.strokeStyle = '#a26bff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, 22 + noli.st / KIT.rush.windup * 20, 0, 6.3); ctx.stroke(); }
+  if (noli.state === 'rushWind') { ctx.strokeStyle = '#a26bff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, 22 + Math.min(1, noli.st / KIT.rush.windup) * 20, 0, 6.3); ctx.stroke(); if (noli.st >= KIT.rush.windup) { ctx.strokeStyle = '#ffffff'; ctx.beginPath(); ctx.arc(0, 0, 44, 0, 6.3); ctx.stroke(); } }
   ctx.fillStyle = 'rgba(162,107,255,0.18)'; ctx.beginPath(); ctx.arc(0, 0, 30, 0, 6.3); ctx.fill();
   ctx.rotate(noli.ang);
   ctx.fillStyle = '#120d1f'; ctx.strokeStyle = '#a26bff'; ctx.lineWidth = 2;
@@ -585,6 +591,7 @@ function hud() {
     label(W / 2, by - 26, `[Q] RE-RUSH! · next slam ${slamDmg(r.chain + 1).toFixed(1)} dmg`, '#ffffff');
     ctx.globalAlpha = 1;
   }
+  if (noli.state === 'rushWind') label(W / 2, by - 26, noli.st >= KIT.rush.windup ? 'VOID RUSH CHARGED · let go of Q' : `CHARGING ${Math.round(noli.st / KIT.rush.windup * 100)}% · hold Q`, noli.st >= KIT.rush.windup ? '#ffffff' : '#c49bff');
   if (noli.state === 'rush') {
     const r = noli.rush;
     label(W / 2, by - 26, r.boostT > 0 ? `BOOST ${r.boostT.toFixed(1)}s · chain x${r.chain}` : r.chain ? (r.t < KIT.rush.boost.time ? `RE-RUSH x${r.chain} · Shift = boost (${(KIT.rush.boost.time - r.t).toFixed(1)}s window)` : `RE-RUSH x${r.chain} · boost window over`) : 'VOID RUSH · hit a survivor to open the re-rush window', r.boostT > 0 ? '#ffffff' : '#c49bff');
