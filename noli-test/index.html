@@ -306,10 +306,22 @@ function stab() {
   noli.stabVis = { t: 0, f: {} };
   sfx('stab');
 }
+// Guest 1337's Self Sacrifice: who a single-target hit lands on when several survivors are in the hitbox.
+// Tier 3 = a blocking Guest, tier 2 = any Guest, tier 1 = everyone else; closest wins within a tier
+// (so stacked Guests only have one of them take it).
+function hitTier(d) { return d.kit === 'guest' ? (d.invT > 0 ? 3 : 2) : 1; }
+function pickVictim(cands) {
+  if (!cands.length) return null;
+  const t = cands.slice().sort((a, b) => hitTier(b) - hitTier(a) || dist(noli, a) - dist(noli, b))[0];
+  if (cands.length > 1 && hitTier(t) > 1 && cands.some((o) => o !== t && hitTier(o) === 1 && dist(noli, o) < dist(noli, t))) {
+    txt(t.x, t.y - 58, 'TOOK THE HIT', '#ffffff'); log(`${t.name} took the hit for a teammate (Self Sacrifice)`);
+  }
+  return t;
+}
 function stabHit() {
   // Active for 0.2s after the windup: the first survivor inside the square hitbox gets stabbed.
   const box = fwdBox(KIT.stab.box);
-  const t = alive().filter((d) => boxHits(box, d)).sort((a, b) => dist(noli, a) - dist(noli, b))[0];
+  const t = pickVictim(alive().filter((d) => boxHits(box, d)));
   showBox(box, t ? '#00ff4c' : '#ff0000', t ? 0.25 : 0.05);   // turns green when it lands
   if (!t) return false;
   if (guard(t)) return true;
@@ -716,7 +728,7 @@ function respawnDummy(d) { Object.assign(d, { x: d.home.x, y: d.home.y, hp: d.ma
 // ------------------------------------------------------------- survivors (Forsaken kits)
 const SURV = { walk: 150, sprint: 255, stamMax: 100, drain: 12, regen: 18 };
 const KITS = {
-  guest:   { name: 'Guest 1337', hp: 140, torso: '#2e2e36', head: '#f5cd30', hair: '#141414',
+  guest:   { name: 'Guest 1337', hp: 110, torso: '#2e2e36', head: '#f5cd30', hair: '#141414',
              skills: { q: { name: 'Block', cd: 24 }, e: { name: 'Punch', cd: 3 }, r: { name: 'Charge', cd: 45 } } },
   shed:    { name: 'Shedletsky', hp: 100, torso: '#efefef', head: '#f5cd30', hair: '#6b4220',
              skills: { q: { name: 'Slash', cd: 40 }, e: { name: 'Fried Chicken', cd: 70, uses: 2 } } },
@@ -764,7 +776,7 @@ const TT = { windup: 0.25, resistT: 0.7, resist: 0.2, active: 0.15, endlag: 0.2,
 const SHED = { windup: 0.65, active: 0.2, recover: 0.3, lunge: 320, dmg: 30, stun: 3, resist: 0.5, missNoSprint: 2,
                eat: 1.6, healAmt: 35, healTime: 10 };
 const KIT_HELP = {
-  guest: '<b>Q</b> Block (1s; a blocked hit slows Noli and gives a Punch charge) · <b>E</b> Punch (needs a charge, stuns 2s) · <b>R</b> Charge (dash, stuns 1.25s on contact)',
+  guest: '<b>Passive: Made to Last</b> — +10 HP (110) · <b>Passive: Self Sacrifice</b> — Noli\'s single-target hits go to you first when you\'re in the hitbox with others (blocking Guests first of all); Nova still hits everyone · <b>Q</b> Block (1s; a blocked hit slows Noli and gives a Punch charge) · <b>E</b> Punch (needs a charge, stuns 2s) · <b>R</b> Charge (dash, stuns 1.25s on contact)',
   shed: '<b>Q</b> Slash (long windup with damage resistance, then a lunge: 30 dmg + 3s stun; a miss stops you running for a bit) · <b>E</b> Fried Chicken (heals 35 HP over 10s; 2 uses)',
   chance: '<b>Q</b> One Shot (aim 0.75s with the mouse; stun 4s up close → 1s at range) · <b>E</b> Coin Flip (heads: gun ready · tails: Weakness 15s)',
   elliot: '<b>Q</b> Pizza Throw (heals an ally 35; lands on the floor if it misses) · <b>E</b> Rush Hour (you and nearby allies run 35% faster for 4s)',
@@ -1742,7 +1754,7 @@ function update(dt) {
     const letGo = !NI.q && !(r.chain > 0 && r.t < KIT.rush.holdGrace);
     const rbox = fwdBox(KIT.rush.box);
     showBox(rbox, '#ff0000', 0.05);
-    const hit = alive().find((d) => d !== r.ignore && boxHits(rbox, d));
+    const hit = pickVictim(alive().filter((d) => d !== r.ignore && boxHits(rbox, d)));
     if (letGo) { endRush(r.chain ? `Let go of Q — re-rush ended (chain x${r.chain})` : 'Let go of Q — Void Rush ended', 'cancel'); slowNoli();
       chargeUI.cap = ['Aww :I', 'Why did you stop >:(', 'ok...'][Math.floor(Math.random() * 3)]; chargeUI.err = true; chargeUI.tint = 'red'; chargeUI.hold = 0.8; }   // same look as a cancelled charge
     else if (hit) { showBox(rbox, '#00ff4c', 0.25); rushHit(hit); }
