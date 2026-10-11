@@ -246,7 +246,7 @@ function releaseRush() {
   stopSfx('charge');
   // Letting go before the charge finishes cancels it.
   noli.state = 'free'; noli.cds.rush = KIT.rush.cdCancel; sfx('cancel'); log('Void Rush let go too early (1.2s cooldown)');
-  chargeUI.cap = "You didn't charge it long enough >:(("; chargeUI.hold = 1.2;   // keep the ring up long enough to read it
+  chargeUI.cap = "You didn't charge it long enough >:(("; chargeUI.err = true; chargeUI.hold = 0.8;   // keep the ring up long enough to read it
 }
 function startRush(chain, ignore = null) {
   noli.state = 'rush';
@@ -1039,7 +1039,7 @@ function drawChargeUI() {
   const now = performance.now() / 1000, dt = Math.min(0.05, now - (chargeUI.last || now)); chargeUI.last = now;
   // Shown for the whole Void Rush: full while charging and rushing, drains during the re-rush window.
   const st = noli.state, rushing = st === 'rushWind' || st === 'rush' || st === 'reWindow';
-  if (rushing) chargeUI.hold = 0;
+  if (rushing) { chargeUI.hold = 0; chargeUI.err = false; }
   chargeUI.hold = Math.max(0, (chargeUI.hold || 0) - dt);
   const on = rushing || chargeUI.hold > 0;
   // Fills while charging (empty -> full as the charge SFX plays), then tracks the time left:
@@ -1098,8 +1098,9 @@ function drawChargeUI() {
   ctx.globalAlpha = chargeUI.a;
   ctx.font = '17px Georgia, "Times New Roman", serif'; ctx.textAlign = 'center';
   if (chargeUI.cap) {
-    ctx.lineWidth = 3; ctx.strokeStyle = '#000000'; ctx.strokeText(chargeUI.cap, cx, cy + R + 32);
-    ctx.fillStyle = '#e8e8e8'; ctx.fillText(chargeUI.cap, cx, cy + R + 32);
+    // The "didn't charge it long enough" message is red with a dark red outline.
+    ctx.lineWidth = 3; ctx.strokeStyle = chargeUI.err ? '#5a0000' : '#000000'; ctx.strokeText(chargeUI.cap, cx, cy + R + 32);
+    ctx.fillStyle = chargeUI.err ? '#ff3030' : '#e8e8e8'; ctx.fillText(chargeUI.cap, cx, cy + R + 32);
   }
   ctx.restore();
 }
