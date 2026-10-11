@@ -2382,6 +2382,29 @@ const RIT_SIZE = 56, ritMask = document.createElement('canvas'), ritMaskCtx = ri
 ritMask.width = ritMask.height = RIT_SIZE * 2;
 // Spots on the symbol's arms where glimmers appear (sampled from the image's opaque pixels).
 const ritGlints = [[-0.094,0.016],[-0.188,-0.156],[0.125,0.062],[0.062,-0.281],[0.172,-0.25],[0.312,0.188],[-0.406,-0.203],[0.125,0.047],[-0.062,0.25],[-0.031,-0.266],[0.078,0.172],[0.047,-0.094],[0.094,-0.297],[-0.141,-0.219],[-0.031,0.094],[0.031,0.078]];
+// Locating the Ritual: a sun marker over it (or pinned to the screen edge toward it when it's off screen)
+// that spins in, slows down and settles at 90°; 30% transparent.
+const LOC_IMG = new Image(); LOC_IMG.src = 'img/ritual_locate.png';
+const LOC = { size: 46, spin: 1.1, turns: 3, alpha: 0.7, fadeIn: 0.15, fadeOut: 0.5 };
+function drawRitualLocator(d) {
+  if (!LOC_IMG.complete || !LOC_IMG.naturalWidth) return;
+  const R = d.ritual, t = PRAY.reveal - d.ritRevealT;
+  const L = document.getElementById('tools').getBoundingClientRect(), Rr = document.getElementById('side').getBoundingClientRect();
+  const x0 = L.right < W / 2 ? L.right : 0, x1 = Rr.left > W / 2 ? Rr.left : W, m = LOC.size / 2 + 8;
+  let sx = (R.x - cam.x) * cam.s, sy = (R.y - cam.y) * cam.s;
+  if (sx < x0 + m || sy < m || sx > x1 - m || sy > H - m) {
+    // Off screen: slide it along the edge in the Ritual's direction.
+    const cx = (x0 + x1) / 2, cy = H / 2, a = Math.atan2(sy - cy, sx - cx);
+    const k = Math.min(((x1 - x0) / 2 - m) / Math.abs(Math.cos(a) || 1e-6), (H / 2 - m) / Math.abs(Math.sin(a) || 1e-6));
+    sx = cx + Math.cos(a) * k; sy = cy + Math.sin(a) * k;
+  }
+  // Spin: fast at first, easing out to rest exactly at 90 degrees.
+  const k = Math.min(1, t / LOC.spin), e = 1 - Math.pow(1 - k, 3), rot = e * (LOC.turns * Math.PI * 2 + Math.PI / 2);
+  const a = LOC.alpha * Math.min(1, t / LOC.fadeIn, d.ritRevealT / LOC.fadeOut), sc = 0.6 + 0.4 * Math.min(1, t / 0.25);
+  ctx.save(); ctx.translate(sx, sy); ctx.rotate(rot); ctx.globalAlpha = a;
+  ctx.drawImage(LOC_IMG, -LOC.size * sc / 2, -LOC.size * sc / 2, LOC.size * sc, LOC.size * sc);
+  ctx.restore(); ctx.globalAlpha = 1;
+}
 function drawRitualSymbol(x, y, reveal, full, seed) {
   if (!RIT_IMG.complete || !RIT_IMG.naturalWidth) return;
   const T = performance.now() / 1000, S = RIT_SIZE;
@@ -2416,11 +2439,6 @@ function drawRituals() {
     if (A && A.kind === 'ritual' && A.t >= RITUAL.stab1) drawRitualSymbol(A.at.x, A.at.y, clamp((A.t - RITUAL.stab1) / (RITUAL.len - RITUAL.stab1), 0, 1), false, d.id * 0.37);   // forming
     const R = d.ritual; if (!R) continue;
     drawRitualSymbol(R.x, R.y, 1, d.oblation >= 100, d.id * 0.37);
-    if (d.player && d.ritRevealT > 0) {   // Pray from too far away: the Ritual's spot is revealed for 4s
-      const T = performance.now() / 1000, a = Math.min(1, d.ritRevealT / 0.5);
-      ctx.globalAlpha = a * (0.6 + 0.4 * Math.sin(T * 8)); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2.5;
-      ctx.beginPath(); ctx.arc(R.x, R.y, RIT_SIZE * 0.7 + 4 * Math.sin(T * 8), 0, 6.3); ctx.stroke(); ctx.globalAlpha = 1;
-    }
   }
 }
 function drawSurvExtras(d) {
@@ -2716,20 +2734,7 @@ function survHud() {
     ctx.save(); ctx.translate(bx2 - 12, H / 2); ctx.rotate(-Math.PI / 2); label(0, 0, `OBLATION ${Math.round(d.oblation)}%${f >= 1 ? (d.ritual ? ' · READY' : ' · NO RITUAL') : ''}`, f >= 1 ? '#ffffff' : '#c9a8ff', '700 11px system-ui'); ctx.restore();
     ctx.globalAlpha = 1;
   }
-  if (d.ritRevealT > 0 && d.ritual) {
-    // Revealed Ritual: arrow on the screen edge pointing to it when it's off screen.
-    // Visible area = the screen minus the side panels.
-    const L = document.getElementById('tools').getBoundingClientRect(), Rr = document.getElementById('side').getBoundingClientRect();
-    const x0 = L.right < W / 2 ? L.right : 0, x1 = Rr.left > W / 2 ? Rr.left : W, m = 30;
-    const sx = (d.ritual.x - cam.x) * cam.s, sy = (d.ritual.y - cam.y) * cam.s;
-    if (sx < x0 + m || sy < m || sx > x1 - m || sy > H - m) {
-      const cx = (x0 + x1) / 2, cy = H / 2, a = Math.atan2(sy - cy, sx - cx), k = Math.min(((x1 - x0) / 2 - m) / Math.abs(Math.cos(a) || 1e-6), (H / 2 - m) / Math.abs(Math.sin(a) || 1e-6));
-      const ax = cx + Math.cos(a) * k, ay = cy + Math.sin(a) * k;
-      ctx.save(); ctx.translate(ax, ay); ctx.rotate(a); ctx.globalAlpha = Math.min(1, d.ritRevealT / 0.5);
-      ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-8, -9); ctx.lineTo(-3, 0); ctx.lineTo(-8, 9); ctx.closePath(); ctx.fill(); ctx.restore();
-      label(ax - Math.cos(a) * 26, ay - Math.sin(a) * 26 + 4, 'RITUAL', '#ffffff', '700 10px system-ui'); ctx.globalAlpha = 1;
-    }
-  }
+  if (d.ritRevealT > 0 && d.ritual) drawRitualLocator(d);
   // Round clock + Noli's status.
   if (round) {
     const m = Math.floor(round.t / 60), sec = Math.floor(round.t % 60).toString().padStart(2, '0');
