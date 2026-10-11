@@ -733,11 +733,12 @@ const OBL = { front: 20, back: 40, hp: 50, stam: 0.4, inv: 2, speedT: 6, speed: 
 const CROUCH = { cd: 35, minTime: 1, dur: 15, walk: 100, run: 200, ambush: 0.4, ambushTime: 4, uncrouchRange: 300, uncrouchSpeedT: 1, auraRange: 1000, noliSees: 50 };
 function startCrouch(d) {
   d.crouch = true; d.crouchAge = 0; d.ambushT = 0; d.cds.e = CROUCH.cd;   // the 35s cooldown ticks from activation
+  survSfx('tt_crouch', d);
   txt(d.x, d.y - 44, 'crouching', '#9a90bf'); stabBurst(d, 6, 10);
 }
-function endCrouch(d, manual) {
+function endCrouch(d, manual, silent = false) {
   if (!d.crouch) return;
-  d.crouch = false; d.ambushT = 0;
+  d.crouch = false; d.ambushT = 0; if (!silent) survSfx('tt_uncrouch', d);
   if (manual && dist(d, noli) <= CROUCH.uncrouchRange) { d.spdT = Math.max(d.spdT || 0, CROUCH.uncrouchSpeedT); txt(d.x, d.y - 44, 'SPEED II', '#ffffff'); }
   else txt(d.x, d.y - 44, 'standing up', '#9a90bf');
 }
@@ -816,12 +817,13 @@ function useSkill(d, k) {
     case 'twotime.q': {
       const L = TT.lunge, cr = !!d.crouch;
       d.act = { kind: 'dagger', t: 0, crouched: cr, hit: false, dur: TT.windup + (cr ? L.time + L.endlag : TT.active + TT.endlag) };
-      if (cr) endCrouch(d, false);   // the lunge stab stands him back up
-      d.resT = TT.resistT; txt(d.x, d.y - 44, cr ? 'LUNGE' : 'DAGGER', '#bff6ff'); tone(900, 0.12, 'triangle', 0.08, 0.6, d);
+      if (cr) endCrouch(d, false, true);   // the lunge stab stands him back up (Dash_stab covers the sound)
+      d.resT = TT.resistT; txt(d.x, d.y - 44, cr ? 'LUNGE' : 'DAGGER', '#bff6ff');
+      if (cr) survSfx('tt_dashstab', d);   // its strike lands as the lunge connects
       break; }
     case 'twotime.r':
       // Temporary Ritual: marks where the second life respawns you (one at a time).
-      d.ritual = { x: d.x, y: d.y, t: 0 }; ring(d.x, d.y, 30, '#c9a8ff', 0.5); txt(d.x, d.y - 44, 'RITUAL PLACED', '#c9a8ff'); tone(330, 0.3, 'sine', 0.1, 1.5, d); break;
+      d.ritual = { x: d.x, y: d.y, t: 0 }; ring(d.x, d.y, 30, '#c9a8ff', 0.5); txt(d.x, d.y - 44, 'RITUAL PLACED', '#c9a8ff'); survSfx('tt_ritual', d); break;
     case 'twotime.e': startCrouch(d); break;
   }
   return true;
@@ -950,7 +952,7 @@ function survivorTick(d, dt, ai) {
       mul = A.crouched ? 0.2 : 0.55;
       if (Math.random() < dt * 30) { const h = { x: d.x + Math.cos(d.ang + 0.6) * 18, y: d.y + Math.sin(d.ang + 0.6) * 18 }; parts.push({ kind: 'trail', x: h.x + rand(-4, 4), y: h.y + rand(-4, 4), c: Math.random() < 0.5 ? '#bff6ff' : '#ffffff', size: rand(1.5, 3), t: 0, life: 0.35 }); }   // ghostfire
       if (on) {
-        if (!A.swung) { A.swung = true; swing(d, '#bff6ff', 34); aiNoise(d.x, d.y, 300); }
+        if (!A.swung) { A.swung = true; swing(d, '#bff6ff', 34); aiNoise(d.x, d.y, 300); if (!A.crouched) survSfx('tt_stab', d); }
         if (A.crouched) {
           moveCircle(d, Math.cos(d.ang) * L.dist / L.time * dt, Math.sin(d.ang) * L.dist / L.time * dt);
           parts.push({ kind: 'trail', x: d.x + rand(-6, 6), y: d.y + rand(-6, 6), c: Math.random() < 0.5 ? '#bff6ff' : '#3b2a55', size: rand(2, 4), t: 0, life: 0.4 });
