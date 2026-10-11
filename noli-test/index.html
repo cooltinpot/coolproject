@@ -254,7 +254,7 @@ function startRush(chain, ignore = null) {
 }
 // ------------------------------------------------------------- re-rush air slam (PG: stars and void, no blood)
 // Lifted into the air (shown by size), then slammed down on the loud hit of the SFX (0.70s in).
-const AIR = { rise: 0.55, impact: 0.7, end: 0.95, top: 1.9 };
+const AIR = { rise: 0.55, impact: 0.7, end: 0.95, top: 1.9, sfxLen: 3.93 };
 function startAirSlam(d, chain) {
   d.air = { t: 0, chain, hit: false };
   d.vx = d.vy = 0; d.hall = 0;
@@ -291,7 +291,11 @@ function rushHit(d) {
   const r = noli.rush;
   // Any Hallucination turns the hit into a slam. On a re-rush it becomes the air slam.
   if (d.hall >= 1 && r.chain >= 1) {
+    // Air slam: only its own sound plays, and Noli is held still until it finishes (ends the chain).
+    stopSfx('voidrush'); stopWindowSfx(); for (let i = 1; i <= 5; i++) stopSfx('hit' + i);
     startAirSlam(d, r.chain);
+    noli.state = 'slamHold'; noli.st = 0; noli.rush = null; noli.cds.rush = KIT.rush.cd;
+    return;
   } else if (d.hall >= 1) {
     damage(d, slamDmg(r.chain), `Void Rush SLAM (chain x${r.chain})`, '#d36bff');
     d.hall = 0; d.knockT = KIT.rush.knock;
@@ -480,7 +484,7 @@ function update(dt) {
   const sprint = keys.shift && moving && noli.stamina > 0 && (noli.state === 'free' || noli.state === 'reWindow' || noli.state === 'novaWind') && !noli.stance;
   noli.stamina = clamp(noli.stamina + (sprint ? -KIT.stamina.drain : KIT.stamina.regen) * dt, 0, KIT.stamina.max);
   let sp = sprint ? KIT.speed.sprint : KIT.speed.walk;
-  if (noli.stance || noli.state === 'rushWind' || noli.state === 'exec' || noli.stunT > 0) sp = 0;
+  if (noli.stance || noli.state === 'rushWind' || noli.state === 'exec' || noli.state === 'slamHold' || noli.stunT > 0) sp = 0;
   if (noli.state === 'tp') sp *= KIT.obs.waitMove;   // 80% slower while waiting to teleport
   if (noli.state === 'reWindow') sp *= KIT.rush.windowMove;   // walk/sprint at 70% less speed while the re-rush window is open
   if (noli.state === 'novaWind') sp *= KIT.nova.windMove;   // 30% slower during the Nova windup
@@ -496,6 +500,11 @@ function update(dt) {
     // Hitbox stays out for 0.2s after the windup (until it lands on someone).
     if (noli.st >= KIT.stab.windup && noli.st <= KIT.stab.windup + KIT.stab.active && !noli.stabbed) { if (stabHit()) noli.stabbed = true; }
     if (noli.st > KIT.stab.windup + 0.25) { noli.state = 'free'; noli.stabbed = false; }
+  }
+  if (noli.state === 'slamHold') {
+    noli.st += dt;
+    const a = SFX.rush_slam;
+    if ((a && a.ended) || noli.st >= AIR.sfxLen) noli.state = 'free';
   }
   if (noli.state === 'novaWind') { noli.st += dt; if (noli.st >= KIT.nova.windup) throwNova(); }
   if (noli.state === 'rushWind') { noli.st += dt; if (noli.st >= KIT.rush.windup) { stopSfx('charge'); startRush(0); } }
