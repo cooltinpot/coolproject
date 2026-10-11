@@ -445,7 +445,7 @@ function update(dt) {
     const rbox = fwdBox(KIT.rush.box);
     showBox(rbox, '#ff3b5c', 0.05);
     const hit = alive().find((d) => d !== r.ignore && boxHits(rbox, d));
-    if (letGo) endRush(r.chain ? `Let go of Q — re-rush ended (chain x${r.chain})` : 'Let go of Q — Void Rush ended');
+    if (letGo) endRush(r.chain ? `Let go of Q — re-rush ended (chain x${r.chain})` : 'Let go of Q — Void Rush ended', 'cancel');
     else if (hit) rushHit(hit);
     else if (blocked) { endRush(r.chain ? `Void Rush crashed into a wall (chain x${r.chain} lost)` : 'Void Rush crashed into a wall', 'crash'); ring(noli.x, noli.y, 50, '#ffffff', 0.4); }
     else if (r.t >= KIT.rush.dur) endRush('Void Rush ran out');
