@@ -94,7 +94,7 @@ const KIT = {
           burst: 1.35, reSpeed: 1.4, holdGrace: 0.3, endSlow: { time: 0.9, mult: 0.3 }, windowMove: 0.3,
           boost: { time: 1, speed: 1.35, turn: 4.5 },
           box: { off: 10, w: 52, h: 52 }, hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
-  nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, box: 28, blast: 280, pull: 1.1, fx: 2.2, windup: 0.5, windMove: 0.7, boomRange: 585 },   // explosion hearing radius   // fx = how long the implosion visuals last
+  nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, box: 28, blast: 280, pull: 1.1, fx: 2.2, windup: 0.5, windMove: 0.7, boomRange: 819 },   // fx = implosion visual length; boomRange = explosion hearing radius
   hallDur: 5,   // Hallucination wears off 5s after it was last applied
   obs: { travel: 1.0, waitMove: 0.2, landRoot: 0.5, stallRange: 300,   // teleport lands at 00:01 of the teleport SFX
           cd: 30, cdStart: 25, cdLeave: 15, bands: [[20, 3], [50, 2], [100, 1]] },
@@ -126,7 +126,7 @@ function addDummy(x, y, mode = newMode, hp = newHp) {
   if (d.inf) { d.maxHp = 100; d.hp = 100; }
   dummies.push(d); return d;
 }
-const alive = () => dummies.filter((d) => !d.dead);
+const alive = () => dummies.filter((d) => !d.dead && !d.exec);
 
 const logEl = document.getElementById('log');
 function log(s) { const d = document.createElement('div'); d.textContent = s; logEl.prepend(d); while (logEl.children.length > 40) logEl.lastChild.remove(); }
@@ -211,11 +211,12 @@ function stabHit() {
   // Active for 0.2s after the windup: the first survivor inside the square hitbox gets stabbed.
   const box = fwdBox(KIT.stab.box);
   const t = alive().filter((d) => boxHits(box, d)).sort((a, b) => dist(noli, a) - dist(noli, b))[0];
-  showBox(box, '#ff0000', 0.05);
+  showBox(box, t ? '#00ff4c' : '#ff0000', t ? 0.25 : 0.05);   // turns green when it lands
   if (!t) return false;
   stopSfx('stab'); sfx('stabhit');   // a landed stab swaps the stab sound for the hit sound
-  const stacks = t.hall;
-  damage(t, KIT.stab.dmg + stacks * KIT.stab.perStack, `Stab (+${stacks} stack bonus)`);
+  const stacks = t.hall, dmg = KIT.stab.dmg + stacks * KIT.stab.perStack;
+  if (!t.inf && t.hp - dmg <= 0) { startExec(t, dmg, stacks); return true; }   // lethal stab: drag and crush
+  damage(t, dmg, `Stab (+${stacks} stack bonus)`);
   if (stacks) { t.hall = 0; txt(t.x, t.y - 48, 'STACKS CLEARED', '#9a90bf'); }
   t.vx += Math.cos(noli.ang) * 120; t.vy += Math.sin(noli.ang) * 120;
   return true;
@@ -304,7 +305,8 @@ function detonate(n, why) {
     parts.push({ kind: 'star', x: n.x + Math.cos(a) * r, y: n.y + Math.sin(a) * r, c: i % 4 === 0 ? '#000000' : i % 2 ? '#ffffff' : '#c9a8ff', size: rand(3, 11), t: rand(-1.4, 0), life: rand(0.8, 1.6) });
   }
   const blast = { x: n.x, y: n.y, w: KIT.nova.blast, h: KIT.nova.blast, a: 0 };
-  showBox(blast, '#ff0000', KIT.nova.pull);
+  const caught = alive().some((d) => boxHits(blast, d));
+  showBox(blast, caught ? '#00ff4c' : '#ff0000', KIT.nova.pull);
   for (const d of alive()) if (boxHits(blast, d)) damage(d, KIT.nova.dmg, `Nova (${why})`, '#b98cff');
 }
 
@@ -370,7 +372,7 @@ function dummyThink(d, dt) {
   const a = Math.atan2(ty - d.y, tx - d.x), dd = Math.hypot(tx - d.x, ty - d.y);
   return dd > 4 && sp ? { mx: Math.cos(a), my: Math.sin(a), sp } : null;
 }
-function respawnDummy(d) { Object.assign(d, { x: d.home.x, y: d.home.y, hp: d.maxHp, hall: 0, dead: false, deadT: 0, knockT: 0, vx: 0, vy: 0, repair: null, goal: null }); }
+function respawnDummy(d) { Object.assign(d, { x: d.home.x, y: d.home.y, hp: d.maxHp, hall: 0, dead: false, exec: false, squash: 0, fade: 1, wiggle: 0, deadT: 0, knockT: 0, vx: 0, vy: 0, repair: null, goal: null }); }
 
 // ------------------------------------------------------------- creative tools
 const TOOLS = [
@@ -440,12 +442,13 @@ function update(dt) {
   const sprint = keys.shift && moving && noli.stamina > 0 && (noli.state === 'free' || noli.state === 'reWindow' || noli.state === 'novaWind') && !noli.stance;
   noli.stamina = clamp(noli.stamina + (sprint ? -KIT.stamina.drain : KIT.stamina.regen) * dt, 0, KIT.stamina.max);
   let sp = sprint ? KIT.speed.sprint : KIT.speed.walk;
-  if (noli.stance || noli.state === 'rushWind' || noli.stunT > 0) sp = 0;
+  if (noli.stance || noli.state === 'rushWind' || noli.state === 'exec' || noli.stunT > 0) sp = 0;
   if (noli.state === 'tp') sp *= KIT.obs.waitMove;   // 80% slower while waiting to teleport
   if (noli.state === 'reWindow') sp *= KIT.rush.windowMove;   // walk/sprint at 70% less speed while the re-rush window is open
   if (noli.state === 'novaWind') sp *= KIT.nova.windMove;   // 30% slower during the Nova windup
   if (noli.slowT > 0) { noli.slowT -= dt; sp *= KIT.rush.endSlow.mult; }   // slowed after cancelling a rush / missing the window
 
+  if (noli.state === 'exec') updateExec(dt);
   if (noli.stabVis) {
     noli.stabVis.t += dt;
     if (noli.stabVis.t > KIT.stab.windup + STAB_FX.thrust + STAB_FX.hold + STAB_FX.retrieve) noli.stabVis = null; else stabFx(dt);
@@ -494,7 +497,7 @@ function update(dt) {
     showBox(rbox, '#ff0000', 0.05);
     const hit = alive().find((d) => d !== r.ignore && boxHits(rbox, d));
     if (letGo) { endRush(r.chain ? `Let go of Q — re-rush ended (chain x${r.chain})` : 'Let go of Q — Void Rush ended', 'cancel'); slowNoli(); }
-    else if (hit) rushHit(hit);
+    else if (hit) { showBox(rbox, '#00ff4c', 0.25); rushHit(hit); }
     else if (blocked) { endRush(r.chain ? `Void Rush crashed into a wall (chain x${r.chain} lost)` : 'Void Rush crashed into a wall', 'crash'); ring(noli.x, noli.y, 50, '#ffffff', 0.4); }
     else if (r.t >= KIT.rush.dur) endRush('Void Rush ran out');
   } else if (moving) {
@@ -525,6 +528,7 @@ function update(dt) {
   // dummies
   for (const d of dummies) {
     if (d.dead) { d.deadT += dt; if (d.deadT > 3) respawnDummy(d); continue; }
+    if (d.exec) continue;   // the execution moves them
     d.knockT = Math.max(0, d.knockT - dt);
     if (d.hall > 0) { d.hallT += dt; if (d.hallT > KIT.hallDur) { d.hall = 0; d.hallT = 0; txt(d.x, d.y - 36, 'hallucination wore off', '#9a90bf'); } }
     const dragging = mouse.drag && mouse.drag.o === d;
@@ -648,6 +652,73 @@ function drawParts() {
     ctx.globalAlpha = 1; ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
   }
 }
+// ------------------------------------------------------------- stab kill: drag, stomp, wait (PG: stars, no blood)
+const EXEC = { drag: 0.9, lift: 0.12, stomp: 0.08, after: 0.3 };   // after = 0.3s wait once the survivor is gone
+function startExec(d, dmg, stacks) {
+  d.exec = true; d.hall = 0; d.hp = 0; d.vx = d.vy = 0; d.squash = 0; d.fade = 1;
+  txt(d.x, d.y - 24, '-' + dmg, '#ff4d6d');
+  log(`${d.name} — Stab (+${stacks} stack bonus): ${dmg} dmg — finished off`);
+  noli.state = 'exec'; noli.ex = { d, t: 0, from: { x: d.x, y: d.y }, stomped: false };
+}
+function execSpot() { return localToWorld(4, noli.r + 24); }   // just off his right side
+function updateExec(dt) {
+  const e = noli.ex, d = e.d; e.t += dt;
+  const tDrag = EXEC.drag, tStomp = tDrag + EXEC.lift + EXEC.stomp, tEnd = tStomp + 0.25 + EXEC.after;
+  if (e.t < tDrag) {
+    // Dragged across the floor toward his right side while struggling to get away.
+    const k = e.t / tDrag, ease = k * k * (3 - 2 * k), to = execSpot();
+    const away = Math.atan2(d.y - noli.y, d.x - noli.x), tug = Math.sin(e.t * 30) * 6 * (1 - k);
+    d.x = e.from.x + (to.x - e.from.x) * ease + Math.cos(away) * Math.abs(tug);
+    d.y = e.from.y + (to.y - e.from.y) * ease + Math.sin(away) * Math.abs(tug);
+    d.wiggle = Math.sin(e.t * 24) * 0.35 * (1 - k * 0.5);
+    if (Math.random() < dt * 45) parts.push({ kind: 'trail', x: d.x + rand(-8, 8), y: d.y + rand(-4, 10), c: Math.random() < 0.5 ? '#c9a8ff' : '#7a3cff', size: rand(2, 4), t: 0, life: rand(0.5, 0.9) });
+    if (Math.random() < dt * 10) parts.push({ kind: 'star', x: d.x + rand(-14, 14), y: d.y + rand(-14, 14), c: '#ffffff', size: rand(3, 6), t: 0, life: 0.4 });
+  } else {
+    const to = execSpot(); d.x = to.x; d.y = to.y; d.wiggle = 0;
+  }
+  if (!e.stomped && e.t >= tStomp) {
+    // The crush: stars, purple shockwaves, the survivor squashes and fades into sparkles.
+    e.stomped = true; d.squash = 1;
+    sfx('kill', 0.9);
+    ring(d.x, d.y, 50, '#ffffff', 0.35); ring(d.x, d.y, 90, '#c9a8ff', 0.6); ring(d.x, d.y, 130, '#7a3cff', 0.8);
+    for (let i = 0; i < 50; i++) { const a = rand(0, 6.3), r = rand(0, 60); parts.push({ kind: 'star', x: d.x + Math.cos(a) * r, y: d.y + Math.sin(a) * r * 0.7, c: i % 3 === 0 ? '#000000' : i % 3 === 1 ? '#ffffff' : '#c9a8ff', size: rand(3, 10), t: rand(-0.3, 0), life: rand(0.5, 1.0) }); }
+    for (let i = 0; i < 26; i++) { const a = rand(0, 6.3), sp = rand(60, 220); parts.push({ kind: 'spark', x: d.x, y: d.y, z: 6, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.8, vz: rand(160, 360), rot: rand(0, 6.3), spin: rand(6, 14), size: rand(3, 6), c: TP_COLORS[i % 3], t: 0, life: rand(0.8, 1.3) }); }
+  }
+  if (e.stomped) {
+    d.fade = Math.max(0, d.fade - dt / 0.25);
+    if (Math.random() < dt * 30 && d.fade > 0) parts.push({ kind: 'star', x: d.x + rand(-16, 16), y: d.y + rand(-10, 10), c: Math.random() < 0.5 ? '#ffffff' : '#c9a8ff', size: rand(3, 6), t: 0, life: 0.5 });
+    if (d.fade === 0 && !d.dead) { d.dead = true; d.exec = false; d.deadT = 0; d.squash = 0; d.fade = 1; log(`${d.name} was crushed — respawning in 3s`); }
+  }
+  if (e.t >= tEnd) { noli.state = 'free'; noli.ex = null; }
+}
+function drawExec() {
+  const e = noli.ex; if (!e) return;
+  const d = e.d, tDrag = EXEC.drag, T = performance.now() / 1000;
+  // Void tether from his right hand to the survivor while dragging.
+  if (e.t < tDrag + EXEC.lift + EXEC.stomp && !d.dead) {
+    const hand = localToWorld(6, noli.r);
+    ctx.save(); ctx.lineCap = 'round';
+    for (let i = 0; i < 3; i++) { ctx.globalAlpha = 0.5 + 0.4 * Math.sin(T * 35 + i); ctx.strokeStyle = ['#ffffff', '#c9a8ff', '#9a9a9a'][i]; ctx.lineWidth = 2 - i * 0.4;
+      ctx.beginPath(); ctx.moveTo(hand.x + i * 1.5, hand.y); ctx.lineTo(d.x + i * 1.5, d.y); ctx.stroke(); }
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
+  // Right leg: lifts, then crushes down.
+  const t0 = tDrag, t1 = tDrag + EXEC.lift, t2 = t1 + EXEC.stomp;
+  if (e.t >= t0 && e.t < t2 + 0.25) {
+    const spot = execSpot();
+    let h;   // how high the foot is
+    if (e.t < t1) h = (e.t - t0) / EXEC.lift; else if (e.t < t2) h = 1 - (e.t - t1) / EXEC.stomp; else h = 0;
+    const hip = localToWorld(2, noli.r * 0.6);
+    const foot = { x: spot.x, y: spot.y - h * 34 };
+    ctx.save(); ctx.lineCap = 'round';
+    ctx.strokeStyle = '#c9a8ff'; ctx.lineWidth = 13; ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(foot.x, foot.y); ctx.stroke();
+    ctx.strokeStyle = '#120d1f'; ctx.lineWidth = 9; ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.lineTo(foot.x, foot.y); ctx.stroke();
+    ctx.fillStyle = '#120d1f'; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(foot.x, foot.y, 13, 8, noli.ang, 0, 6.3); ctx.fill(); ctx.stroke();
+    if (h > 0.6) star4(foot.x, foot.y - 4, 6, '#c9a8ff', 0.8);
+    ctx.restore();
+  }
+}
 // ------------------------------------------------------------- stab: void star grab -> thrust -> vanish
 // Phases (seconds into the stab): grab on his left, thrust forward, vanish growing 50%.
 const STAB_FX = { thrust: 0.1, hold: 0.2, retrieve: 0.55 };
@@ -737,11 +808,13 @@ function drawDummy(d) {
   const { x, y } = d;
   ctx.save(); ctx.translate(x, y);
   if (d.knockT > 0) ctx.rotate(Math.PI / 2);
+  if (d.exec) { ctx.globalAlpha = d.fade ?? 1; ctx.rotate(d.wiggle || 0); ctx.scale(1 + (d.squash || 0) * 0.6, 1 - (d.squash || 0) * 0.8); }
   // default Roblox-style NPC: yellow head, blue torso, green legs (top-down)
   ctx.fillStyle = '#1f7a3a'; ctx.fillRect(-11, 4, 22, 12);
   ctx.fillStyle = '#2a63c9'; ctx.fillRect(-14, -8, 28, 16);
   ctx.fillStyle = '#f5cd30'; ctx.beginPath(); ctx.arc(0, -2, 9, 0, 6.3); ctx.fill();
-  ctx.restore();
+  ctx.restore(); ctx.globalAlpha = 1;
+  if (d.exec) return;
   if (noli.rush && noli.rush.last === d && noli.state === 'reWindow') { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 26, 0, 6.3); ctx.stroke(); }
   if (d.hall) { ctx.strokeStyle = `rgba(196,155,255,${0.3 + d.hall * 0.2})`; ctx.lineWidth = 2; for (let i = 0; i < d.hall; i++) { ctx.beginPath(); ctx.arc(x, y, 22 + i * 6 + Math.sin(performance.now() / 200 + i) * 2, 0, 6.3); ctx.stroke(); } }
   const bw = 46; ctx.fillStyle = '#2a0f18'; ctx.fillRect(x - bw / 2, y - 36, bw, 6);
@@ -804,6 +877,7 @@ function render() {
     }
   }
   for (const d of dummies) drawDummy(d);
+  drawExec();
   if (hover && hover.kind === 'dummy') { ctx.strokeStyle = tool === 'erase' ? '#ff4d6d' : '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hover.o.x, hover.o.y, 24, 0, 6.3); ctx.stroke(); }
   drawNoli();
   drawStabStar();
