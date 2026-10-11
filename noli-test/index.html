@@ -248,13 +248,38 @@ function releaseRush() {
   noli.state = 'free'; noli.cds.rush = KIT.rush.cdCancel; sfx('cancel'); log('Void Rush let go too early (1.2s cooldown)');
   chargeUI.cap = "You didn't charge it long enough >:(("; chargeUI.err = true; chargeUI.tint = 'red'; chargeUI.hold = 0.8;   // keep the ring up long enough to read it
 }
+// Noli draws his void star at his right side (his crushing side) while charging and holds it through the rush.
+function rushStarPos() { return localToWorld(6, noli.r + 14); }
+function rushStarFx(dt) {
+  const p = rushStarPos();
+  if (noli.state === 'rushWind') {
+    if (noli.st < dt * 1.5) { stabBurst(p, 12, 12); ring(p.x, p.y, 26, '#ffffff', 0.3); }   // pulled out with a burst
+    if (Math.random() < dt * 40) parts.push({ kind: 'gstar', sx: p.x + rand(-40, 40), sy: p.y + rand(-40, 40), c: Math.random() < 0.5 ? '#ffffff' : '#c9a8ff', size: rand(3, 6), t: 0, life: rand(0.3, 0.5), tx: p.x, ty: p.y });
+  } else if (noli.state === 'rush' && Math.random() < dt * 18) {
+    parts.push({ kind: 'trail', x: p.x + rand(-5, 5), y: p.y + rand(-5, 5), c: TP_COLORS[Math.floor(rand(0, 3))], size: rand(1.5, 3), t: 0, life: 0.35 });
+  }
+}
+function drawRushStar() {
+  const st = noli.state; if (st !== 'rushWind' && st !== 'rush') return;
+  const p = rushStarPos(), T = performance.now() / 1000;
+  const k = st === 'rushWind' ? Math.min(1, noli.st / KIT.rush.windup) : 1;
+  const sc = 0.35 + 0.65 * (1 - (1 - k) * (1 - k)), spin = st === 'rushWind' ? T * (6 + k * 10) : T * 14;
+  const pulse = st === 'rush' ? 0.8 + 0.2 * Math.sin(T * 20) : 1;
+  const g = ctx.createRadialGradient(p.x, p.y, 1, p.x, p.y, 22 * sc);
+  g.addColorStop(0, 'rgba(255,255,255,0.75)'); g.addColorStop(0.5, 'rgba(201,168,255,0.35)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 22 * sc, 0, 6.3); ctx.fill();
+  ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(spin);
+  star4(0, 0, 14 * sc * pulse, '#000000'); star4(0, 0, 11 * sc * pulse, '#c9a8ff'); star4(0, 0, 6 * sc * pulse, '#ffffff');
+  ctx.restore();
+}
 function startRush(chain, ignore = null) {
   noli.state = 'rush';
   noli.ang = Math.atan2(world().y - noli.y, world().x - noli.x);
   noli.rush = { t: 0, chain, boostT: 0, boosted: false, ignore, last: null };
   // Every rush (first and re-rush) plays NewVoidRush; the rush ends when it finishes.
   stopSfx('voidrush'); sfx('voidrush');
-  sfx(chain ? 'dash2' : 'dash1');   // first rush vs. every re-rush
+  sfx(chain ? 'dash2' : 'dash1');
+  { const sp = rushStarPos(); stabBurst(sp, 14, 16); ring(sp.x, sp.y, 34, '#c9a8ff', 0.35); }   // star flares as he launches   // first rush vs. every re-rush
   if (chain) {
     ring(noli.x, noli.y, 60, '#d36bff', 0.5); ring(noli.x, noli.y, 30, '#ffffff', 0.25);
     txt(noli.x, noli.y - 30, 'RE-RUSH x' + chain, '#c49bff');
@@ -512,6 +537,7 @@ function update(dt) {
   if (noli.slowT > 0) { noli.slowT -= dt; sp *= KIT.rush.endSlow.mult; }   // slowed after cancelling a rush / missing the window
 
   if (noli.state === 'exec') updateExec(dt);
+  rushStarFx(dt);
   if (noli.stabVis) {
     noli.stabVis.t += dt;
     if (noli.stabVis.t > KIT.stab.windup + STAB_FX.thrust + STAB_FX.hold + STAB_FX.retrieve) noli.stabVis = null; else stabFx(dt);
@@ -557,6 +583,10 @@ function update(dt) {
     moveCircle(noli, vx, vy);
     const blocked = r.t > 0.1 && Math.hypot(noli.x - ox, noli.y - oy) < Math.hypot(vx, vy) * 0.45;
     if (Math.random() < 0.6) fx.push({ x: noli.x, y: noli.y, r: B ? 18 : 14, c: B ? '#d36bff' : '#5b2bbf', t: 0, life: 0.35, trail: true });
+    // Black void wisps, white specks and stars streaming out behind him.
+    const bx = noli.x - Math.cos(noli.ang) * 16, by2 = noli.y - Math.sin(noli.ang) * 16;
+    for (let i = 0; i < 3; i++) parts.push({ kind: 'trail', x: bx + rand(-10, 10), y: by2 + rand(-10, 10), c: i === 0 ? '#ffffff' : i === 1 ? '#c9a8ff' : '#000000', size: i === 2 ? rand(4, 7) : rand(1.5, 3.5), t: 0, life: rand(0.45, 0.8) });
+    if (Math.random() < dt * 25) parts.push({ kind: 'star', x: bx + rand(-14, 14), y: by2 + rand(-14, 14), c: Math.random() < 0.5 ? '#ffffff' : '#c9a8ff', size: rand(3, 7), t: 0, life: rand(0.35, 0.6) });
     if (r.ignore && r.t > 0.3) r.ignore = null;
     // Q must be held for the whole rush. Right after hitting a survivor there is a
     // 0.3s grace where letting go doesn't end the re-rush.
@@ -642,12 +672,17 @@ function update(dt) {
     if (sl.hitT === null) { const rise = sl.d.air ? Math.min(1, sl.d.air.t / AIR.rise) : 1; zTarget = cam.zoom * (1 + 0.35 * rise); zRate = 5; slFocus = sl.d; }
     else { sl.hitT += dt; if (sl.hitT < EXEC.punchTime) { zTarget = cam.zoom * 1.75; zRate = 30; slFocus = sl.d; } else { zTarget = cam.zoom; zRate = 4; } }
   }
+  // Void Rush: push in on Noli while he draws the star, then lead ahead of him while rushing.
+  const charging = noli.state === 'rushWind', rushingNow = noli.state === 'rush';
+  if (!ex && !sl && charging) { zTarget = cam.zoom * 1.15; zRate = 4; }
+  if (!ex && !sl && rushingNow) { zTarget = cam.zoom * 0.95; zRate = 3; }
   cam.s += (zTarget - cam.s) * Math.min(1, dt * zRate);
-  const focus = ex && !ex.stomped ? ex.d : slFocus || noli;
+  const lead = rushingNow && !ex && !sl ? { x: noli.x + Math.cos(noli.ang) * 160, y: noli.y + Math.sin(noli.ang) * 160 } : null;
+  const focus = ex && !ex.stomped ? ex.d : slFocus || lead || noli;
   cam.shake = Math.max(0, (cam.shake || 0) - dt * 40);
   // Smooth only around the kill / slam; otherwise the camera sticks to Noli.
-  cam.ease = ex || sl ? 0.5 : Math.max(0, (cam.ease || 0) - dt);
-  const fk = cam.ease > 0 && cam.fx !== undefined ? Math.min(1, dt * 12) : 1;
+  cam.ease = ex || sl || charging || rushingNow ? 0.5 : Math.max(0, (cam.ease || 0) - dt);
+  const fk = cam.ease > 0 && cam.fx !== undefined ? Math.min(1, dt * (rushingNow ? 6 : 12)) : 1;
   cam.fx = cam.fx === undefined ? focus.x : cam.fx + (focus.x - cam.fx) * fk;
   cam.fy = cam.fy === undefined ? focus.y : cam.fy + (focus.y - cam.fy) * fk;
   const vw = W / cam.s, vh = H / cam.s;
@@ -710,7 +745,7 @@ function drawParts() {
     const k = q.t / q.life;
     if (q.kind === 'gstar') {
       // Pulled into Noli, brightening as it goes then vanishing into him.
-      const e = k * k, x = q.sx + (noli.x - q.sx) * e, y = q.sy + (noli.y - q.sy) * e;
+      const tx = q.tx ?? noli.x, ty = q.ty ?? noli.y, e = k * k, x = q.sx + (tx - q.sx) * e, y = q.sy + (ty - q.sy) * e;
       const tw = 0.6 + 0.4 * Math.sin(q.t * 40);
       star4(x, y, q.size * (1 - k * 0.6) * tw, q.c, Math.min(1, k * 3) * (1 - k * k));
       continue;
@@ -1022,6 +1057,7 @@ function render() {
   if (hover && hover.kind === 'dummy') { ctx.strokeStyle = tool === 'erase' ? '#ff4d6d' : '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hover.o.x, hover.o.y, 24, 0, 6.3); ctx.stroke(); }
   drawNoli();
   drawStabStar();
+  drawRushStar();
   drawParts();
   // placement ghost
   if (!noli.stance && tool !== 'play') {
