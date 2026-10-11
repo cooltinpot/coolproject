@@ -86,7 +86,7 @@ const KIT = {
   speed: { walk: 160, sprint: 270 }, stamina: { max: 110, drain: 10, regen: 20 },
   stab: { dmg: 25, perStack: 5, cd: 2.0, windup: 0.18, box: { off: 38, w: 60, h: 60 } },
   rush: { cd: 20, cdStart: 10, cdCancel: 1.2, windup: 1.2, dur: 3.59,   // windup = charge SFX length, dur = NewVoidRush length
-          speed: 560, turn: 1.8, reRush: 2.37,   // re-rush window = Ding_ring length minus 1.3s
+          speed: 560, turn: 1.8, reRush: 2.37,   // re-rush window length
           burst: 1.35, reSpeed: 1.4, windowMove: 0.3,
           boost: { time: 1, speed: 1.35, turn: 4.5 },
           box: { off: 10, w: 52, h: 52 }, hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
@@ -259,12 +259,12 @@ function rushHit(d) {
   // Chain hit sounds: 1st hit = One_rush ... 5th and every hit after = Rush_five.
   stopSfx('voidrush'); sfx('hit' + Math.min(5, r.chain + 1));
   // Re-rush window sounds: restart from the beginning every window.
-  stopWindowSfx(); sfx('ding'); sfx('hype'); sfx('din');
+  stopWindowSfx(); sfx('hype'); sfx('din');
   noli.x -= Math.cos(noli.ang) * 10; noli.y -= Math.sin(noli.ang) * 10;
   noli.state = 'reWindow'; r.wt = KIT.rush.reRush; r.last = d;
   ring(noli.x, noli.y, 36, '#ffffff', 0.3);
 }
-function stopWindowSfx() { stopSfx('ding'); stopSfx('hype'); stopSfx('din'); }
+function stopWindowSfx() { stopSfx('hype'); stopSfx('din'); }
 function endRush(why, sound = null) { stopSfx('voidrush'); stopWindowSfx(); if (sound) sfx(sound, 0.9); noli.state = 'free'; noli.rush = null; noli.cds.rush = KIT.rush.cd; if (why) log(why); }
 
 function castNova() {
