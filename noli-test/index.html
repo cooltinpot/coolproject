@@ -2385,7 +2385,7 @@ const ritGlints = [[-0.094,0.016],[-0.188,-0.156],[0.125,0.062],[0.062,-0.281],[
 // Locating the Ritual: a sun marker over it (or pinned to the screen edge toward it when it's off screen)
 // that spins in, slows down and settles at 90°; 30% transparent.
 const LOC_IMG = new Image(); LOC_IMG.src = 'img/ritual_locate.png';
-const LOC = { size: 46, spin: 1.1, turns: 3, alpha: 0.7, fadeIn: 0.15, fadeOut: 0.5 };
+const LOC = { size: 69, spin: 1.1, turns: 3, alpha: 0.7, fadeIn: 0.15, fadeOut: 0.5 };
 function drawRitualLocator(d) {
   if (!LOC_IMG.complete || !LOC_IMG.naturalWidth) return;
   const R = d.ritual, t = PRAY.reveal - d.ritRevealT;
