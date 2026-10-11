@@ -254,11 +254,11 @@ function damage(d, amt, why, color = '#ff4d6d', opt = {}) {
   }
   if (d.hp <= 0 && opt.dash) {
     // Killed by Void Rush: no crush and no kill sound; they're launched, then fade into sparkles.
-    d.hp = 0; d.hall = 0; d.dying = KIT.rush.dashDeath; if (!d.rag) ragdoll(d);
+    d.hp = 0; d.hall = 0; d.dying = KIT.rush.dashDeath; if (!d.rag) ragdoll(d); noliKilled();
     log(`${d.name} was slammed down for good — respawning in 3s`);
     return;
   }
-  if (d.hp <= 0) { sfx('kill', 0.9); d.dead = true; d.deadT = 0; d.hall = 0; log(`${d.name} died — respawning in 3s`); }
+  if (d.hp <= 0) { sfx('kill', 0.9); noliKilled(); d.dead = true; d.deadT = 0; d.hall = 0; log(`${d.name} died — respawning in 3s`); }
 }
 
 // ------------------------------------------------------------- abilities
@@ -275,13 +275,18 @@ function guard(d) {
   return true;
 }
 function damageNoli(amt, why) {
+  if (!canHitNoli()) return;
   noli.hp = Math.max(0, noli.hp - amt);
   txt(noli.x, noli.y - 26, '-' + amt, '#ff4d6d'); log(`Noli — ${why}: ${amt} dmg (${Math.round(noli.hp)} HP left)`);
 }
-function canHitNoli() { return noli.state !== 'exec' && noli.state !== 'slamHold'; }
+// I-frames: during a kill and for a moment after. Stun immunity: right after a stun wears off.
+const NOLI_PROT = { killIframes: 2, stunImmune: 3 };
+function canHitNoli() { return noli.state !== 'exec' && noli.state !== 'slamHold' && !(noli.ifT > 0); }
+function noliKilled() { noli.ifT = Math.max(noli.ifT || 0, NOLI_PROT.killIframes); }
 // Survivors stun Noli: whatever he was doing is cut off.
 function stunNoli(t, why) {
   if (!canHitNoli()) return false;
+  if (noli.stunImmT > 0) { txt(noli.x, noli.y - 44, 'STUN IMMUNE', '#5aa9ff'); log(`Noli shrugged off ${why} (stun immune)`); return false; }
   if (noli.state === 'rushWind') { stopSfx('charge'); noli.cds.rush = KIT.rush.cdCancel; }
   if (noli.state === 'rush' || noli.state === 'reWindow') endRush(null);
   if (noli.state === 'tp') { stopSfx('observant_tp'); selGen = null; noli.cds.obs = KIT.obs.cdLeave; }
@@ -709,7 +714,7 @@ const SURV = { walk: 150, sprint: 255, stamMax: 100, drain: 12, regen: 18 };
 const KITS = {
   guest:   { name: 'Guest 1337', hp: 140, torso: '#2e2e36', head: '#f5cd30', hair: '#141414',
              skills: { q: { name: 'Block', cd: 24 }, e: { name: 'Punch', cd: 3 }, r: { name: 'Charge', cd: 45 } } },
-  shed:    { name: 'Shedletsky', hp: 100, torso: '#b8322c', head: '#f5cd30', hair: '#6b4220',
+  shed:    { name: 'Shedletsky', hp: 100, torso: '#efefef', head: '#f5cd30', hair: '#6b4220',
              skills: { q: { name: 'Slash', cd: 40 }, e: { name: 'Fried Chicken', cd: 70, uses: 2 } } },
   chance:  { name: 'Chance', hp: 90, torso: '#c9a24a', head: '#f5cd30', hair: '#3b2a1a',
              skills: { q: { name: 'One Shot', cd: 30 }, e: { name: 'Coin Flip', cd: 12 } } },
@@ -965,7 +970,7 @@ function fleeDir(d) {
 }
 function smartSkills(d, nd, toNoli, dt) {
   if (!d.kit || d.act || d.knockT > 0) return;
-  const free = noli.stunT <= 0 && canHitNoli();
+  const free = noli.stunT <= 0 && !(noli.stunImmT > 0) && canHitNoli();
   const facingMe = Math.abs(angDiff(Math.atan2(d.y - noli.y, d.x - noli.x), noli.ang)) < 0.6;
   const roll = (rate) => Math.random() < dt * rate;
   const sight = clearPath(d, noli, 2);
@@ -1130,7 +1135,7 @@ function resetNoli() {
   if (noli.ex) { const d = noli.ex.d; Object.assign(d, { exec: false, dead: true, deadT: 0, squash: 0, fade: 1 }); noli.ex = null; }
   if (noli.stance) endObsStar();
   Object.assign(noli, { x: 1000, y: 1150, ang: -Math.PI / 2, stamina: KIT.stamina.max, state: 'free', st: 0, rush: null, stance: false, stunT: 0, slowT: 0, dazed: false,
-    stabVis: null, stabbed: false, tp: null, slamCam: null, obsStar: null, hp: noli.maxHp, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart } });
+    stabVis: null, stabbed: false, tp: null, slamCam: null, obsStar: null, hp: noli.maxHp, stunImmT: 0, ifT: 0, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart } });
   if (hitWall(noli.x, noli.y, noli.r)) { noli.x = MAP.w / 2; noli.y = MAP.h / 2; }
   novas.length = 0; novaReturn = null; selGen = null; chargeUI.hold = 0; chargeUI.cap = '';
   AI.target = null; AI.wander = null;
@@ -1221,7 +1226,9 @@ function update(dt) {
     noli.cds[k] = Math.max(0, was - dt);
     if (was > 0 && noli.cds[k] === 0 && (k === 'stab' || k === 'nova')) sfx('star');   // Stab / Nova back off cooldown
   }
-  noli.stunT = Math.max(0, noli.stunT - dt); if (!noli.stunT) noli.dazed = false;
+  noli.stunT = Math.max(0, noli.stunT - dt);
+  if (!noli.stunT && noli.dazed) { noli.dazed = false; noli.stunImmT = NOLI_PROT.stunImmune; txt(noli.x, noli.y - 44, 'STUN IMMUNE', '#5aa9ff'); }
+  noli.stunImmT = Math.max(0, (noli.stunImmT || 0) - dt); noli.ifT = Math.max(0, (noli.ifT || 0) - dt);
   if (mode === 'survivor' && (!player || !dummies.includes(player))) setMode('noli');   // your survivor was erased
   if (mode === 'noli') readNoliInput(); else noliAI(dt);
   const w = world();
@@ -1607,7 +1614,7 @@ function updateExec(dt) {
     if (d.fade === 0 && !d.dead) { d.dead = true; d.exec = false; d.deadT = 0; d.squash = 0; d.fade = 1; log(`${d.name} was crushed — respawning in 3s`); }
   }
   if (e.punchT !== undefined) e.punchT += dt;
-  if (e.t >= tEnd) { noli.state = 'free'; noli.ex = null; }
+  if (e.t >= tEnd) { noli.state = 'free'; noli.ex = null; noliKilled(); }   // i-frames carry on after the kill
 }
 function drawExec() {
   const e = noli.ex; if (!e) return;
@@ -1814,6 +1821,7 @@ function drawNoli() {
   const { x, y } = noli;
   ctx.save(); ctx.translate(x, y);
   const sc = noliScale(); if (sc !== 1) ctx.scale(sc, sc);
+  if (noli.ifT > 0 && noli.state !== 'exec') ctx.globalAlpha = 0.55 + 0.25 * Math.sin(performance.now() / 45);   // i-frames after a kill
   ctx.fillStyle = 'rgba(162,107,255,0.18)'; ctx.beginPath(); ctx.arc(0, 0, 30, 0, 6.3); ctx.fill();
   ctx.rotate(noli.ang);
   const tpGlow = noli.state === 'tp';
@@ -1829,6 +1837,18 @@ function drawNoli() {
   ctx.beginPath(); for (let i = 0; i < 10; i++) { const rr = i % 2 ? 4 : 9, a = i * Math.PI / 5; ctx.lineTo(8 + Math.cos(a) * rr, Math.sin(a) * rr); } ctx.fill();
   if (noli.state === 'novaWind') { const k = Math.min(1, noli.st / KIT.nova.windup); star4(22, 0, 4 + k * 9, '#c9a8ff'); star4(22, 0, 2 + k * 4, '#ffffff'); }   // Nova forming in his hand
   ctx.restore();
+  if (noli.stunImmT > 0) {
+    // Stun immunity: blue rings swirling around him, fading out over the last half second.
+    const T = performance.now() / 1000, f = Math.min(1, noli.stunImmT / 0.5);
+    ctx.save(); ctx.lineCap = 'round';
+    for (let i = 0; i < 3; i++) {
+      const a = T * (4 + i) * (i % 2 ? -1 : 1) + i * 2.1, r = 25 + i * 4;
+      ctx.globalAlpha = (0.85 - i * 0.2) * f; ctx.strokeStyle = i === 1 ? '#bfe0ff' : '#5aa9ff'; ctx.lineWidth = 3 - i * 0.6;
+      ctx.beginPath(); ctx.arc(x, y, r, a, a + 2.2); ctx.stroke();
+      star4(x + Math.cos(a + 2.2) * r, y + Math.sin(a + 2.2) * r, 3.5, '#ffffff', f);
+    }
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
   if (noli.dazed && noli.stunT > 0) {   // stunned: stars circling his head
     const T = performance.now() / 1000;
     for (let i = 0; i < 4; i++) { const a = T * 5 + i * Math.PI / 2; star4(x + Math.cos(a) * 18, y - 28 + Math.sin(a) * 5, 5, i % 2 ? '#c9a8ff' : '#ffffff'); }
@@ -2175,7 +2195,8 @@ function survHud() {
     label(W / 2, 66, `Generators done: ${round.gens} · hold F at one to repair`, '#9a90bf');
   }
   { const nb = 220, nx = W / 2 - nb / 2; ctx.fillStyle = '#14111f'; ctx.fillRect(nx, 104, nb, 8); ctx.fillStyle = '#c9a8ff'; ctx.fillRect(nx, 104, nb * noli.hp / noli.maxHp, 8); label(W / 2, 126, `NOLI ${Math.ceil(noli.hp)} / ${noli.maxHp}`, '#c9a8ff', '700 11px system-ui'); }
-  if (noli.dazed && noli.stunT > 0) label(W / 2, 88, `NOLI STUNNED ${noli.stunT.toFixed(1)}s — RUN!`, '#ffffff', '700 15px system-ui');
+  if (noli.stunImmT > 0 && !(noli.dazed && noli.stunT > 0)) label(W / 2, 88, `Noli is stun immune ${noli.stunImmT.toFixed(1)}s`, '#5aa9ff', '700 15px system-ui');
+  else if (noli.dazed && noli.stunT > 0) label(W / 2, 88, `NOLI STUNNED ${noli.stunT.toFixed(1)}s — RUN!`, '#ffffff', '700 15px system-ui');
   else if (noli.state === 'rushWind' || noli.state === 'rush') label(W / 2, 88, 'Void Rush incoming!', '#c9a8ff', '700 15px system-ui');
   if (d.dead || d.dying || d.exec) { ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, 0, W, H); label(W / 2, H / 2 - 20, 'YOU WERE CAUGHT', '#ffffff', '700 30px system-ui'); label(W / 2, H / 2 + 10, 'respawning…', '#9a90bf'); }
   if (banner) {
