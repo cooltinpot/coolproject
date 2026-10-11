@@ -94,7 +94,7 @@ const KIT = {
           burst: 1.35, reSpeed: 1.4, holdGrace: 0.3, endSlow: { time: 0.9, mult: 0.3 }, windowMove: 0.3,
           boost: { time: 1, speed: 1.35, turn: 4.5 },
           box: { off: 10, w: 52, h: 52 }, hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
-  nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, box: 28, blast: 280, pull: 1.1, fx: 2.2, windup: 0.3, windMove: 0.7, boomRange: 450 },   // boomRange = Observant's 300 + 50%   // fx = how long the implosion visuals last
+  nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, box: 28, blast: 280, pull: 1.1, fx: 2.2, windup: 0.5, windMove: 0.7, boomRange: 450 },   // boomRange = Observant's 300 + 50%   // fx = how long the implosion visuals last
   hallDur: 5,   // Hallucination wears off 5s after it was last applied
   obs: { travel: 1.0, waitMove: 0.2, landRoot: 0.5, stallRange: 300,   // teleport lands at 00:01 of the teleport SFX
           cd: 30, cdStart: 25, cdLeave: 15, bands: [[20, 3], [50, 2], [100, 1]] },
@@ -279,7 +279,7 @@ function castNova() {
   const live = novas.find((n) => !n.boom);
   if (live && live.t >= KIT.nova.recast) { detonate(live, 'recast'); return; }
   if (busy() || noli.stance || !ready('nova') || live) return;
-  // 0.3s windup (moving 30% slower), then the throw.
+  // 0.5s windup (moving 30% slower), then the throw.
   noli.state = 'novaWind'; noli.st = 0; noli.cds.nova = KIT.nova.cd;
   sfx('nova_throw');
 }
