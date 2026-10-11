@@ -499,7 +499,11 @@ function update(dt) {
   const ml = Math.hypot(mx, my) || 1; mx /= ml; my /= ml;
   const moving = mx || my;
   const sprint = keys.shift && moving && noli.stamina > 0 && (noli.state === 'free' || noli.state === 'reWindow' || noli.state === 'novaWind') && !noli.stance;
-  noli.stamina = clamp(noli.stamina + (sprint ? -KIT.stamina.drain : KIT.stamina.regen) * dt, 0, KIT.stamina.max);
+  // No stamina regen at all during Void Rush (charge, rush, re-rush window); the boost drains it like sprinting.
+  const inVoidRush = noli.state === 'rushWind' || noli.state === 'rush' || noli.state === 'reWindow';
+  const boosting = noli.state === 'rush' && noli.rush && noli.rush.boostT > 0 && keys.shift;
+  const drain = sprint || boosting;
+  noli.stamina = clamp(noli.stamina + (drain ? -KIT.stamina.drain : inVoidRush ? 0 : KIT.stamina.regen) * dt, 0, KIT.stamina.max);
   let sp = sprint ? KIT.speed.sprint : KIT.speed.walk;
   if (noli.stance || noli.state === 'rushWind' || noli.state === 'exec' || noli.state === 'slamHold' || noli.stunT > 0) sp = 0;
   if (noli.state === 'tp') sp *= KIT.obs.waitMove;   // 80% slower while waiting to teleport
@@ -542,7 +546,7 @@ function update(dt) {
     // Sprinting during a re-rush gives extra speed and turning, but only inside the
     // first 1s of that re-rush: the boost always ends at the 1s mark.
     const left = KIT.rush.boost.time - r.t;
-    if (r.chain > 0 && keys.shift && !r.boosted && left > 0) { r.boosted = true; txt(noli.x, noli.y - 30, 'BOOST', '#ffffff'); log(`Re-rush boost (${left.toFixed(1)}s left of the 1s window)`); }
+    if (r.chain > 0 && keys.shift && !r.boosted && left > 0 && noli.stamina > 0) { r.boosted = true; txt(noli.x, noli.y - 30, 'BOOST', '#ffffff'); log(`Re-rush boost (${left.toFixed(1)}s left of the 1s window)`); }
     r.boostT = r.boosted ? Math.max(0, left) : 0;
     const B = r.boostT > 0 ? KIT.rush.boost : null;
     const turn = B ? B.turn : KIT.rush.turn;
