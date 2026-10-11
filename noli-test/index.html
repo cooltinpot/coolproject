@@ -312,18 +312,19 @@ function detonate(n, why) {
 
 function stallVol() { return gens.length ? clamp(1 - Math.min(...gens.map((g) => dist(noli, g))) / KIT.obs.stallRange, 0, 1) : 0; }
 function toggleObservant() {
-  if (noli.stance) { stopSfx('stall'); noli.stance = false; noli.cds.obs = KIT.obs.cdLeave; log('Left Observant (15s cooldown)'); return; }
+  if (noli.stance) { stopSfx('stall'); stopSfx('gen_start'); noli.stance = false; noli.cds.obs = KIT.obs.cdLeave; log('Left Observant (15s cooldown)'); return; }
   if (busy() || !ready('obs')) return;
   if (!gens.length) { log('Observant needs a generator — place one'); return; }
   noli.stance = true; log('Observant: click a generator to teleport');
   sfx('observant_enter');
   // Stall loops while choosing; its volume follows how close Noli is to a generator.
   sfx('stall', stallVol()); if (SFX.stall) SFX.stall.loop = true;
+  sfx('gen_start', stallVol());   // same proximity rules as Stall, but plays once
 }
 function observantPick(g) {
   // Short travel time before Noli arrives at the generator.
   noli.stance = false; noli.state = 'tp'; noli.st = 0; noli.tp = g;
-  stopSfx('stall');
+  stopSfx('stall'); stopSfx('gen_start');
   sfx('observant_tp');
   ring(noli.x, noli.y, 50, '#a26bff', 0.8);
 }
@@ -538,7 +539,7 @@ function update(dt) {
     d.vx *= Math.pow(0.02, dt); d.vy *= Math.pow(0.02, dt);
   }
 
-  if (noli.stance && SFX.stall) SFX.stall.volume = stallVol();
+  if (noli.stance) { const v = stallVol(); if (SFX.stall) SFX.stall.volume = v; if (SFX.gen_start) SFX.gen_start.volume = v; }
   for (const g of gens) { g.hov = Math.abs(w.x - g.x) < GEN_SIZE / 2 && Math.abs(w.y - g.y) < GEN_SIZE / 2; g.animT = (g.animT || 0) + dt * (g.hov ? 1 : 0.2); }
   for (const b of hitboxes) b.t += dt;
   for (let i = hitboxes.length - 1; i >= 0; i--) if (hitboxes[i].t > hitboxes[i].life) hitboxes.splice(i, 1);
