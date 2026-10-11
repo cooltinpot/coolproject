@@ -34,6 +34,7 @@
   <h3>New dummies</h3>
   <div class="row" id="modes"></div>
   <div class="row" style="margin-top:5px" id="hps"></div>
+  <div class="row" style="margin-top:5px" id="kits"></div>
   <h3>Map</h3>
   <div class="row">
     <button id="applyAll">Apply to all</button>
@@ -41,17 +42,23 @@
     <button id="clearD">Clear dummies</button>
     <button id="clearAll">Empty map</button>
     <button id="resetMap">Default map</button>
+    <button id="squad">Survivor squad</button>
   </div>
   <small>Mouse wheel = zoom</small>
 </div>
 <div id="side" class="panel">
-  <h2>NOLI</h2>
+  <h2>PLAY AS</h2>
+  <div class="row" id="playAs"></div>
+  <h3>Survivor</h3>
+  <div class="row" id="survPick"></div>
+  <h3>Settings</h3>
   <div class="row">
     <button id="reset">Reset cooldowns</button>
     <button id="nocd">No cooldowns: off</button>
     <button id="hbx" class="on">Hitboxes: on</button>
   </div>
-  <small>WASD move · Shift sprint · Mouse aim<br>
+  <small id="helpSurv" style="display:none"></small>
+  <small id="helpNoli">WASD move · Shift sprint · Mouse aim<br>
   <b>LMB</b> Stab (Play tool) · <b>Q</b> Void Rush (hold to charge — rushes when charged; keep holding Q while rushing) · <b>E</b> Nova (E again = detonate) · <b>R</b> Observant<br>
   <b>Void Rush:</b> hit a survivor → quick countdown → <b>Q</b> to re-rush off them. Chains stack slam damage. Shift during the first 1s of a re-rush = boost (ends at 1s).</small>
   <div id="log"></div>
@@ -111,21 +118,22 @@ let walls = [], gens = [], dummies = [];
 function defaultMap() {
   walls = [...BORDER, { x: 620, y: 380, w: 70, h: 70 }, { x: 1310, y: 380, w: 70, h: 70 }, { x: 620, y: 950, w: 70, h: 70 }, { x: 1310, y: 950, w: 70, h: 70 }];
   gens = [{ x: 260, y: 240, fake: false, prog: 0 }, { x: 1740, y: 240, fake: false, prog: 0 }, { x: 260, y: 1160, fake: false, prog: 0 }, { x: 1740, y: 1160, fake: true, prog: 0 }];
-  dummies = [];
-  addDummy(1000, 500, 'stand'); addDummy(800, 650, 'stand'); addDummy(1200, 650, 'stand');
+  dummies = dummies.filter((d) => d.player);
+  if (mode === 'survivor') KIT_IDS.filter((k) => k !== playerKit).slice(0, 3).forEach((k, i) => addDummy(800 + i * 200, 600, 'smart', 100, k));
+  else { addDummy(1000, 500, 'stand', 100, ''); addDummy(800, 650, 'stand', 100, ''); addDummy(1200, 650, 'stand', 100, ''); }
 }
 
 // ------------------------------------------------------------- entities
 const noli = { x: 1000, y: 1150, r: 18, ang: -Math.PI / 2, stamina: KIT.stamina.max, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart },
   state: 'free', st: 0, rush: null, stance: false, stunT: 0 };
 const fwdBox = (o) => ({ x: noli.x + Math.cos(noli.ang) * o.off, y: noli.y + Math.sin(noli.ang) * o.off, w: o.w, h: o.h, a: noli.ang });
-let newMode = 'stand', newHp = 100, noCd = false, tool = 'play', dummyN = 0;
+let newMode = 'stand', newHp = 100, newKit = '', noCd = false, tool = 'play', dummyN = 0;
 const novas = [], fx = [], texts = [];
-function addDummy(x, y, mode = newMode, hp = newHp) {
+function addDummy(x, y, behave = newMode, hp = newHp, kit = newKit) {
   const d = { id: ++dummyN, name: 'Dummy ' + dummyN, home: { x, y }, x, y, r: 16, maxHp: hp, hp, inf: hp === Infinity, hall: 0, hallT: 0, vx: 0, vy: 0, knockT: 0,
-    dead: false, deadT: 0, mode, goal: null, genT: 0, repair: null };
+    dead: false, deadT: 0, mode: behave, goal: null, genT: 0, repair: null, ang: -Math.PI / 2 };
   if (d.inf) { d.maxHp = 100; d.hp = 100; }
-  dummies.push(d); return d;
+  dummies.push(d); applyKit(d, kit); return d;
 }
 const alive = () => dummies.filter((d) => !d.dead && !d.exec && !d.air && !d.dying);
 
@@ -135,9 +143,33 @@ function txt(x, y, s, c) { texts.push({ x, y, s, c, t: 0 }); }
 // ------------------------------------------------------------- sound
 const SFX = {};
 function sfx(name, vol = 0.8) {
+  if (mode === 'survivor' && player) vol *= clamp(1 - dist(noli, player) / 1400, 0.25, 1);   // Noli's sounds fade with distance when you're a survivor
   try { const a = new Audio('sfx/' + name + '.mp3'); a.volume = vol; a.play().catch(() => {}); SFX[name] = a; } catch (e) { /* no audio */ }
 }
 function stopSfx(name) { const a = SFX[name]; if (a) { a.pause(); SFX[name] = null; } }
+// Small synth sounds for survivor abilities (no files needed); quieter the further they are from you.
+let AC = null;
+function listener() { return mode === 'survivor' && player ? player : noli; }
+function tone(f, dur = 0.12, type = 'square', vol = 0.12, slide = 0, at = null) {
+  try {
+    const v = vol * (at ? clamp(1 - dist(listener(), at) / 1200, 0, 1) : 1); if (v <= 0.002) return;
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    const o = AC.createOscillator(), g = AC.createGain(), t0 = AC.currentTime;
+    o.type = type; o.frequency.setValueAtTime(f, t0); if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, f * slide), t0 + dur);
+    g.gain.setValueAtTime(v, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    o.connect(g).connect(AC.destination); o.start(t0); o.stop(t0 + dur);
+  } catch (e) { /* no audio */ }
+}
+function noiseBurst(dur = 0.2, vol = 0.3, at = null) {
+  try {
+    const v = vol * (at ? clamp(1 - dist(listener(), at) / 1200, 0, 1) : 1); if (v <= 0.002) return;
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    const n = Math.floor(AC.sampleRate * dur), buf = AC.createBuffer(1, n, AC.sampleRate), ch = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3);
+    const src = AC.createBufferSource(), g = AC.createGain(); src.buffer = buf; g.gain.value = v;
+    src.connect(g).connect(AC.destination); src.start();
+  } catch (e) { /* no audio */ }
+}
 function ring(x, y, r, c, life = 0.4) { fx.push({ x, y, r, c, t: 0, life }); }
 
 // ------------------------------------------------------------- input
@@ -148,7 +180,7 @@ addEventListener('keydown', (e) => {
   keys[k] = true;
   if (['q', 'e', 'r', ' ', 'tab'].includes(k)) e.preventDefault();
 });
-addEventListener('keyup', (e) => { const k = e.key.toLowerCase(); keys[k] = false; if (k === 'q') releaseRush(); });
+addEventListener('keyup', (e) => { const k = e.key.toLowerCase(); keys[k] = false; if (k === 'q' && mode === 'noli') releaseRush(); });
 cv.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
 cv.addEventListener('mousedown', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; mouse.down = true; mouse.click = true; });
 addEventListener('mouseup', () => { mouse.down = false; mouse.up = true; });
@@ -157,11 +189,23 @@ cv.addEventListener('touchstart', (e) => { const t = e.touches[0]; mouse.x = t.c
 cv.addEventListener('touchend', () => { mouse.down = false; mouse.up = true; });
 const cam = { x: 0, y: 0, s: 1, zoom: 1 };
 const world = () => ({ x: mouse.x / cam.s + cam.x, y: mouse.y / cam.s + cam.y });
+// Who you play: 'noli', or 'survivor' (then Noli is driven by his AI).
+let mode = 'noli', player = null, playerKit = 'guest';
+// Noli's inputs, filled each frame by the keyboard/mouse or by his AI: aim point, move direction, Shift, Q held.
+const NI = { ax: 0, ay: 0, mx: 0, my: 0, shift: false, q: false };
+function readNoliInput() {
+  const w = world(); NI.ax = w.x; NI.ay = w.y;
+  const mx = (keys.d ? 1 : 0) - (keys.a ? 1 : 0), my = (keys.s ? 1 : 0) - (keys.w ? 1 : 0), l = Math.hypot(mx, my) || 1;
+  NI.mx = mx / l; NI.my = my / l; NI.shift = !!keys.shift; NI.q = !!keys.q;
+}
 
 function press(k) {
-  if (k === 'q') castRush();
-  if (k === 'e') castNova();
-  if (k === 'r') toggleObservant();
+  if (mode === 'survivor') { if (player && (k === 'q' || k === 'e' || k === 'r')) useSkill(player, k); }
+  else {
+    if (k === 'q') castRush();
+    if (k === 'e') castNova();
+    if (k === 'r') toggleObservant();
+  }
   const t = TOOLS.find((t) => t.key === k);
   if (t) setTool(t.id);
 }
@@ -191,10 +235,18 @@ function addHall(d, n, why) {
 function setHall(d, n, why) { if (d.hall < n) addHall(d, n - d.hall, why); }
 function damage(d, amt, why, color = '#ff4d6d', opt = {}) {
   if (d.dead || d.dying) return;
+  if (d.weakT > 0) amt *= 1.5;   // Chance's tails: Weakness
+  if (d.act && (d.act.kind === 'eat' || d.act.kind === 'aim' || d.act.kind === 'flip')) { d.act = null; txt(d.x, d.y - 52, 'interrupted', '#9a90bf'); }
   d.hp -= amt;
   txt(d.x, d.y - 24, '-' + amt.toFixed(amt % 1 ? 1 : 0), color);
   log(`${d.name} — ${why}: ${amt.toFixed(1)} dmg` + (d.inf ? '' : ` (${Math.max(0, d.hp).toFixed(1)} HP left)`));
   if (d.inf) { if (d.hp <= 0) d.hp = d.maxHp; return; }
+  if (d.hp <= 0 && d.kit === 'twotime' && !d.revived) {
+    // Two Time's passive: gets back up once.
+    d.revived = true; d.hp = 30; d.hall = 0; d.crouch = false;
+    txt(d.x, d.y - 52, 'REVIVED', '#ffffff'); stabBurst(d, 16, 18); ring(d.x, d.y, 40, '#c9a8ff', 0.5);
+    log(`${d.name} got back up (revive used, 30 HP)`); return;
+  }
   if (d.hp <= 0 && opt.dash) {
     // Killed by Void Rush: no crush and no kill sound; they're launched, then fade into sparkles.
     d.hp = 0; d.hall = 0; d.dying = KIT.rush.dashDeath; if (!d.rag) ragdoll(d);
@@ -205,7 +257,32 @@ function damage(d, amt, why, color = '#ff4d6d', opt = {}) {
 }
 
 // ------------------------------------------------------------- abilities
-function ready(k) { return noCd || noli.cds[k] <= 0; }
+function ready(k) { return (noCd && mode === 'noli') || noli.cds[k] <= 0; }
+// Lethal unless they have a revive left (Two Time) — Weakness counts.
+function wouldDie(t, dmg) { return !t.inf && t.hp - dmg * (t.weakT > 0 ? 1.5 : 1) <= 0 && !(t.kit === 'twotime' && !t.revived); }
+// Guest 1337's Block: the hit is negated, Noli is slowed and Guest gains a Punch charge.
+function guard(d) {
+  if (!(d.invT > 0)) return false;
+  d.punch = Math.min(3, (d.punch || 0) + 1);
+  txt(d.x, d.y - 40, 'BLOCKED!', '#ffffff'); ring(d.x, d.y, 34, '#ffffff', 0.35); ring(d.x, d.y, 52, '#c9a8ff', 0.45);
+  log(`${d.name} blocked it — Punch charge ${d.punch}`); tone(880, 0.18, 'triangle', 0.15, 0.6, d);
+  slowNoli();
+  return true;
+}
+function canHitNoli() { return noli.state !== 'exec' && noli.state !== 'slamHold'; }
+// Survivors stun Noli: whatever he was doing is cut off.
+function stunNoli(t, why) {
+  if (!canHitNoli()) return false;
+  if (noli.state === 'rushWind') { stopSfx('charge'); noli.cds.rush = KIT.rush.cdCancel; }
+  if (noli.state === 'rush' || noli.state === 'reWindow') endRush(null);
+  if (noli.state === 'tp') { stopSfx('observant_tp'); selGen = null; noli.cds.obs = KIT.obs.cdLeave; }
+  if (noli.stance) { endObsStar(); stopSfx('stall'); stopSfx('gen_start'); noli.stance = false; noli.cds.obs = KIT.obs.cdLeave; }
+  noli.state = 'free'; noli.stabbed = false; noli.stunT = Math.max(noli.stunT, t); noli.dazed = true;
+  txt(noli.x, noli.y - 44, 'STUNNED ' + t.toFixed(1) + 's', '#ffffff'); log(`Noli stunned ${t.toFixed(2)}s — ${why}`);
+  stabBurst(noli, 14, 20); ring(noli.x, noli.y, 40, '#ffffff', 0.35);
+  tone(330, 0.35, 'triangle', 0.18, 0.4, noli); cam.shake = Math.max(cam.shake || 0, 4);
+  return true;
+}
 function busy() { return noli.state !== 'free' || noli.stunT > 0; }
 
 function stab() {
@@ -220,9 +297,10 @@ function stabHit() {
   const t = alive().filter((d) => boxHits(box, d)).sort((a, b) => dist(noli, a) - dist(noli, b))[0];
   showBox(box, t ? '#00ff4c' : '#ff0000', t ? 0.25 : 0.05);   // turns green when it lands
   if (!t) return false;
+  if (guard(t)) return true;
   stopSfx('stab'); sfx('stabhit');   // a landed stab swaps the stab sound for the hit sound
   const stacks = t.hall, dmg = KIT.stab.dmg + stacks * KIT.stab.perStack;
-  if (!t.inf && t.hp - dmg <= 0) { startExec(t, dmg, stacks); return true; }   // lethal stab: drag and crush
+  if (wouldDie(t, dmg)) { startExec(t, dmg, stacks); return true; }   // lethal stab: drag and crush
   damage(t, dmg, `Stab (+${stacks} stack bonus)`);
   if (stacks) { t.hall = 0; txt(t.x, t.y - 48, 'STACKS CLEARED', '#9a90bf'); }
   t.vx += Math.cos(noli.ang) * 120; t.vy += Math.sin(noli.ang) * 120;
@@ -431,7 +509,7 @@ function drawRushStar() {
 }
 function startRush(chain, ignore = null) {
   noli.state = 'rush';
-  noli.ang = Math.atan2(world().y - noli.y, world().x - noli.x);
+  noli.ang = Math.atan2(NI.ay - noli.y, NI.ax - noli.x);
   noli.rush = { t: 0, chain, boostT: 0, boosted: false, ignore, last: null };
   // Every rush (first and re-rush) plays NewVoidRush; the rush ends when it finishes.
   stopSfx('voidrush'); sfx('voidrush');
@@ -487,6 +565,7 @@ function ragdoll(d) {
 }
 function rushHit(d) {
   const r = noli.rush;
+  if (guard(d)) { endRush(`${d.name} blocked the Void Rush`, 'crash'); return; }
   // Any Hallucination turns the hit into a slam. On a re-rush it becomes the air slam.
   if (d.hall >= 1 && r.chain >= 1) {
     // Air slam: only its own sound plays, and Noli is held still until it finishes (ends the chain).
@@ -529,7 +608,7 @@ function castNova() {
 }
 function throwNova() {
   noli.state = 'free';
-  const w = world(), a = Math.atan2(w.y - noli.y, w.x - noli.x);
+  const a = Math.atan2(NI.ay - noli.y, NI.ax - noli.x);
   novas.push({ x: noli.x + Math.cos(a) * 26, y: noli.y + Math.sin(a) * 26, r: 10, vx: Math.cos(a) * KIT.nova.speed, vy: Math.sin(a) * KIT.nova.speed, t: 0, boom: false, bt: 0, carry: null });
 }
 function detonate(n, why) {
@@ -550,7 +629,7 @@ function detonate(n, why) {
   const blast = { x: n.x, y: n.y, w: KIT.nova.blast, h: KIT.nova.blast, a: 0 };
   const caught = alive().some((d) => boxHits(blast, d));
   showBox(blast, caught ? '#00ff4c' : '#ff0000', KIT.nova.pull);
-  for (const d of alive()) if (boxHits(blast, d)) damage(d, KIT.nova.dmg, `Nova (${why})`, '#b98cff');
+  for (const d of alive()) if (boxHits(blast, d) && !guard(d)) damage(d, KIT.nova.dmg, `Nova (${why})`, '#b98cff');
 }
 
 function stallVol() { return gens.length ? clamp(1 - Math.min(...gens.map((g) => dist(noli, g))) / KIT.obs.stallRange, 0, 1) : 0; }
@@ -558,7 +637,7 @@ function toggleObservant() {
   if (noli.stance) { endObsStar(); stopSfx('stall'); stopSfx('gen_start'); sfx('gen_end'); noli.stance = false; noli.cds.obs = KIT.obs.cdLeave; log('Left Observant (15s cooldown)'); return; }
   if (busy() || !ready('obs')) return;
   if (!gens.length) { log('Observant needs a generator — place one'); return; }
-  noli.stance = true; log('Observant: click a generator to teleport');
+  noli.stance = true; log(mode === 'noli' ? 'Observant: click a generator to teleport' : 'Noli entered Observant…');
   noli.obsStar = { t: 0 }; stabBurst(localToWorld(4, -(noli.r + 16)), 8, 10);   // star appears at his left side
   sfx('observant_enter');
   // Stall loops while choosing; its volume follows how close Noli is to a generator.
@@ -599,27 +678,468 @@ function dummyThink(d, dt) {
     const a = Math.atan2(d.y - noli.y, d.x - noli.x);
     tx = d.x + Math.cos(a) * 100; ty = d.y + Math.sin(a) * 100; sp = dist(d, noli) < 500 ? 210 : 120;
     if (hitWall(tx, ty, d.r + 30)) { const b = a + Math.PI / 2; tx = d.x + Math.cos(b) * 100; ty = d.y + Math.sin(b) * 100; }
-  } else if (d.mode === 'repair') {
-    if (!d.repair || d.repair.prog >= 1 || !gens.includes(d.repair)) d.repair = gens.filter((g) => g.prog < 1).sort((a, b) => dist(a, d) - dist(b, d))[0] || null;
-    if (d.repair) {
-      const g = d.repair;
-      if (dist(d, g) > 44) { tx = g.x; ty = g.y + 40; sp = 140; }
-      else {
-        g.prog += dt / 8; d.genT += dt;
-        if (g.fake && d.genT > 2.2) { d.genT = 0; addHall(d, 1, 'Prankster puzzle'); }
-        if (g.prog >= 1) {
-          if (g.fake) { setHall(d, 3, 'Prankster fake generator completed'); txt(g.x, g.y - 40, 'IT WAS FAKE', '#ff4d6d'); }
-          else txt(g.x, g.y - 40, 'GENERATOR DONE', '#7dffa8');
-          setTimeout(() => (g.prog = 0), 4000);
-          d.repair = null;
-        }
+  } else if (d.mode === 'repair') return repairThink(d, dt);
+  const a = Math.atan2(ty - d.y, tx - d.x), dd = Math.hypot(tx - d.x, ty - d.y);
+  return dd > 4 && sp ? { mx: Math.cos(a), my: Math.sin(a), sp, sprint: sp > 150 } : null;
+}
+function repairTick(d, g, dt) {
+  g.prog += dt / 8; d.genT += dt;
+  if (g.fake && d.genT > 2.2) { d.genT = 0; addHall(d, 1, 'Prankster puzzle'); }
+  if (g.prog >= 1) {
+    g.prog = 1;
+    if (g.fake) { setHall(d, 3, 'Prankster fake generator completed'); txt(g.x, g.y - 40, 'IT WAS FAKE', '#ff4d6d'); }
+    else { txt(g.x, g.y - 40, 'GENERATOR DONE', '#7dffa8'); genDone(g); }
+    setTimeout(() => (g.prog = 0), 4000);
+    d.repair = null;
+  }
+}
+function respawnDummy(d) { Object.assign(d, { x: d.home.x, y: d.home.y, hp: d.maxHp, hall: 0, dead: false, dying: 0, air: null, rag: null, exec: false, squash: 0, fade: 1, wiggle: 0, deadT: 0, knockT: 0, vx: 0, vy: 0, repair: null, goal: null }); if (d.kit) resetSurv(d); }
+
+// ------------------------------------------------------------- survivors (Forsaken kits)
+const SURV = { walk: 150, sprint: 255, stamMax: 100, drain: 12, regen: 18 };
+const KITS = {
+  guest:   { name: 'Guest 1337', hp: 140, torso: '#2e2e36', head: '#f5cd30', hair: '#141414',
+             skills: { q: { name: 'Block', cd: 24 }, e: { name: 'Punch', cd: 3 }, r: { name: 'Charge', cd: 45 } } },
+  shed:    { name: 'Shedletsky', hp: 125, torso: '#b8322c', head: '#f5cd30', hair: '#6b4220',
+             skills: { q: { name: 'Slash', cd: 30 }, e: { name: 'Fried Chicken', cd: 40 } } },
+  chance:  { name: 'Chance', hp: 90, torso: '#c9a24a', head: '#f5cd30', hair: '#3b2a1a',
+             skills: { q: { name: 'One Shot', cd: 30 }, e: { name: 'Coin Flip', cd: 12 } } },
+  elliot:  { name: 'Elliot', hp: 100, torso: '#d9452b', head: '#f5cd30', hair: '#ffffff',
+             skills: { q: { name: 'Pizza Throw', cd: 25 }, e: { name: 'Rush Hour', cd: 50 } } },
+  twotime: { name: 'Two Time', hp: 80, torso: '#3b2a55', head: '#d8d2c0', hair: '#241a36',
+             skills: { q: { name: 'Backstab', cd: 30 }, e: { name: 'Crouch', cd: 1 } } },
+};
+const KIT_IDS = Object.keys(KITS);
+const KIT_HELP = {
+  guest: '<b>Q</b> Block (1s; a blocked hit slows Noli and gives a Punch charge) · <b>E</b> Punch (needs a charge, stuns 2s) · <b>R</b> Charge (dash, stuns 1.25s on contact)',
+  shed: '<b>Q</b> Slash (lunge, stuns 3.25s; you\'re slowed while swinging) · <b>E</b> Fried Chicken (eat for 1.6s, +35 HP)',
+  chance: '<b>Q</b> One Shot (aim 0.75s with the mouse; stun 4s up close → 1s at range) · <b>E</b> Coin Flip (heads: gun ready · tails: Weakness 15s)',
+  elliot: '<b>Q</b> Pizza Throw (heals an ally 35; lands on the floor if it misses) · <b>E</b> Rush Hour (you and nearby allies run 35% faster for 4s)',
+  twotime: '<b>Q</b> Backstab (from behind Noli: slip in and stun 3.5s) · <b>E</b> Crouch (slow, Noli can\'t see you past 15 studs) · <b>Passive</b> revive once at 30 HP',
+};
+function resetSurv(d) {
+  Object.assign(d, { cds: { q: 0, e: 0, r: 0 }, stam: SURV.stamMax, tired: false, act: null, invT: 0, slowT: 0, speedT: 0, weakT: 0, punch: 0, crouch: false, revived: false });
+}
+function applyKit(d, kit) {
+  d.kit = kit || null;
+  if (!kit) { d.name = 'Dummy ' + d.id; return; }
+  const K = KITS[kit];
+  d.name = K.name + (dummies.some((o) => o !== d && o.kit === kit) ? ' ' + d.id : '');
+  if (!d.inf) { d.maxHp = K.hp; d.hp = K.hp; }
+  resetSurv(d);
+}
+function heal(d, n, why) {
+  if (d.dead || d.dying) return;
+  const b = d.hp; d.hp = Math.min(d.maxHp, d.hp + n);
+  txt(d.x, d.y - 24, '+' + Math.round(d.hp - b), '#7dffa8'); log(`${d.name} — ${why}: +${Math.round(d.hp - b)} HP`);
+}
+const survBox = (d, off, w, h) => ({ x: d.x + Math.cos(d.ang) * off, y: d.y + Math.sin(d.ang) * off, w, h, a: d.ang });
+function behindNoli(d) { return Math.abs(angDiff(Math.atan2(d.y - noli.y, d.x - noli.x), noli.ang)) > 1.9; }
+const pizzas = [], beams = [], swings = [];
+function swing(d, c, r = 34) { swings.push({ x: d.x, y: d.y, a: d.ang, c, r, t: 0, life: 0.22 }); }
+
+function useSkill(d, k) {
+  const K = d.kit && KITS[d.kit], s = K && K.skills[k];
+  if (!s || d.dead || d.dying || d.exec || d.air || d.knockT > 0 || d.act) return false;
+  if (d.cds[k] > 0 && !(noCd && d.player)) return false;
+  const id = d.kit + '.' + k;
+  if (id === 'guest.e' && d.punch <= 0) { if (d.player) txt(d.x, d.y - 44, 'Block a hit first', '#9a90bf'); return false; }
+  d.cds[k] = s.cd;
+  switch (id) {
+    case 'guest.q':
+      d.invT = 1; ring(d.x, d.y, 28, '#ffffff', 0.3); txt(d.x, d.y - 44, 'BLOCK', '#ffffff'); tone(520, 0.12, 'triangle', 0.12, 0, d); break;
+    case 'guest.e': {
+      d.punch--;
+      const b = survBox(d, 30, 46, 46), hit = canHitNoli() && boxHits(b, noli);
+      showBox(b, hit ? '#00ff4c' : '#ff0000', hit ? 0.25 : 0.12); swing(d, '#ffffff', 30); tone(140, 0.12, 'square', 0.2, 0.5, d);
+      if (hit) { stunNoli(2, `${d.name}'s Punch`); ring(noli.x, noli.y, 30, '#ffffff', 0.25); }
+      break; }
+    case 'guest.r':
+      d.act = { kind: 'charge', t: 0, dur: 0.9 }; txt(d.x, d.y - 44, 'CHARGE!', '#ffffff'); tone(90, 0.5, 'sawtooth', 0.12, 2, d); break;
+    case 'shed.q':
+      d.act = { kind: 'slash', t: 0, dur: 0.75, hit: false }; tone(260, 0.15, 'sawtooth', 0.1, 1.8, d); break;
+    case 'shed.e':
+      d.act = { kind: 'eat', t: 0, dur: 1.6 }; txt(d.x, d.y - 44, 'Fried Chicken', '#ffd8a8'); break;
+    case 'chance.q':
+      d.act = { kind: 'aim', t: 0, dur: 0.75 }; tone(1400, 0.05, 'square', 0.1, 0, d); break;
+    case 'chance.e':
+      d.act = { kind: 'flip', t: 0, dur: 0.7 }; tone(1800, 0.08, 'sine', 0.1, 1.3, d); break;
+    case 'elliot.q': {
+      const sp = 430;
+      pizzas.push({ x: d.x + Math.cos(d.ang) * 20, y: d.y + Math.sin(d.ang) * 20, r: 8, vx: Math.cos(d.ang) * sp, vy: Math.sin(d.ang) * sp, t: 0, rot: 0, from: d, ground: false });
+      swing(d, '#ffd8a8', 26); txt(d.x, d.y - 44, 'PIZZA!', '#ffd8a8'); tone(600, 0.1, 'triangle', 0.1, 1.5, d);
+      break; }
+    case 'elliot.e':
+      for (const o of dummies) if (o.kit && !o.dead && !o.dying && dist(o, d) <= 170) { o.speedT = 4; ring(o.x, o.y, 30, '#ffffff', 0.4); }
+      ring(d.x, d.y, 170, '#c9a8ff', 0.5); txt(d.x, d.y - 44, 'RUSH HOUR!', '#ffffff'); tone(440, 0.3, 'square', 0.1, 2, d); break;
+    case 'twotime.q': backstab(d); break;
+    case 'twotime.e':
+      d.crouch = !d.crouch; txt(d.x, d.y - 44, d.crouch ? 'crouching' : 'standing up', '#9a90bf'); break;
+  }
+  return true;
+}
+function backstab(d) {
+  d.crouch = false;
+  if (dist(d, noli) < 95 && behindNoli(d) && canHitNoli()) {
+    // Slip in right behind him and stab.
+    const a = noli.ang + Math.PI, p = { x: noli.x + Math.cos(a) * (noli.r + d.r + 2), y: noli.y + Math.sin(a) * (noli.r + d.r + 2) };
+    if (!hitWall(p.x, p.y, d.r)) { d.x = p.x; d.y = p.y; }
+    d.ang = noli.ang; swing(d, '#c9a8ff', 30);
+    txt(d.x, d.y - 44, 'BACKSTAB!', '#ffffff'); stunNoli(3.5, `${d.name}'s Backstab`);
+    noiseBurst(0.08, 0.25, d); tone(200, 0.2, 'sawtooth', 0.15, 0.5, d);
+  } else {
+    // Not behind him: a short lunge that hits nothing.
+    d.cds.q = 10; d.vx += Math.cos(d.ang) * 260; d.vy += Math.sin(d.ang) * 260;
+    swing(d, '#9a9a9a', 30); txt(d.x, d.y - 44, 'missed (get behind him)', '#9a90bf');
+  }
+}
+function fireGun(d) {
+  const c = Math.cos(d.ang), s = Math.sin(d.ang), x0 = d.x + c * 18, y0 = d.y + s * 18;
+  let x = x0, y = y0, hit = false;
+  for (let i = 0; i < 90; i++) {
+    x += c * 8; y += s * 8;
+    if (hitWall(x, y, 2)) break;
+    if (canHitNoli() && Math.hypot(noli.x - x, noli.y - y) < noli.r + 3) { hit = true; break; }
+  }
+  beams.push({ x1: x0, y1: y0, x2: x, y2: y, t: 0, life: 0.35 });
+  noiseBurst(0.25, 0.4, d); if (d.player) cam.shake = Math.max(cam.shake || 0, 5);
+  d.vx -= c * 160; d.vy -= s * 160;   // recoil
+  for (let i = 0; i < 8; i++) parts.push({ kind: 'star', x: x0 + rand(-6, 6), y: y0 + rand(-6, 6), c: i % 2 ? '#ffffff' : '#ffe9a8', size: rand(2, 5), t: 0, life: 0.25 });
+  if (hit) {
+    const dd = dist(d, noli), t = clamp(4 - dd / 720 * 3, 1, 4);
+    stunNoli(t, `${d.name}'s One Shot (${(dd / STUD).toFixed(0)} studs)`);
+  } else txt(d.x, d.y - 44, 'missed', '#9a90bf');
+}
+// Per-frame survivor logic: cooldowns, timers, actions and movement (ai = { mx, my, sprint, face }).
+function survivorTick(d, dt, ai) {
+  for (const k in d.cds) d.cds[k] = Math.max(0, d.cds[k] - dt);
+  d.invT = Math.max(0, d.invT - dt); d.slowT = Math.max(0, d.slowT - dt); d.speedT = Math.max(0, d.speedT - dt);
+  if (d.weakT > 0) { d.weakT -= dt; if (d.weakT <= 0) { d.weakT = 0; txt(d.x, d.y - 44, 'weakness wore off', '#9a90bf'); } }
+  if (d.knockT > 0) { d.act = null; return; }
+  const A = d.act;
+  // Facing: the mouse for you, the way they're going (or what they aim at) for AI.
+  const want = ai && ai.face !== undefined ? ai.face : ai && (ai.mx || ai.my) ? Math.atan2(ai.my, ai.mx) : d.ang;
+  if (!A || A.kind === 'eat' || A.kind === 'flip') d.ang += angDiff(want, d.ang) * (d.player ? 1 : Math.min(1, dt * 12));
+  else if (A.kind === 'aim') d.ang += clamp(angDiff(want, d.ang), -4 * dt, 4 * dt);
+  else if (A.kind === 'charge') d.ang += clamp(angDiff(want, d.ang), -2.2 * dt, 2.2 * dt);
+  let mul = 1;
+  if (A) {
+    A.t += dt;
+    if (A.kind === 'charge') {
+      // Guest's Charge: a straight, barely-steerable dash that stuns Noli on contact.
+      const sp = 440, res = moveCircle(d, Math.cos(d.ang) * sp * dt, Math.sin(d.ang) * sp * dt);
+      if (Math.random() < dt * 40) parts.push({ kind: 'trail', x: d.x + rand(-8, 8), y: d.y + rand(-8, 8), c: Math.random() < 0.5 ? '#ffffff' : '#9a9a9a', size: rand(2, 4), t: 0, life: 0.4 });
+      if (canHitNoli() && dist(d, noli) < d.r + noli.r + 6) {
+        stunNoli(1.25, `${d.name}'s Charge`); d.act = null; d.vx -= Math.cos(d.ang) * 200; d.vy -= Math.sin(d.ang) * 200;
+        noiseBurst(0.12, 0.3, d); ring(noli.x, noli.y, 36, '#ffffff', 0.3);
+      } else if (res.bx || res.by) { d.act = null; d.slowT = 0.6; ring(d.x, d.y, 26, '#ffffff', 0.3); tone(100, 0.15, 'square', 0.15, 0.5, d); }
+      else if (A.t >= A.dur) d.act = null;
+      d.stam = Math.min(SURV.stamMax, d.stam + SURV.regen * dt);
+      return;
+    }
+    if (A.kind === 'slash') {
+      // Windup, lunge with the hitbox out, then a slow recovery.
+      mul = 0.25;
+      if (A.t >= 0.2 && A.t < 0.4) {
+        if (!A.swung) { A.swung = true; swing(d, '#ffffff', 44); noiseBurst(0.1, 0.18, d); }
+        moveCircle(d, Math.cos(d.ang) * 320 * dt, Math.sin(d.ang) * 320 * dt);
+        const b = survBox(d, 34, 66, 52), hit = !A.hit && canHitNoli() && boxHits(b, noli);
+        showBox(b, hit || A.hit ? '#00ff4c' : '#ff0000', 0.05);
+        if (hit) { A.hit = true; stunNoli(3.25, `${d.name}'s Slash`); ring(noli.x, noli.y, 40, '#ffffff', 0.3); }
+      }
+      if (A.t >= A.dur) d.act = null;
+    } else if (A.kind === 'eat') {
+      mul = 0.3;
+      if (Math.random() < dt * 6) parts.push({ kind: 'star', x: d.x + rand(-10, 10), y: d.y - 20 + rand(-6, 6), c: '#ffd8a8', size: rand(2, 3), t: 0, life: 0.3 });
+      if (A.t >= A.dur) { d.act = null; heal(d, 35, 'Fried Chicken'); tone(700, 0.15, 'sine', 0.12, 1.4, d); }
+    } else if (A.kind === 'aim') {
+      mul = 0.35;
+      if (A.t >= A.dur) { d.act = null; fireGun(d); }
+    } else if (A.kind === 'flip') {
+      mul = 0.8;
+      if (A.t >= A.dur) {
+        d.act = null;
+        if (Math.random() < 0.5) { d.cds.q = 0; txt(d.x, d.y - 44, 'HEADS — One Shot ready!', '#ffffff'); tone(1300, 0.2, 'sine', 0.12, 1.5, d); }
+        else { d.weakT = 15; txt(d.x, d.y - 44, 'TAILS — Weakness 15s', '#c97a7a'); tone(300, 0.25, 'sine', 0.12, 0.6, d); }
+        log(`${d.name} flipped ${d.cds.q === 0 ? 'heads' : 'tails'}`);
       }
     }
   }
-  const a = Math.atan2(ty - d.y, tx - d.x), dd = Math.hypot(tx - d.x, ty - d.y);
-  return dd > 4 && sp ? { mx: Math.cos(a), my: Math.sin(a), sp } : null;
+  const moving = ai && (ai.mx || ai.my);
+  if (d.stam <= 0) d.tired = true; if (d.stam >= 35) d.tired = false;
+  const sprint = moving && ai.sprint && d.stam > 0 && !(d.tired && !d.player) && !d.crouch && !A;
+  d.stam = clamp(d.stam + (sprint ? -SURV.drain : SURV.regen) * dt, 0, SURV.stamMax);
+  if (!moving) return;
+  let sp = (sprint ? SURV.sprint : ai.sp && !ai.sprint ? Math.min(ai.sp, SURV.walk) : SURV.walk) * mul;
+  if (d.speedT > 0) { sp *= 1.35; if (Math.random() < dt * 20) parts.push({ kind: 'trail', x: d.x + rand(-10, 10), y: d.y + rand(-10, 10), c: Math.random() < 0.5 ? '#ffffff' : '#c9a8ff', size: rand(1.5, 3), t: 0, life: 0.4 }); }
+  if (d.crouch) sp *= 0.5;
+  if (d.slowT > 0) sp *= 0.5;
+  moveCircle(d, ai.mx * sp * dt, ai.my * sp * dt);
 }
-function respawnDummy(d) { Object.assign(d, { x: d.home.x, y: d.home.y, hp: d.maxHp, hall: 0, dead: false, dying: 0, air: null, rag: null, exec: false, squash: 0, fade: 1, wiggle: 0, deadT: 0, knockT: 0, vx: 0, vy: 0, repair: null, goal: null }); }
+function updatePizzas(dt) {
+  for (const p of pizzas) {
+    p.t += dt; p.rot += dt * (p.ground ? 0.5 : 12);
+    if (!p.ground) {
+      const res = moveCircle(p, p.vx * dt, p.vy * dt);
+      const o = dummies.find((o) => o !== p.from && o.kit && !o.dead && !o.dying && !o.exec && dist(o, p) < o.r + p.r);
+      if (o) { heal(o, 35, `${p.from.name}'s pizza`); p.done = true; ring(o.x, o.y, 28, '#7dffa8', 0.35); }
+      else if (res.bx || res.by || p.t > 0.8) { p.ground = true; p.t = 0; }
+    } else {
+      // Missed pizzas sit on the floor; a hurt survivor who walks over one eats it.
+      const o = dummies.find((o) => o.kit && !o.dead && !o.dying && !o.exec && o.hp < o.maxHp && dist(o, p) < o.r + 10 && (o !== p.from || p.t > 0.6));
+      if (o) { heal(o, 35, 'Pizza off the floor'); p.done = true; }
+      if (p.t > 15) p.done = true;
+    }
+  }
+  for (let i = pizzas.length - 1; i >= 0; i--) if (pizzas[i].done) pizzas.splice(i, 1);
+  for (const b of beams) b.t += dt; for (let i = beams.length - 1; i >= 0; i--) if (beams[i].t > beams[i].life) beams.splice(i, 1);
+  for (const s of swings) s.t += dt; for (let i = swings.length - 1; i >= 0; i--) if (swings[i].t > swings[i].life) swings.splice(i, 1);
+}
+
+// ------------------------------------------------------------- pathing helpers
+function clearPath(a, b, r) {
+  const L = Math.hypot(b.x - a.x, b.y - a.y), n = Math.max(1, Math.ceil(L / 15));
+  for (let i = 1; i <= n; i++) if (hitWall(a.x + (b.x - a.x) * i / n, a.y + (b.y - a.y) * i / n, r)) return false;
+  return true;
+}
+// Heads straight for the target when the way is clear, otherwise picks the open direction that gets closest.
+function steerTo(e, tx, ty) {
+  const base = Math.atan2(ty - e.y, tx - e.x);
+  if (clearPath(e, { x: tx, y: ty }, e.r - 2)) { e.steerA = base; return base; }
+  let best = base, bs = -Infinity;
+  for (let i = 0; i < 16; i++) {
+    const a = i / 16 * Math.PI * 2, p = { x: e.x + Math.cos(a) * 70, y: e.y + Math.sin(a) * 70 };
+    if (!clearPath(e, p, e.r)) continue;
+    const s = -Math.hypot(tx - p.x, ty - p.y) + (e.steerA !== undefined ? Math.cos(a - e.steerA) * 25 : 0);
+    if (s > bs) { bs = s; best = a; }
+  }
+  e.steerA = best; return best;
+}
+
+// ------------------------------------------------------------- smart survivor AI
+// Repairs while Noli is far, runs (using pillars, avoiding corners) when he's close,
+// sidesteps Void Rushes and Novas, and uses their kit the way a decent player would.
+function fleeDir(d) {
+  let best = null, bs = -Infinity;
+  for (let i = 0; i < 16; i++) {
+    const a = i / 16 * Math.PI * 2, p = { x: d.x + Math.cos(a) * 90, y: d.y + Math.sin(a) * 90 };
+    if (!clearPath(d, p, d.r)) continue;
+    const edge = Math.min(p.x, p.y, MAP.w - p.x, MAP.h - p.y);
+    let sc = dist(p, noli) - Math.max(0, 230 - edge) * 1.3;   // don't get cornered
+    if (d.fleeA !== undefined) sc += Math.cos(a - d.fleeA) * 30;   // keep running the same way
+    if (!clearPath(p, noli, 2)) sc += 40;   // put a pillar between you and him
+    if (sc > bs) { bs = sc; best = a; }
+  }
+  if (best === null) best = Math.atan2(d.y - noli.y, d.x - noli.x);
+  d.fleeA = best; return best;
+}
+function smartSkills(d, nd, toNoli, dt) {
+  if (!d.kit || d.act || d.knockT > 0) return;
+  const free = noli.stunT <= 0 && canHitNoli();
+  const facingMe = Math.abs(angDiff(Math.atan2(d.y - noli.y, d.x - noli.x), noli.ang)) < 0.6;
+  const roll = (rate) => Math.random() < dt * rate;
+  const sight = clearPath(d, noli, 2);
+  switch (d.kit) {
+    case 'guest':
+      if (((noli.state === 'stab' && nd < 100) || (noli.state === 'rush' && nd < 170 && facingMe) || (noli.state === 'rushWind' && nd < 120)) && roll(14)) useSkill(d, 'q');
+      else if (d.punch > 0 && nd < 62 && free) { d.ang = toNoli; useSkill(d, 'e'); }
+      else if (free && nd > 70 && nd < 210 && sight && roll(0.5)) { d.ang = toNoli; useSkill(d, 'r'); }
+      break;
+    case 'shed':
+      if (free && nd < 80 && roll(6)) { d.ang = toNoli; useSkill(d, 'q'); }
+      else if (d.hp < d.maxHp * 0.6 && nd > 480 && roll(2)) useSkill(d, 'e');
+      break;
+    case 'chance':
+      if (free && nd > 70 && nd < 330 && sight && roll(1.5)) { d.ang = toNoli; useSkill(d, 'q'); }
+      else if (d.cds.q > 8 && !d.weakT && nd > 480 && roll(0.5)) useSkill(d, 'e');
+      break;
+    case 'elliot': {
+      const hurt = dummies.find((o) => o !== d && o.kit && !o.dead && !o.dying && !o.exec && o.hp < o.maxHp - 30 && dist(o, d) < 330 && clearPath(d, o, 6));
+      if (hurt && roll(3)) { d.ang = Math.atan2(hurt.y - d.y, hurt.x - d.x); useSkill(d, 'q'); }
+      else if (free && nd < 260 && roll(3)) useSkill(d, 'e');
+      break; }
+    case 'twotime':
+      if (free && nd < 90 && behindNoli(d) && roll(8)) useSkill(d, 'q');
+      else if (!d.crouch && nd > 320 && nd < 700 && roll(0.6)) useSkill(d, 'e');
+      else if (d.crouch && nd < 260 && roll(5)) useSkill(d, 'e');
+      break;
+  }
+}
+function repairThink(d, dt) {
+  if (!d.repair || d.repair.prog >= 1 || !gens.includes(d.repair)) d.repair = gens.filter((g) => g.prog < 1).sort((a, b) => dist(a, d) - dist(b, d))[0] || null;
+  if (!d.repair) return null;
+  const g = d.repair;
+  if (dist(d, g) > 44) { const a = steerTo(d, g.x, g.y + 40); return { mx: Math.cos(a), my: Math.sin(a), sp: 140 }; }
+  repairTick(d, g, dt);
+  return null;
+}
+function smartThink(d, dt) {
+  if (d.knockT > 0) return null;
+  const nd = dist(d, noli), toNoli = Math.atan2(noli.y - d.y, noli.x - d.x);
+  smartSkills(d, nd, toNoli, dt);
+  if (d.act && d.act.kind === 'aim') return { mx: 0, my: 0, face: Math.atan2(noli.y + (noli.vy || 0) * 0.1 - d.y, noli.x + (noli.vx || 0) * 0.1 - d.x) };   // tracks him
+  if (d.act && (d.act.kind === 'slash' || d.act.kind === 'charge')) return { mx: 0, my: 0, face: toNoli };
+  const threat = noli.stunT <= 0.3 && canHitNoli();
+  // Sidestep a Void Rush aimed at us.
+  const facingMe = Math.abs(angDiff(Math.atan2(d.y - noli.y, d.x - noli.x), noli.ang)) < 0.45;
+  d.dodgeT = (d.dodgeT || 0) - dt;
+  if ((noli.state === 'rush' || noli.state === 'rushWind') && nd < 340 && facingMe) {
+    if (d.dodgeT <= 0) { d.dodge = Math.random() < 0.5 ? 1 : -1; d.dodgeT = 0.8; }
+    let a = noli.ang + d.dodge * Math.PI / 2;
+    if (hitWall(d.x + Math.cos(a) * 50, d.y + Math.sin(a) * 50, d.r)) { d.dodge = -d.dodge; a = noli.ang + d.dodge * Math.PI / 2; }
+    return { mx: Math.cos(a), my: Math.sin(a), sprint: true };
+  }
+  // Get out of a Nova's path.
+  const nv = novas.find((n) => !n.boom && dist(n, d) < 260);
+  if (nv) {
+    const side = Math.sign(nv.vx * (d.y - nv.y) - nv.vy * (d.x - nv.x)) || 1, a = Math.atan2(nv.vy, nv.vx) + side * Math.PI / 2;
+    return { mx: Math.cos(a), my: Math.sin(a), sprint: true };
+  }
+  if (threat && nd < 520) {
+    d.thinkT = (d.thinkT || 0) - dt;
+    if (d.thinkT <= 0 || d.fleeA === undefined) { fleeDir(d); d.thinkT = 0.15; }
+    return { mx: Math.cos(d.fleeA), my: Math.sin(d.fleeA), sprint: nd < 380 };
+  }
+  d.fleeA = undefined;
+  return repairThink(d, dt);
+}
+function playerThink(d, dt) {
+  const w = world(), face = Math.atan2(w.y - d.y, w.x - d.x);
+  let mx = (keys.d ? 1 : 0) - (keys.a ? 1 : 0), my = (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
+  const l = Math.hypot(mx, my) || 1;
+  d.repairing = null;
+  if (keys.f && !d.act && d.knockT <= 0) {
+    const g = gens.find((g) => g.prog < 1 && dist(g, d) < 80);
+    if (g) { d.repairing = g; repairTick(d, g, dt); mx = my = 0; }
+  }
+  return { mx: mx / l, my: my / l, sprint: !!keys.shift, face };
+}
+
+// ------------------------------------------------------------- AI Noli (when you play a survivor)
+// Chases the best target, stabs up close, charges Void Rush when there's a clear lane and
+// re-rushes off hits, throws Nova and detonates it on top of people, and uses Observant to
+// teleport to the generator nearest a survivor when nobody's around.
+const AI = { target: null, retarget: 0, reDelay: 0, chainMax: 2, obsT: 0, obsWait: 0.8, last: 'free', sprintLock: false, wander: null };
+function seen(d) { return !(d.crouch && dist(noli, d) > 150); }   // Two Time crouching
+function aimLead(d, t) { return { x: d.x + (d.svx || 0) * t, y: d.y + (d.svy || 0) * t }; }
+function pickTarget() {
+  let best = null, bs = Infinity;
+  for (const d of alive()) {
+    if (!seen(d)) continue;
+    const s = dist(noli, d) - d.hall * 70 - (1 - d.hp / d.maxHp) * 80 + (clearPath(noli, d, 4) ? 0 : 150);
+    if (s < bs) { bs = s; best = d; }
+  }
+  return best;
+}
+function bestGen() {
+  let best = null, bs = Infinity;
+  for (const g of gens) { if (dist(noli, g) < 260) continue; for (const d of alive()) { const s = dist(g, d); if (s < bs) { bs = s; best = g; } } }
+  return best;
+}
+function moveToward(x, y, sprint) {
+  const a = steerTo(noli, x, y); NI.mx = Math.cos(a); NI.my = Math.sin(a);
+  if (noli.stamina < 5) AI.sprintLock = true; if (noli.stamina > 40) AI.sprintLock = false;
+  NI.shift = sprint && !AI.sprintLock;
+}
+function noliAI(dt) {
+  NI.mx = NI.my = 0; NI.shift = false;
+  const st = noli.state;
+  if (st === 'reWindow' && AI.last !== 'reWindow') AI.reDelay = rand(0.2, 0.6);   // human-ish reaction
+  if (st === 'rushWind' && AI.last !== 'rushWind') AI.chainMax = 1 + Math.floor(rand(0, 4));
+  AI.last = st;
+  AI.retarget -= dt;
+  if (!AI.target || !alive().includes(AI.target) || !seen(AI.target) || AI.retarget <= 0) { AI.target = pickTarget(); AI.retarget = 1.2; }
+  const t = AI.target;
+  // Detonate a live Nova once it's on top of somebody.
+  const live = novas.find((n) => !n.boom);
+  if (live && live.t >= KIT.nova.recast && alive().some((d) => Math.abs(d.x - live.x) < KIT.nova.blast * 0.38 && Math.abs(d.y - live.y) < KIT.nova.blast * 0.38)) castNova();
+  if (noli.stance) {
+    NI.q = false; AI.obsT += dt;
+    if (AI.obsT > AI.obsWait) { const g = bestGen(); if (g) observantPick(g); else toggleObservant(); }
+    return;
+  }
+  if (noli.stunT > 0 || st === 'exec' || st === 'slamHold' || st === 'tp') { NI.q = false; return; }
+  if (!t) {
+    // Nobody in sight: Observant to a generator near someone, or patrol the generators.
+    NI.q = false;
+    if (st === 'free' && ready('obs') && gens.length > 1 && alive().length) { toggleObservant(); AI.obsT = 0; AI.obsWait = rand(0.6, 1.2); return; }
+    if (!AI.wander || dist(noli, AI.wander) < 70) { const g = gens[Math.floor(rand(0, gens.length))]; AI.wander = g ? { x: g.x, y: g.y + 60 } : { x: rand(200, MAP.w - 200), y: rand(200, MAP.h - 200) }; }
+    NI.ax = AI.wander.x; NI.ay = AI.wander.y; moveToward(AI.wander.x, AI.wander.y, false);
+    return;
+  }
+  const d = dist(noli, t), sight = clearPath(noli, t, 6);
+  const lead = aimLead(t, clamp(d / KIT.rush.speed, 0, 0.5));
+  NI.ax = lead.x; NI.ay = lead.y;
+  if (st === 'rushWind') { NI.q = true; return; }
+  if (st === 'rush') { NI.q = true; NI.shift = noli.rush.chain > 0; return; }
+  if (st === 'reWindow') {
+    AI.reDelay -= dt; NI.q = false;
+    const next = pickTarget();
+    if (AI.reDelay <= 0 && next && noli.rush.chain < AI.chainMax && dist(noli, next) < 650) { const p = aimLead(next, 0.25); NI.ax = p.x; NI.ay = p.y; NI.q = true; castRush(); }
+    return;
+  }
+  NI.q = false;
+  if (st === 'novaWind' || st === 'stab') { moveToward(t.x, t.y, false); return; }
+  if (d < 72 && ready('stab')) { NI.ax = t.x; NI.ay = t.y; stab(); }
+  else if (ready('rush') && sight && clearPath(noli, t, noli.r) && d > 170 && d < 620 && Math.random() < dt * 1.6) { NI.q = true; castRush(); return; }
+  else if (ready('nova') && sight && d > 220 && d < 650 && Math.random() < dt * 1.2) castNova();
+  else if (st === 'free' && ready('obs') && d > 850 && gens.length > 1 && Math.random() < dt * 0.5) { toggleObservant(); AI.obsT = 0; AI.obsWait = rand(0.6, 1.2); return; }
+  moveToward(t.x, t.y, d > 110);
+}
+
+// ------------------------------------------------------------- play-as-survivor round
+const ROUND_LEN = 180;
+let round = null, banner = null;
+function genDone(g) {
+  if (!round) return;
+  round.gens++; round.t = Math.max(0, round.t - 25);
+  banner = { s: 'GENERATOR DONE', sub: '−25s on the clock', t: 0, life: 1.8 };
+}
+function resetNoli() {
+  for (const n of ['charge', 'voidrush', 'hype', 'hype2', 'din', 'stall', 'gen_start', 'observant_tp', 'rush_slam']) stopSfx(n);
+  if (noli.ex) { const d = noli.ex.d; Object.assign(d, { exec: false, dead: true, deadT: 0, squash: 0, fade: 1 }); noli.ex = null; }
+  if (noli.stance) endObsStar();
+  Object.assign(noli, { x: 1000, y: 1150, ang: -Math.PI / 2, stamina: KIT.stamina.max, state: 'free', st: 0, rush: null, stance: false, stunT: 0, slowT: 0, dazed: false,
+    stabVis: null, stabbed: false, tp: null, slamCam: null, obsStar: null, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart } });
+  if (hitWall(noli.x, noli.y, noli.r)) { noli.x = MAP.w / 2; noli.y = MAP.h / 2; }
+  novas.length = 0; novaReturn = null; selGen = null; chargeUI.hold = 0; chargeUI.cap = '';
+  AI.target = null; AI.wander = null;
+}
+function freeSpot(x, y) {
+  for (let i = 0; i < 60 && hitWall(x, y, 20); i++) { x = rand(80, MAP.w - 80); y = rand(80, MAP.h - 80); }
+  return { x, y };
+}
+function setMode(m) {
+  if (m === mode) return;
+  resetNoli();
+  if (player) { player.player = false; player.mode = 'smart'; applyKit(player, player.kit); player = null; }
+  mode = m;
+  if (m === 'survivor') {
+    // Plain standing dummies become AI teammates with the other kits.
+    const others = KIT_IDS.filter((k) => k !== playerKit);
+    let i = 0;
+    for (const d of dummies) if (!d.kit && d.mode === 'stand') { d.mode = 'smart'; applyKit(d, others[i++ % others.length]); }
+    const p = freeSpot(1000, 260);
+    player = addDummy(p.x, p.y, 'stand', 100, playerKit); player.player = true; player.name = 'You (' + KITS[playerKit].name + ')';
+    round = { t: ROUND_LEN, gens: 0 };
+    banner = { s: 'SURVIVE', sub: 'Noli is hunting you…', t: 0, life: 2.5 };
+    setTool('play');
+    log(`Playing as ${KITS[playerKit].name} — Noli is AI-controlled`);
+  } else { round = null; banner = null; log('Playing as Noli'); }
+  for (const b of document.getElementById('playAs').children) b.classList.toggle('on', b.dataset.m === m);
+  updateHelp();
+}
+function setPlayerKit(k) {
+  playerKit = k;
+  for (const b of document.getElementById('survPick').children) b.classList.toggle('on', b.dataset.k === k);
+  if (player) { applyKit(player, k); player.name = 'You (' + KITS[k].name + ')'; ring(player.x, player.y, 34, '#ffffff', 0.4); log(`Switched to ${KITS[k].name}`); }
+  updateHelp();
+}
+function updateHelp() {
+  document.getElementById('helpNoli').style.display = mode === 'noli' ? '' : 'none';
+  const h = document.getElementById('helpSurv'); h.style.display = mode === 'survivor' ? '' : 'none';
+  h.innerHTML = `WASD move · Shift sprint · Mouse aim · <b>Hold F</b> at a generator to repair<br><b>${KITS[playerKit].name}:</b> ${KIT_HELP[playerKit]}<br>Survive the clock — every finished generator takes 25s off it.`;
+}
 
 // ------------------------------------------------------------- creative tools
 const TOOLS = [
@@ -671,22 +1191,23 @@ function update(dt) {
     noli.cds[k] = Math.max(0, was - dt);
     if (was > 0 && noli.cds[k] === 0 && (k === 'stab' || k === 'nova')) sfx('star');   // Stab / Nova back off cooldown
   }
-  noli.stunT = Math.max(0, noli.stunT - dt);
+  noli.stunT = Math.max(0, noli.stunT - dt); if (!noli.stunT) noli.dazed = false;
+  if (mode === 'survivor' && (!player || !dummies.includes(player))) setMode('noli');   // your survivor was erased
+  if (mode === 'noli') readNoliInput(); else noliAI(dt);
   const w = world();
-  if (noli.state !== 'rush' && noli.state !== 'exec') noli.ang = Math.atan2(w.y - noli.y, w.x - noli.x);
+  if (noli.state !== 'rush' && noli.state !== 'exec' && !noli.dazed) noli.ang = Math.atan2(NI.ay - noli.y, NI.ax - noli.x);
 
-  if (noli.stance) {
+  if (noli.stance && mode === 'noli') {
     if (mouse.click) { const g = gens.find((g) => Math.hypot(g.x - w.x, g.y - w.y) < 70); if (g) observantPick(g); }
   } else if (tool === 'play') {
-    if (mouse.down) stab();
+    if (mouse.down && mode === 'noli') stab();
   } else creativeInput();
   mouse.click = false; mouse.up = false;
 
   // movement
-  let mx = (keys.d ? 1 : 0) - (keys.a ? 1 : 0), my = (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
-  const ml = Math.hypot(mx, my) || 1; mx /= ml; my /= ml;
+  const mx = NI.mx, my = NI.my;
   const moving = mx || my;
-  const sprint = keys.shift && moving && noli.stamina > 0 && (noli.state === 'free' || noli.state === 'novaWind' || noli.state === 'rushWind' || noli.state === 'reWindow') && !noli.stance;   // no sprinting while dashing
+  const sprint = NI.shift && moving && noli.stamina > 0 && (noli.state === 'free' || noli.state === 'novaWind' || noli.state === 'rushWind' || noli.state === 'reWindow') && !noli.stance;   // no sprinting while dashing
   // Stamina is frozen only while dashing: no drain, no regen.
   const inVoidRush = noli.state === 'rush';   // charging and the re-rush window still use stamina normally
   if (!inVoidRush) noli.stamina = clamp(noli.stamina + (sprint ? -KIT.stamina.drain : KIT.stamina.regen) * dt, 0, KIT.stamina.max);
@@ -737,11 +1258,11 @@ function update(dt) {
     // Sprinting during a re-rush gives extra speed and turning, but only inside the
     // first 1s of that re-rush: the boost always ends at the 1s mark.
     const left = KIT.rush.boost.time - r.t;
-    if (r.chain > 0 && keys.shift && !r.boosted && left > 0) { r.boosted = true; txt(noli.x, noli.y - 30, 'BOOST', '#ffffff'); log(`Re-rush boost (${left.toFixed(1)}s left of the 1s window)`); }
+    if (r.chain > 0 && NI.shift && !r.boosted && left > 0) { r.boosted = true; txt(noli.x, noli.y - 30, 'BOOST', '#ffffff'); log(`Re-rush boost (${left.toFixed(1)}s left of the 1s window)`); }
     r.boostT = r.boosted ? Math.max(0, left) : 0;
     const B = r.boostT > 0 ? KIT.rush.boost : null;
     const turn = B ? B.turn : KIT.rush.turn;
-    noli.ang += clamp(angDiff(Math.atan2(w.y - noli.y, w.x - noli.x), noli.ang), -turn * dt, turn * dt);
+    noli.ang += clamp(angDiff(Math.atan2(NI.ay - noli.y, NI.ax - noli.x), noli.ang), -turn * dt, turn * dt);
     const spd = KIT.rush.speed * (r.chain ? KIT.rush.reSpeed : 1) * (B ? B.speed : 1) * (1 + (KIT.rush.burst - 1) * Math.max(0, 1 - r.t / 0.3));
     const vx = Math.cos(noli.ang) * spd * dt, vy = Math.sin(noli.ang) * spd * dt;
     const ox = noli.x, oy = noli.y;
@@ -755,7 +1276,7 @@ function update(dt) {
     if (r.ignore && r.t > 0.3) r.ignore = null;
     // Q must be held for the whole rush. Right after hitting a survivor there is a
     // 0.3s grace where letting go doesn't end the re-rush.
-    const letGo = !keys.q && !(r.chain > 0 && r.t < KIT.rush.holdGrace);
+    const letGo = !NI.q && !(r.chain > 0 && r.t < KIT.rush.holdGrace);
     const rbox = fwdBox(KIT.rush.box);
     showBox(rbox, '#ff0000', 0.05);
     const hit = alive().find((d) => d !== r.ignore && boxHits(rbox, d));
@@ -788,7 +1309,7 @@ function update(dt) {
       n.bt += dt;
       if (n.bt < KIT.nova.pull) for (const d of alive()) {
         const dd = dist(n, d);
-        if (boxHits({ x: n.x, y: n.y, w: KIT.nova.blast, h: KIT.nova.blast, a: 0 }, d) && dd > 6) { const a = Math.atan2(n.y - d.y, n.x - d.x); moveCircle(d, Math.cos(a) * 240 * dt, Math.sin(a) * 240 * dt); }
+        if (!(d.invT > 0) && boxHits({ x: n.x, y: n.y, w: KIT.nova.blast, h: KIT.nova.blast, a: 0 }, d) && dd > 6) { const a = Math.atan2(n.y - d.y, n.x - d.x); moveCircle(d, Math.cos(a) * 240 * dt, Math.sin(a) * 240 * dt); }
       }
     }
   }
@@ -809,14 +1330,23 @@ function update(dt) {
     if (d.rag) { d.rag.rot += d.rag.spin * dt; d.rag.spin *= Math.pow(0.03, dt); if (d.knockT === 0) d.rag = null; }
     if (d.hall > 0) { d.hallT += dt; if (d.hallT > KIT.hallDur) { d.hall = 0; d.hallT = 0; txt(d.x, d.y - 36, 'hallucination wore off', '#9a90bf'); } }
     const dragging = mouse.drag && mouse.drag.o === d;
-    const ai = dragging ? null : dummyThink(d, dt);
-    if (ai) moveCircle(d, ai.mx * ai.sp * dt, ai.my * ai.sp * dt);
+    const px = d.x, py = d.y;
+    const ai = dragging ? null : d.player ? playerThink(d, dt) : d.mode === 'smart' ? smartThink(d, dt) : dummyThink(d, dt);
+    if (d.kit) survivorTick(d, dt, ai);
+    else if (ai) moveCircle(d, ai.mx * ai.sp * dt, ai.my * ai.sp * dt);
     moveCircle(d, d.vx * dt, d.vy * dt);
     d.vx *= Math.pow(0.02, dt); d.vy *= Math.pow(0.02, dt);
+    if (dt > 0) { d.svx = (d.x - px) / dt; d.svy = (d.y - py) / dt; }   // for Noli's AI to lead his aim
   }
+  updatePizzas(dt);
+  if (round) {
+    round.t -= dt;
+    if (round.t <= 0) { banner = { s: player && !player.dead && !player.dying && !player.exec ? 'YOU SURVIVED!' : 'ROUND OVER', sub: `${round.gens} generator${round.gens === 1 ? '' : 's'} done · next round starting`, t: 0, life: 3 }; round = { t: ROUND_LEN, gens: 0 }; }
+  }
+  if (banner) { banner.t += dt; if (banner.t > banner.life) banner = null; }
 
   if (noli.stance) { const v = stallVol(); if (SFX.stall) SFX.stall.volume = v; if (SFX.gen_start) SFX.gen_start.volume = v; }
-  for (const g of gens) { g.hov = Math.abs(w.x - g.x) < GEN_SIZE / 2 && Math.abs(w.y - g.y) < GEN_SIZE / 2; g.animT = (g.animT || 0) + dt * (g.hov ? 1 : 0.2); g.hs = (g.hs || 1) + ((g.hov && noli.stance ? GEN_HOVER : 1) - (g.hs || 1)) * Math.min(1, dt * 10); }
+  for (const g of gens) { g.hov = Math.abs(w.x - g.x) < GEN_SIZE / 2 && Math.abs(w.y - g.y) < GEN_SIZE / 2; g.animT = (g.animT || 0) + dt * (g.hov ? 1 : 0.2); g.hs = (g.hs || 1) + ((g.hov && noli.stance && mode === 'noli' ? GEN_HOVER : 1) - (g.hs || 1)) * Math.min(1, dt * 10); }
   for (const b of hitboxes) b.t += dt;
   for (let i = hitboxes.length - 1; i >= 0; i--) if (hitboxes[i].t > hitboxes[i].life) hitboxes.splice(i, 1);
   if (noli.state === 'tp') tpSwirl(dt);
@@ -832,25 +1362,27 @@ function update(dt) {
   // Camera: Observant zooms out so every generator can be picked; wheel zoom otherwise.
   const fit = Math.min(W / (MAP.w + 80), H / (MAP.h + 160));
   // Stab kill: follow the survivor while they struggle, punch in fast on the crush, then ease back.
-  const ex = noli.state === 'exec' ? noli.ex : null;
-  let zTarget = noli.stance ? fit : cam.zoom, zRate = 8;
+  // As a survivor the camera stays on you (cinematics only when they happen to you).
+  const ex0 = noli.state === 'exec' ? noli.ex : null, ex = ex0 && (mode === 'noli' || ex0.d === player) ? ex0 : null;
+  let zTarget = noli.stance && mode === 'noli' ? fit : cam.zoom, zRate = 8;
   if (ex && !ex.stomped) { zTarget = cam.zoom * EXEC.followZoom; zRate = 5; }
   else if (ex && ex.punchT < EXEC.punchTime) { zTarget = cam.zoom * EXEC.punch; zRate = 30; }
   else if (ex) { zTarget = cam.zoom; zRate = 4; }
   // Air slam: lock onto the survivor and push in as they rise, punch in on impact, then back to Noli.
-  const sl = noli.state === 'slamHold' ? noli.slamCam : null;
+  const sl0 = noli.state === 'slamHold' ? noli.slamCam : null, sl = sl0 && (mode === 'noli' || sl0.d === player) ? sl0 : null;
   let slFocus = null;
   if (sl) {
     if (sl.hitT === null) { const rise = sl.d.air ? Math.min(1, sl.d.air.t / AIR.rise) : 1; zTarget = cam.zoom * (1 + 0.35 * rise); zRate = 5; slFocus = sl.d; }
     else { sl.hitT += dt; if (sl.hitT < EXEC.punchTime) { zTarget = cam.zoom * 1.75; zRate = 30; slFocus = sl.d; } else { zTarget = cam.zoom; zRate = 4; } }
   }
   // Void Rush: push in on Noli while he draws the star, then lead ahead of him while rushing.
-  const charging = noli.state === 'rushWind', rushingNow = noli.state === 'rush';
+  const charging = mode === 'noli' && noli.state === 'rushWind', rushingNow = mode === 'noli' && noli.state === 'rush';
   if (!ex && !sl && charging) { zTarget = cam.zoom * 1.15; zRate = 4; }
   if (!ex && !sl && rushingNow) { zTarget = cam.zoom * 0.95; zRate = 3; }
   cam.s += (zTarget - cam.s) * Math.min(1, dt * zRate);
   const lead = rushingNow && !ex && !sl ? { x: noli.x + Math.cos(noli.ang) * 150, y: noli.y + Math.sin(noli.ang) * 150 } : null;
-  const focus = ex && !ex.stomped ? ex.d : slFocus || lead || noli;
+  const me = mode === 'survivor' && player ? player : noli;
+  const focus = ex && !ex.stomped ? ex.d : slFocus || lead || me;
   cam.shake = Math.max(0, (cam.shake || 0) - dt * 40);
   // Smooth only around the kill / slam; otherwise the camera sticks to Noli.
   cam.ease = ex || sl || charging || rushingNow ? 0.5 : Math.max(0, (cam.ease || 0) - dt);
@@ -1267,6 +1799,10 @@ function drawNoli() {
   ctx.beginPath(); for (let i = 0; i < 10; i++) { const rr = i % 2 ? 4 : 9, a = i * Math.PI / 5; ctx.lineTo(8 + Math.cos(a) * rr, Math.sin(a) * rr); } ctx.fill();
   if (noli.state === 'novaWind') { const k = Math.min(1, noli.st / KIT.nova.windup); star4(22, 0, 4 + k * 9, '#c9a8ff'); star4(22, 0, 2 + k * 4, '#ffffff'); }   // Nova forming in his hand
   ctx.restore();
+  if (noli.dazed && noli.stunT > 0) {   // stunned: stars circling his head
+    const T = performance.now() / 1000;
+    for (let i = 0; i < 4; i++) { const a = T * 5 + i * Math.PI / 2; star4(x + Math.cos(a) * 18, y - 28 + Math.sin(a) * 5, 5, i % 2 ? '#c9a8ff' : '#ffffff'); }
+  }
   label(x, y - 34, 'NOLI', '#c49bff');
 }
 function drawDummy(d) {
@@ -1284,19 +1820,96 @@ function drawDummy(d) {
   if (d.knockT > 0) ctx.rotate(((d.rag ? d.rag.rot : 0) + Math.PI / 2) * Math.min(1, d.knockT / 0.3));
   if (d.air) { const sc = airScale(d); ctx.translate(0, -(sc - 1) * 18); ctx.rotate(d.air.t < AIR.impact ? d.air.t * 4 : 0); ctx.scale(sc, sc); }
   if (d.exec) { ctx.globalAlpha = d.fade ?? 1; ctx.rotate(d.wiggle || 0); ctx.scale(1 + (d.squash || 0) * 0.6, 1 - (d.squash || 0) * 0.8); }
-  // default Roblox-style NPC: yellow head, blue torso, green legs (top-down)
-  ctx.fillStyle = '#1f7a3a'; ctx.fillRect(-11, 4, 22, 12);
-  ctx.fillStyle = '#2a63c9'; ctx.fillRect(-14, -8, 28, 16);
-  ctx.fillStyle = '#f5cd30'; ctx.beginPath(); ctx.arc(0, -2, 9, 0, 6.3); ctx.fill();
+  if (d.kit) drawSurvBody(d);
+  else {
+    // default Roblox-style NPC: yellow head, blue torso, green legs (top-down)
+    ctx.fillStyle = '#1f7a3a'; ctx.fillRect(-11, 4, 22, 12);
+    ctx.fillStyle = '#2a63c9'; ctx.fillRect(-14, -8, 28, 16);
+    ctx.fillStyle = '#f5cd30'; ctx.beginPath(); ctx.arc(0, -2, 9, 0, 6.3); ctx.fill();
+  }
   ctx.restore(); ctx.globalAlpha = 1;
   if (d.exec) return;
+  if (d.kit) drawSurvExtras(d);
   if (noli.rush && noli.rush.last === d && noli.state === 'reWindow') { ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 26, 0, 6.3); ctx.stroke(); }
   if (d.hall) { ctx.strokeStyle = `rgba(196,155,255,${0.3 + d.hall * 0.2})`; ctx.lineWidth = 2; for (let i = 0; i < d.hall; i++) { ctx.beginPath(); ctx.arc(x, y, 22 + i * 6 + Math.sin(performance.now() / 200 + i) * 2, 0, 6.3); ctx.stroke(); } }
   const bw = 46; ctx.fillStyle = '#2a0f18'; ctx.fillRect(x - bw / 2, y - 36, bw, 6);
   ctx.fillStyle = d.inf ? '#ffd23f' : '#7dffa8'; ctx.fillRect(x - bw / 2, y - 36, bw * Math.max(0, d.hp) / d.maxHp, 6);
-  label(x, y - 42, d.name + (d.hall ? '  H' + 'I'.repeat(d.hall) : ''), '#e9e4ff');
+  label(x, y - 42, d.name + (d.hall ? '  H' + 'I'.repeat(d.hall) : '') + (d.weakT > 0 ? '  WEAK' : ''), d.player ? '#ffffff' : '#e9e4ff');
 }
 
+// Survivors, top-down, facing +x: shoulders across, head on top, their item in the right hand.
+function drawSurvBody(d) {
+  const K = KITS[d.kit];
+  if (d.crouch) ctx.globalAlpha *= d.player ? 0.55 : mode === 'noli' && dist(d, noli) > 150 ? 0.22 : 0.45;
+  ctx.rotate(d.ang || 0);
+  ctx.fillStyle = K.torso; ctx.fillRect(-7, -14, 14, 28);
+  ctx.fillStyle = K.head;
+  for (const sy of [-14, 14]) { ctx.beginPath(); ctx.arc(3, sy, 4, 0, 6.3); ctx.fill(); }
+  const A = d.act;
+  if (d.kit === 'shed') {   // sword (swung across during the slash)
+    const sw = A && A.kind === 'slash' ? (A.t < 0.2 ? -0.9 : A.t < 0.4 ? -0.9 + (A.t - 0.2) / 0.2 * 2.2 : 1.3) : 0.3;
+    ctx.save(); ctx.translate(3, 14); ctx.rotate(-sw);
+    ctx.strokeStyle = '#d8d8e0'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(28, 0); ctx.stroke();
+    ctx.strokeStyle = '#6b4220'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(2, -5); ctx.lineTo(2, 5); ctx.stroke(); ctx.restore();
+  } else if (d.kit === 'chance') {   // flintlock
+    ctx.fillStyle = '#3a3a3a'; ctx.fillRect(4, 11, A && A.kind === 'aim' ? 20 : 14, 5); ctx.fillStyle = '#6b4220'; ctx.fillRect(1, 11, 6, 6);
+  } else if (d.kit === 'elliot') {   // pizza box
+    ctx.fillStyle = '#e8c07a'; ctx.fillRect(2, 6, 14, 14); ctx.strokeStyle = '#a8742e'; ctx.lineWidth = 1; ctx.strokeRect(2, 6, 14, 14);
+  } else if (d.kit === 'twotime') {   // dagger
+    ctx.strokeStyle = '#c9c9c9'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(4, 14); ctx.lineTo(19, 14); ctx.stroke();
+  }
+  ctx.fillStyle = K.head; ctx.beginPath(); ctx.arc(0, 0, 8.5, 0, 6.3); ctx.fill();
+  ctx.fillStyle = K.hair;
+  if (d.kit === 'chance') {   // fedora
+    ctx.beginPath(); ctx.arc(0, 0, 11, 0, 6.3); ctx.fill(); ctx.fillStyle = '#5a4128'; ctx.beginPath(); ctx.arc(0, 0, 7, 0, 6.3); ctx.fill();
+  } else if (d.kit === 'twotime') {   // hood
+    ctx.beginPath(); ctx.arc(-1, 0, 10, 0, 6.3); ctx.fill(); ctx.fillStyle = K.head; ctx.beginPath(); ctx.arc(5, 0, 4, 0, 6.3); ctx.fill();
+  } else if (d.kit === 'elliot') {   // cap with a red brim
+    ctx.beginPath(); ctx.arc(-1, 0, 8.5, Math.PI * 0.45, Math.PI * 1.55); ctx.fill(); ctx.fillStyle = '#d9452b'; ctx.fillRect(4, -6, 6, 12);
+  } else { ctx.beginPath(); ctx.arc(-1, 0, 8.5, Math.PI * 0.5, Math.PI * 1.5); ctx.fill(); }   // hair
+}
+function drawSurvExtras(d) {
+  const { x, y } = d, T = performance.now() / 1000, A = d.act;
+  if (d.invT > 0) {   // Block bubble
+    ctx.globalAlpha = 0.5 + 0.3 * Math.sin(T * 30); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(x, y, 24, 0, 6.3); ctx.stroke(); ctx.globalAlpha = 0.15; ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.globalAlpha = 1;
+  }
+  if (A && A.kind === 'aim') {   // laser sight
+    const c = Math.cos(d.ang), s = Math.sin(d.ang); let ex = x, ey = y;
+    for (let i = 0; i < 90; i++) { ex += c * 8; ey += s * 8; if (hitWall(ex, ey, 2)) break; }
+    ctx.globalAlpha = 0.35 + 0.4 * (A.t / A.dur); ctx.strokeStyle = '#ffe9a8'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 5]);
+    ctx.beginPath(); ctx.moveTo(x + c * 20, y + s * 20); ctx.lineTo(ex, ey); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+  }
+  if (A && A.kind === 'eat') {   // drumstick + progress
+    ctx.fillStyle = '#c8762b'; ctx.beginPath(); ctx.arc(x, y - 52, 6, 0, 6.3); ctx.fill(); ctx.fillStyle = '#f2e6d0'; ctx.fillRect(x + 4, y - 54, 7, 3);
+    ctx.strokeStyle = '#7dffa8'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y - 52, 10, -Math.PI / 2, -Math.PI / 2 + 6.283 * A.t / A.dur); ctx.stroke();
+  }
+  if (A && A.kind === 'flip') {   // spinning coin
+    const w = Math.abs(Math.cos(A.t * 22)) * 6 + 0.5;
+    ctx.fillStyle = '#e8c45a'; ctx.beginPath(); ctx.ellipse(x, y - 54 - Math.sin(A.t / A.dur * Math.PI) * 18, w, 6, 0, 0, 6.3); ctx.fill();
+  }
+  if (d.repairing) { ctx.strokeStyle = '#7dffa8'; ctx.lineWidth = 2; ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(d.repairing.x, d.repairing.y); ctx.stroke(); ctx.setLineDash([]); }
+  if (d.player) { ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.moveTo(x - 5, y - 62); ctx.lineTo(x + 5, y - 62); ctx.lineTo(x, y - 55); ctx.fill(); }
+}
+function drawSurvFx() {
+  for (const p of pizzas) {   // pizza slice: crust, cheese, pepperoni
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+    if (p.ground) { ctx.globalAlpha = 0.25 + 0.15 * Math.sin(performance.now() / 150); ctx.fillStyle = '#7dffa8'; ctx.beginPath(); ctx.arc(0, 0, 15, 0, 6.3); ctx.fill(); ctx.globalAlpha = 1; }
+    ctx.fillStyle = '#f2c14e'; ctx.beginPath(); ctx.moveTo(-9, -8); ctx.lineTo(11, 0); ctx.lineTo(-9, 8); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#c8762b'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-9, -8); ctx.lineTo(-9, 8); ctx.stroke();
+    ctx.fillStyle = '#b8322c'; for (const [a, b] of [[-3, -2], [-4, 3], [2, 0]]) { ctx.beginPath(); ctx.arc(a, b, 1.8, 0, 6.3); ctx.fill(); }
+    ctx.restore();
+  }
+  for (const b of beams) {   // gunshot tracer
+    const k = b.t / b.life; ctx.lineCap = 'round';
+    ctx.globalAlpha = 1 - k; ctx.strokeStyle = '#ffe9a8'; ctx.lineWidth = 4 * (1 - k) + 1; ctx.beginPath(); ctx.moveTo(b.x1, b.y1); ctx.lineTo(b.x2, b.y2); ctx.stroke();
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5; ctx.stroke(); ctx.globalAlpha = 1; ctx.lineCap = 'butt';
+  }
+  for (const s of swings) {   // melee arcs
+    const k = s.t / s.life; ctx.globalAlpha = 1 - k; ctx.strokeStyle = s.c; ctx.lineWidth = 4 * (1 - k) + 1;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, s.a - 1 + k * 0.6, s.a + 1 + k * 0.6); ctx.stroke(); ctx.globalAlpha = 1;
+  }
+}
 function render() {
   ctx.fillStyle = '#07060c'; ctx.fillRect(0, 0, W, H);
   const shx = cam.shake ? rand(-cam.shake, cam.shake) : 0, shy = cam.shake ? rand(-cam.shake, cam.shake) : 0;   // screen shake (visual only)
@@ -1357,6 +1970,7 @@ function render() {
     }
   }
   for (const d of dummies) drawDummy(d);
+  drawSurvFx();
   drawExec();
   if (hover && hover.kind === 'dummy') { ctx.strokeStyle = tool === 'erase' ? '#ff4d6d' : '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hover.o.x, hover.o.y, 24, 0, 6.3); ctx.stroke(); }
   drawNoli();
@@ -1376,8 +1990,9 @@ function render() {
   }
   for (const t of texts) { ctx.globalAlpha = 1 - t.t / 1.4; label(t.x, t.y, t.s, t.c); ctx.globalAlpha = 1; }
   ctx.restore();
-  if (noli.stance) { ctx.fillStyle = 'rgba(60,20,120,0.18)'; ctx.fillRect(0, 0, W, H); label(W / 2, 40, 'OBSERVANT — click a generator · R to leave', '#c49bff'); }
-  hud();
+  if (noli.stance && mode === 'noli') { ctx.fillStyle = 'rgba(60,20,120,0.18)'; ctx.fillRect(0, 0, W, H); label(W / 2, 40, 'OBSERVANT — click a generator · R to leave', '#c49bff'); }
+  else if (noli.stance) label(W / 2, 64, 'Noli is choosing a generator…', '#c49bff', '700 14px system-ui');
+  if (mode === 'survivor') survHud(); else hud();
 }
 // ------------------------------------------------------------- Void Rush charge UI
 // Dark orb with a soft white glow and a black four-point star; a crumbly white ring drains as you charge.
@@ -1487,6 +2102,54 @@ function hud() {
   label(W / 2, 22, `Tool: ${TOOLS.find((t) => t.id === tool).name}  ·  ${dummies.length} dumm${dummies.length === 1 ? 'y' : 'ies'}`, '#9a90bf');
 }
 
+function slotsRow(slots) {
+  const S = 70, gap = 8, total = slots.length * S + (slots.length - 1) * gap, x0 = W / 2 - total / 2, y0 = H - S - 18;
+  slots.forEach(({ key, name, cd, max, hot }, i) => {
+    const x = x0 + i * (S + gap);
+    ctx.fillStyle = hot ? '#5b2bbf' : '#14111f'; ctx.fillRect(x, y0, S, S); ctx.strokeStyle = '#2c2540'; ctx.strokeRect(x, y0, S, S);
+    if (cd > 0) { ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(x, y0 + S * (1 - Math.min(1, cd / max)), S, S * Math.min(1, cd / max)); }
+    ctx.textAlign = 'left'; ctx.font = '700 11px system-ui'; ctx.fillStyle = '#a26bff'; ctx.fillText(key, x + 5, y0 + 13);
+    ctx.textAlign = 'center'; ctx.font = '700 11px system-ui'; ctx.fillStyle = cd > 0 ? '#777' : '#e9e4ff'; ctx.fillText(name, x + S / 2, y0 + S / 2 + 2);
+    if (cd > 0) { ctx.font = '700 16px system-ui'; ctx.fillStyle = '#fff'; ctx.fillText(cd >= 1 ? Math.ceil(cd) : cd.toFixed(1), x + S / 2, y0 + S / 2 + 22); }
+  });
+  return y0;
+}
+function survHud() {
+  const d = player; if (!d) return;
+  const K = KITS[d.kit];
+  const slots = ['q', 'e', 'r'].filter((k) => K.skills[k]).map((k) => {
+    let name = K.skills[k].name;
+    if (d.kit === 'guest' && k === 'e') name += ` (${d.punch})`;
+    if (d.kit === 'twotime' && k === 'e' && d.crouch) name = 'Stand up';
+    return { key: k.toUpperCase(), name, cd: noCd ? 0 : d.cds[k], max: K.skills[k].cd, hot: (d.kit === 'guest' && k === 'q' && d.invT > 0) || (d.kit === 'twotime' && k === 'e' && d.crouch) };
+  });
+  const y0 = slotsRow(slots);
+  const bw = Math.min(320, W - 40), bx = W / 2 - bw / 2, by = y0 - 22;
+  ctx.fillStyle = '#14111f'; ctx.fillRect(bx, by, bw, 12); ctx.fillRect(bx, by - 30, bw, 14);
+  ctx.fillStyle = '#5aa9ff'; ctx.fillRect(bx, by, bw * d.stam / SURV.stamMax, 12);
+  ctx.fillStyle = d.weakT > 0 ? '#c97a7a' : '#7dffa8'; ctx.fillRect(bx, by - 30, bw * Math.max(0, d.hp) / d.maxHp, 14);
+  label(W / 2, by - 4, 'STAMINA ' + Math.round(d.stam), '#e9e4ff');
+  label(W / 2, by - 34, `${K.name.toUpperCase()} · ${d.inf ? '∞' : Math.max(0, Math.ceil(d.hp)) + ' / ' + d.maxHp} HP`, '#ffffff');
+  const st = [];
+  if (d.invT > 0) st.push('BLOCKING'); if (d.speedT > 0) st.push(`RUSH HOUR ${d.speedT.toFixed(1)}s`); if (d.weakT > 0) st.push(`WEAKNESS ${Math.ceil(d.weakT)}s`);
+  if (d.crouch) st.push('CROUCHED'); if (d.hall) st.push('HALLUCINATION ' + 'I'.repeat(d.hall)); if (d.kit === 'twotime') st.push(d.revived ? 'revive used' : 'revive ready');
+  if (st.length) label(W / 2, by - 54, st.join('  ·  '), '#c9a8ff');
+  // Round clock + Noli's status.
+  if (round) {
+    const m = Math.floor(round.t / 60), sec = Math.floor(round.t % 60).toString().padStart(2, '0');
+    label(W / 2, 46, `SURVIVE ${m}:${sec}`, '#ffffff', '700 22px system-ui');
+    label(W / 2, 66, `Generators done: ${round.gens} · hold F at one to repair`, '#9a90bf');
+  }
+  if (noli.dazed && noli.stunT > 0) label(W / 2, 88, `NOLI STUNNED ${noli.stunT.toFixed(1)}s — RUN!`, '#ffffff', '700 15px system-ui');
+  else if (noli.state === 'rushWind' || noli.state === 'rush') label(W / 2, 88, 'Void Rush incoming!', '#c9a8ff', '700 15px system-ui');
+  if (d.dead || d.dying || d.exec) { ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, 0, W, H); label(W / 2, H / 2 - 20, 'YOU WERE CAUGHT', '#ffffff', '700 30px system-ui'); label(W / 2, H / 2 + 10, 'respawning…', '#9a90bf'); }
+  if (banner) {
+    const a = Math.min(1, banner.t / 0.2, (banner.life - banner.t) / 0.4);
+    ctx.globalAlpha = Math.max(0, a); label(W / 2, H * 0.3, banner.s, '#ffffff', '700 34px system-ui'); if (banner.sub) label(W / 2, H * 0.3 + 28, banner.sub, '#c9a8ff', '700 15px system-ui'); ctx.globalAlpha = 1;
+  }
+  label(W / 2, 22, `Tool: ${TOOLS.find((t) => t.id === tool).name}  ·  ${dummies.length - 1} other survivor${dummies.length === 2 ? '' : 's'}`, '#9a90bf');
+}
+
 // ------------------------------------------------------------- UI
 const toolList = document.getElementById('toolList');
 function setTool(id) { tool = id; mouse.drag = null; for (const b of toolList.children) b.classList.toggle('on', b.dataset.t === id); }
@@ -1503,12 +2166,29 @@ function segment(el, items, get, set) {
     if (v === get()) b.classList.add('on'); el.appendChild(b);
   }
 }
-segment(document.getElementById('modes'), [['stand', 'Stand'], ['wander', 'Wander'], ['flee', 'Flee'], ['repair', 'Repair']], () => newMode, (v) => (newMode = v));
+segment(document.getElementById('modes'), [['stand', 'Stand'], ['wander', 'Wander'], ['flee', 'Flee'], ['repair', 'Repair'], ['smart', 'Smart AI']], () => newMode, (v) => (newMode = v));
+segment(document.getElementById('kits'), [['', 'Dummy'], ...KIT_IDS.map((k) => [k, KITS[k].name])], () => newKit, (v) => (newKit = v));
+for (const [m, name] of [['noli', 'Noli'], ['survivor', 'Survivor (vs AI Noli)']]) {
+  const b = document.createElement('button'); b.textContent = name; b.dataset.m = m; b.onclick = () => setMode(m);
+  if (m === mode) b.classList.add('on'); document.getElementById('playAs').appendChild(b);
+}
+for (const k of KIT_IDS) {
+  const b = document.createElement('button'); b.textContent = KITS[k].name; b.dataset.k = k; b.onclick = () => setPlayerKit(k);
+  if (k === playerKit) b.classList.add('on'); document.getElementById('survPick').appendChild(b);
+}
+updateHelp();
 segment(document.getElementById('hps'), [[100, '100 HP'], [250, '250 HP'], [Infinity, '∞ HP']], () => newHp, (v) => (newHp = v));
-document.getElementById('applyAll').onclick = () => { for (const d of dummies) { d.mode = newMode; d.goal = null; d.repair = null; d.inf = newHp === Infinity; d.maxHp = d.inf ? 100 : newHp; d.hp = d.maxHp; } log(`All dummies → ${newMode}, ${newHp === Infinity ? '∞' : newHp} HP`); };
+document.getElementById('applyAll').onclick = () => { for (const d of dummies) { if (d.player) continue; d.mode = newMode; d.goal = null; d.repair = null; d.inf = newHp === Infinity; d.maxHp = d.inf ? 100 : newHp; d.hp = d.maxHp; applyKit(d, newKit); } log(`All dummies → ${newMode}, ${newHp === Infinity ? '∞' : newHp} HP`); };
 document.getElementById('respawn').onclick = () => { for (const d of dummies) respawnDummy(d); log('Dummies respawned'); };
-document.getElementById('clearD').onclick = () => { dummies = []; log('Dummies cleared'); };
-document.getElementById('clearAll').onclick = () => { walls = [...BORDER]; gens = []; dummies = []; log('Map emptied'); };
+document.getElementById('clearD').onclick = () => { dummies = dummies.filter((d) => d.player); log('Dummies cleared'); };
+document.getElementById('clearAll').onclick = () => { walls = [...BORDER]; gens = []; dummies = dummies.filter((d) => d.player); log('Map emptied'); };
+document.getElementById('squad').onclick = () => {
+  // Every survivor (except yours) as a Smart AI.
+  dummies = dummies.filter((d) => d.player);
+  const spots = [[700, 300], [1300, 300], [500, 700], [1500, 700], [1000, 550]];
+  KIT_IDS.filter((k) => !player || k !== player.kit).forEach((k, i) => { const p = freeSpot(...spots[i]); addDummy(p.x, p.y, 'smart', 100, k); });
+  log('Survivor squad spawned (Smart AI)');
+};
 document.getElementById('resetMap').onclick = () => { defaultMap(); log('Default map loaded'); };
 document.getElementById('reset').onclick = () => { for (const k in noli.cds) noli.cds[k] = 0; log('Cooldowns reset'); };
 document.getElementById('hbx').onclick = (e) => { showHitboxes = !showHitboxes; e.target.textContent = 'Hitboxes: ' + (showHitboxes ? 'on' : 'off'); e.target.classList.toggle('on', showHitboxes); };
@@ -1519,7 +2199,7 @@ defaultMap();
 log('Noli spawned. Void Rush ready in 10s, Observant in 25s (round-start cooldowns).');
 let last = performance.now();
 function loop(now) { const dt = clamp((now - last) / 1000, 0, 0.05); last = now; update(dt); render(); requestAnimationFrame(loop); }
-window.__t = { noli, get dummies() { return dummies; }, cam, setTool };
+window.__t = { noli, get dummies() { return dummies; }, cam, setTool, setMode, setPlayerKit, get player() { return player; }, get mode() { return mode; }, AI, NI, stunNoli, useSkill, addDummy, get round() { return round; } };
 requestAnimationFrame(loop);
 })();
 </script>
