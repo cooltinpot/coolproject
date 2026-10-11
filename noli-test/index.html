@@ -372,13 +372,13 @@ function rushHit(d) {
   // Chain hit sounds: 1st hit = One_rush ... 5th and every hit after = Rush_five.
   stopSfx('voidrush'); sfx('hit' + Math.min(5, r.chain + 1));
   // Re-rush window sounds: restart from the beginning every window.
-  stopWindowSfx(); sfx('hype'); sfx('din');
+  stopWindowSfx(); sfx('hype'); sfx('hype2'); sfx('din');   // all three overlap
   noli.x -= Math.cos(noli.ang) * 10; noli.y -= Math.sin(noli.ang) * 10;
   noli.state = 'reWindow'; r.wt = KIT.rush.reRush; r.last = d;
   ring(noli.x, noli.y, 36, '#ffffff', 0.3);
 }
 function slowNoli() { noli.slowT = KIT.rush.endSlow.time; txt(noli.x, noli.y - 30, 'SLOWED', '#9a90bf'); }
-function stopWindowSfx() { stopSfx('hype'); stopSfx('din'); }
+function stopWindowSfx() { stopSfx('hype'); stopSfx('hype2'); stopSfx('din'); }
 function endRush(why, sound = null) { stopSfx('voidrush'); stopWindowSfx(); if (sound) sfx(sound, 0.9); noli.state = 'free'; noli.rush = null; noli.cds.rush = KIT.rush.cd; if (why) log(why); }
 
 function castNova() {
@@ -584,7 +584,7 @@ function update(dt) {
   if (noli.state === 'reWindow') {
     const r = noli.rush; r.wt -= dt;
     // Missing the window lets hype_and_aura play out; everything else stops.
-    if (r.wt <= 0) { SFX.hype = null; endRush(`Re-rush window closed (chain x${r.chain})`); slowNoli(); }
+    if (r.wt <= 0) { SFX.hype = null; SFX.hype2 = null; endRush(`Re-rush window closed (chain x${r.chain})`); slowNoli(); }
   }
   if (noli.state === 'rush') {
     const r = noli.rush; r.t += dt;
@@ -620,7 +620,11 @@ function update(dt) {
       chargeUI.cap = ['OUCH', 'owwwww ;('][Math.floor(Math.random() * 2)]; chargeUI.err = true; chargeUI.tint = 'red'; chargeUI.hold = 0.8; }   // same look as a cancelled charge
     else if (r.t >= KIT.rush.dur) endRush('Void Rush ran out');
   } else if (moving) {
+    const ox = noli.x, oy = noli.y;
     moveCircle(noli, mx * sp * dt, my * sp * dt);
+    // Footsteps: one of the two step sounds every stride (distance-based, so slow walking steps slower).
+    noli.stepDist = (noli.stepDist || 0) + Math.hypot(noli.x - ox, noli.y - oy);
+    if (noli.stepDist >= 58) { noli.stepDist = 0; noli.stepAlt = !noli.stepAlt; sfx(noli.stepAlt ? 'step1' : 'step2', 0.55); }
   }
 
   // novas
