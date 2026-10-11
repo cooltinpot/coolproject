@@ -52,7 +52,7 @@
     <button id="hbx" class="on">Hitboxes: on</button>
   </div>
   <small>WASD move · Shift sprint · Mouse aim<br>
-  <b>LMB</b> Stab (Play tool) · <b>Q</b> Void Rush (hold to charge — rushes when charged, letting go early cancels) · <b>E</b> Nova (E again = detonate) · <b>R</b> Observant<br>
+  <b>LMB</b> Stab (Play tool) · <b>Q</b> Void Rush (hold to charge — rushes when charged; keep holding Q while rushing) · <b>E</b> Nova (E again = detonate) · <b>R</b> Observant<br>
   <b>Void Rush:</b> hit a survivor → quick countdown → <b>Q</b> to re-rush off them. Chains stack slam damage. Shift during the first 1s of a re-rush = boost (ends at 1s).</small>
   <div id="log"></div>
 </div>
@@ -87,7 +87,7 @@ const KIT = {
   stab: { dmg: 25, perStack: 5, cd: 2.0, windup: 0.18, box: { off: 38, w: 60, h: 60 } },
   rush: { cd: 20, cdStart: 10, cdCancel: 1.2, windup: 1.2, dur: 3.59,   // windup = charge SFX length, dur = NewVoidRush length
           speed: 560, turn: 1.8, reRush: 2.37,   // re-rush window length
-          burst: 1.35, reSpeed: 1.4, windowMove: 0.3,
+          burst: 1.35, reSpeed: 1.4, holdGrace: 0.3, windowMove: 0.3,
           boost: { time: 1, speed: 1.35, turn: 4.5 },
           box: { off: 10, w: 52, h: 52 }, hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
   nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, box: 28, blast: 280, pull: 1.1 },
@@ -439,10 +439,14 @@ function update(dt) {
     const blocked = r.t > 0.1 && Math.hypot(noli.x - ox, noli.y - oy) < Math.hypot(vx, vy) * 0.45;
     if (Math.random() < 0.6) fx.push({ x: noli.x, y: noli.y, r: B ? 18 : 14, c: B ? '#d36bff' : '#5b2bbf', t: 0, life: 0.35, trail: true });
     if (r.ignore && r.t > 0.3) r.ignore = null;
+    // Q must be held for the whole rush. Right after hitting a survivor there is a
+    // 0.3s grace where letting go doesn't end the re-rush.
+    const letGo = !keys.q && !(r.chain > 0 && r.t < KIT.rush.holdGrace);
     const rbox = fwdBox(KIT.rush.box);
     showBox(rbox, '#ff3b5c', 0.05);
     const hit = alive().find((d) => d !== r.ignore && boxHits(rbox, d));
-    if (hit) rushHit(hit);
+    if (letGo) endRush(r.chain ? `Let go of Q — re-rush ended (chain x${r.chain})` : 'Let go of Q — Void Rush ended');
+    else if (hit) rushHit(hit);
     else if (blocked) { endRush(r.chain ? `Void Rush crashed into a wall (chain x${r.chain} lost)` : 'Void Rush crashed into a wall', 'crash'); ring(noli.x, noli.y, 50, '#ffffff', 0.4); }
     else if (r.t >= KIT.rush.dur) endRush('Void Rush ran out');
   } else if (moving) {
@@ -607,7 +611,7 @@ function hud() {
   if (noli.state === 'rushWind') label(W / 2, by - 26, `CHARGING ${Math.round(noli.st / KIT.rush.windup * 100)}% · hold Q`, noli.st >= KIT.rush.windup ? '#ffffff' : '#c49bff');
   if (noli.state === 'rush') {
     const r = noli.rush;
-    label(W / 2, by - 26, r.boostT > 0 ? `BOOST ${r.boostT.toFixed(1)}s · chain x${r.chain}` : r.chain ? (r.t < KIT.rush.boost.time ? `RE-RUSH x${r.chain} · Shift = boost (${(KIT.rush.boost.time - r.t).toFixed(1)}s window)` : `RE-RUSH x${r.chain} · boost window over`) : 'VOID RUSH · hit a survivor to open the re-rush window', r.boostT > 0 ? '#ffffff' : '#c49bff');
+    label(W / 2, by - 26, r.boostT > 0 ? `BOOST ${r.boostT.toFixed(1)}s · chain x${r.chain}` : r.chain ? (r.t < KIT.rush.boost.time ? `RE-RUSH x${r.chain} · hold Q · Shift = boost (${(KIT.rush.boost.time - r.t).toFixed(1)}s window)` : `RE-RUSH x${r.chain} · boost window over`) : 'VOID RUSH · keep holding Q · hit a survivor to open the re-rush window', r.boostT > 0 ? '#ffffff' : '#c49bff');
   }
   label(W / 2, 22, `Tool: ${TOOLS.find((t) => t.id === tool).name}  ·  ${dummies.length} dumm${dummies.length === 1 ? 'y' : 'ies'}`, '#9a90bf');
 }
