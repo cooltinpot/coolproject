@@ -583,9 +583,11 @@ function star4(x, y, r, c, a = 1) {
   ctx.quadraticCurveTo(x, y, x - r, y); ctx.quadraticCurveTo(x, y, x, y - r); ctx.fill(); ctx.globalAlpha = 1;
 }
 function tpSwirl(dt) {
-  // Orbiting wisps around Noli plus shimmering stars while he waits to teleport.
-  for (let i = 0; i < 3; i++) parts.push({ kind: 'orbit', ang: rand(0, 6.3), rad: rand(20, 46), spin: rand(4, 7) * (Math.random() < 0.5 ? -1 : 1), rise: rand(-12, -2), off: 0, c: TP_COLORS[i % 3], size: rand(2, 4.5), t: 0, life: rand(0.5, 0.9) });
-  if (Math.random() < dt * 22) parts.push({ kind: 'star', x: noli.x + rand(-38, 38), y: noli.y + rand(-44, 30), c: Math.random() < 0.5 ? '#ffffff' : '#c9a8ff', size: rand(4, 9), t: 0, life: rand(0.35, 0.7) });
+  // The effects gather in: wisps spiral from a wide ring into Noli, faster and denser as the teleport nears.
+  const k = clamp(noli.st / KIT.obs.travel, 0, 1), n = 2 + Math.round(k * 4);
+  for (let i = 0; i < n; i++) parts.push({ kind: 'orbit', gather: true, ang: rand(0, 6.3), r0: rand(70, 120) * (1 - k * 0.35), rad: 0, spin: rand(4, 7) * (1 + k * 1.5) * (Math.random() < 0.5 ? -1 : 1), rise: 0, off: 0, c: TP_COLORS[i % 3], size: rand(2, 4.5), t: 0, life: rand(0.45, 0.7) * (1 - k * 0.3) });
+  // Stars drift inward toward him as well.
+  if (Math.random() < dt * (18 + k * 30)) { const a = rand(0, 6.3), r = rand(60, 110); parts.push({ kind: 'gstar', sx: noli.x + Math.cos(a) * r, sy: noli.y + Math.sin(a) * r, c: Math.random() < 0.5 ? '#ffffff' : '#c9a8ff', size: rand(4, 9), t: 0, life: rand(0.4, 0.65) }); }
 }
 function tpStrike(x, y) {
   // Jagged bolt from above down to the landing point.
@@ -607,7 +609,7 @@ function tpStrike(x, y) {
 function updateParts(dt) {
   for (const q of parts) {
     q.t += dt;
-    if (q.kind === 'orbit') { q.ang += q.spin * dt; q.off += q.rise * dt; }
+    if (q.kind === 'orbit') { q.ang += q.spin * dt; q.off += q.rise * dt; if (q.gather) { const g = q.t / q.life; q.rad = 3 + q.r0 * (1 - g) * (1 - g); } }
     if (q.kind === 'spark') {
       q.x += q.vx * dt; q.y += q.vy * dt; q.rot += q.spin * dt;
       if (q.z > 0 || q.vz > 0) { q.vz -= 1100 * dt; q.z = Math.max(0, q.z + q.vz * dt); if (q.z === 0) { q.vz = 0; q.landed = true; } }
@@ -621,6 +623,13 @@ function drawParts() {
   for (const q of parts) {
     if (q.t < 0) continue;
     const k = q.t / q.life;
+    if (q.kind === 'gstar') {
+      // Pulled into Noli, brightening as it goes then vanishing into him.
+      const e = k * k, x = q.sx + (noli.x - q.sx) * e, y = q.sy + (noli.y - q.sy) * e;
+      const tw = 0.6 + 0.4 * Math.sin(q.t * 40);
+      star4(x, y, q.size * (1 - k * 0.6) * tw, q.c, Math.min(1, k * 3) * (1 - k * k));
+      continue;
+    }
     if (q.kind === 'orbit') {
       const x = noli.x + Math.cos(q.ang) * q.rad, y = noli.y + Math.sin(q.ang) * q.rad * 0.75 + q.off;
       ctx.globalAlpha = 1 - k; ctx.fillStyle = q.c;
