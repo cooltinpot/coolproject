@@ -312,8 +312,9 @@ function observantTeleport(g) {
   noli.state = 'free';
   noli.x = g.x; noli.y = g.y + 46; noli.stance = false; noli.cds.obs = KIT.obs.cd;
   noli.stunT = KIT.obs.landRoot;   // stand still at the generator for 0.5s
+  tpStrike(noli.x, noli.y);
   ring(g.x, g.y, 90, '#a26bff', 0.7);
-  for (const [range] of KIT.obs.bands) showBox({ x: g.x, y: g.y + 46, w: range * STUD * 2, h: range * STUD * 2, a: 0 }, '#c49bff', 0.9);
+  for (const [range] of KIT.obs.bands) showBox({ x: g.x, y: g.y + 46, w: range * STUD * 2, h: range * STUD * 2, a: 0, outline: true }, '#c49bff', 0.9);
   for (const d of alive()) {
     const studs = Math.max(Math.abs(noli.x - d.x), Math.abs(noli.y - d.y)) / STUD;   // square zones
     const band = KIT.obs.bands.find(([range]) => studs <= range);
@@ -512,6 +513,8 @@ function update(dt) {
   for (const g of gens) { g.hov = Math.abs(w.x - g.x) < GEN_SIZE / 2 && Math.abs(w.y - g.y) < GEN_SIZE / 2; g.animT = (g.animT || 0) + dt * (g.hov ? 1 : 0.2); }
   for (const b of hitboxes) b.t += dt;
   for (let i = hitboxes.length - 1; i >= 0; i--) if (hitboxes[i].t > hitboxes[i].life) hitboxes.splice(i, 1);
+  if (noli.state === 'tp') tpSwirl(dt);
+  updateParts(dt);
   for (const f of fx) f.t += dt;
   for (let i = fx.length - 1; i >= 0; i--) if (fx[i].t > fx[i].life) fx.splice(i, 1);
   for (const t of texts) { t.t += dt; t.y -= 30 * dt; }
@@ -527,14 +530,91 @@ function update(dt) {
 
 // ------------------------------------------------------------- render
 function label(x, y, s, c, font = '700 12px system-ui') { ctx.font = font; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.strokeText(s, x, y); ctx.fillStyle = c; ctx.fillText(s, x, y); }
+// ------------------------------------------------------------- teleport VFX
+// Palette: black, white, light purple.
+const TP_COLORS = ['#000000', '#ffffff', '#c9a8ff'];
+const parts = [];   // { kind: 'orbit' | 'star' | 'spark', ... }
+let strike = null;  // lightning bolt that slams onto the landing generator
+function star4(x, y, r, c, a = 1) {
+  ctx.globalAlpha = a; ctx.fillStyle = c; ctx.beginPath();
+  ctx.moveTo(x, y - r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.quadraticCurveTo(x, y, x, y + r);
+  ctx.quadraticCurveTo(x, y, x - r, y); ctx.quadraticCurveTo(x, y, x, y - r); ctx.fill(); ctx.globalAlpha = 1;
+}
+function tpSwirl(dt) {
+  // Orbiting wisps around Noli plus shimmering stars while he waits to teleport.
+  for (let i = 0; i < 3; i++) parts.push({ kind: 'orbit', ang: rand(0, 6.3), rad: rand(20, 46), spin: rand(4, 7) * (Math.random() < 0.5 ? -1 : 1), rise: rand(-12, -2), off: 0, c: TP_COLORS[i % 3], size: rand(2, 4.5), t: 0, life: rand(0.5, 0.9) });
+  if (Math.random() < dt * 22) parts.push({ kind: 'star', x: noli.x + rand(-38, 38), y: noli.y + rand(-44, 30), c: Math.random() < 0.5 ? '#ffffff' : '#c9a8ff', size: rand(4, 9), t: 0, life: rand(0.35, 0.7) });
+}
+function tpStrike(x, y) {
+  // Jagged bolt from above down to the landing point.
+  const pts = [], top = y - 900, n = 14;
+  for (let i = 0; i <= n; i++) pts.push({ x: x + (i === 0 || i === n ? 0 : rand(-34, 34) * (1 - i / n * 0.5)), y: top + (y - top) * i / n });
+  const forks = [];
+  for (let f = 0; f < 3; f++) { const k = 5 + Math.floor(rand(0, 7)), b = pts[k], dir = Math.random() < 0.5 ? -1 : 1; forks.push([b, { x: b.x + dir * rand(30, 70), y: b.y + rand(40, 80) }, { x: b.x + dir * rand(60, 110), y: b.y + rand(90, 150) }]); }
+  strike = { pts, forks, t: 0, life: 0.5, x, y };
+  // Sparks skitter across the floor.
+  for (let i = 0; i < 46; i++) { const a = rand(0, 6.3), sp = rand(140, 520); parts.push({ kind: 'spark', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, c: TP_COLORS[i % 3], t: 0, life: rand(0.35, 0.9) }); }
+  for (let i = 0; i < 18; i++) parts.push({ kind: 'star', x: x + rand(-70, 70), y: y + rand(-70, 50), c: i % 3 === 0 ? '#000000' : i % 3 === 1 ? '#ffffff' : '#c9a8ff', size: rand(5, 12), t: rand(-0.25, 0), life: rand(0.4, 0.8) });
+  ring(x, y, 70, '#ffffff', 0.35); ring(x, y, 110, '#c9a8ff', 0.5);
+}
+function updateParts(dt) {
+  for (const q of parts) {
+    q.t += dt;
+    if (q.kind === 'orbit') { q.ang += q.spin * dt; q.off += q.rise * dt; }
+    if (q.kind === 'spark') { q.x += q.vx * dt; q.y += q.vy * dt; const k = Math.pow(0.04, dt); q.vx *= k; q.vy *= k; }
+  }
+  for (let i = parts.length - 1; i >= 0; i--) if (parts[i].t > parts[i].life) parts.splice(i, 1);
+  if (strike) { strike.t += dt; if (strike.t > strike.life) strike = null; }
+}
+function drawParts() {
+  for (const q of parts) {
+    if (q.t < 0) continue;
+    const k = q.t / q.life;
+    if (q.kind === 'orbit') {
+      const x = noli.x + Math.cos(q.ang) * q.rad, y = noli.y + Math.sin(q.ang) * q.rad * 0.75 + q.off;
+      ctx.globalAlpha = 1 - k; ctx.fillStyle = q.c;
+      if (q.c === '#000000') { ctx.strokeStyle = '#c9a8ff'; ctx.lineWidth = 1; }
+      ctx.beginPath(); ctx.arc(x, y, q.size * (1 - k * 0.5), 0, 6.3); ctx.fill(); if (q.c === '#000000') ctx.stroke();
+      ctx.globalAlpha = 1;
+    } else if (q.kind === 'star') {
+      // Shimmer: grow, twinkle, fade.
+      const tw = Math.sin(k * Math.PI) * (0.75 + 0.25 * Math.sin(q.t * 40));
+      if (q.c === '#000000') star4(q.x, q.y, q.size * tw + 2, '#c9a8ff', 0.6 * (1 - k));
+      star4(q.x, q.y, q.size * tw, q.c, 1 - k * 0.6);
+    } else if (q.kind === 'spark') {
+      ctx.globalAlpha = 1 - k; ctx.strokeStyle = q.c; ctx.lineWidth = q.c === '#000000' ? 3 : 2;
+      ctx.beginPath(); ctx.moveTo(q.x, q.y); ctx.lineTo(q.x - q.vx * 0.04, q.y - q.vy * 0.04); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+  if (strike) {
+    const k = strike.t / strike.life, a = k < 0.15 ? 1 : 1 - (k - 0.15) / 0.85;
+    // Screen-space flash on impact.
+    const path = (pts) => { ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); for (const p of pts) ctx.lineTo(p.x, p.y); ctx.stroke(); };
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const [w, c] of [[14, '#000000'], [8, '#c9a8ff'], [3, '#ffffff']]) {
+      ctx.globalAlpha = a; ctx.strokeStyle = c; ctx.lineWidth = w; path(strike.pts);
+      ctx.lineWidth = w * 0.5; for (const f of strike.forks) path(f);
+    }
+    ctx.globalAlpha = a * 0.5; ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.ellipse(strike.x, strike.y, 60 * (1 + k), 22 * (1 + k), 0, 0, 6.3); ctx.fill();
+    ctx.globalAlpha = 1; ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
+  }
+}
 function drawNoli() {
   const { x, y } = noli;
   ctx.save(); ctx.translate(x, y);
   if (noli.state === 'rushWind') { ctx.strokeStyle = '#a26bff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, 22 + Math.min(1, noli.st / KIT.rush.windup) * 20, 0, 6.3); ctx.stroke(); if (noli.st >= KIT.rush.windup) { ctx.strokeStyle = '#ffffff'; ctx.beginPath(); ctx.arc(0, 0, 44, 0, 6.3); ctx.stroke(); } }
   ctx.fillStyle = 'rgba(162,107,255,0.18)'; ctx.beginPath(); ctx.arc(0, 0, 30, 0, 6.3); ctx.fill();
   ctx.rotate(noli.ang);
-  ctx.fillStyle = '#120d1f'; ctx.strokeStyle = '#a26bff'; ctx.lineWidth = 2;
+  const tpGlow = noli.state === 'tp';
+  ctx.fillStyle = '#120d1f'; ctx.strokeStyle = tpGlow ? TP_COLORS[1 + (Math.floor(performance.now() / 70) % 2)] : '#a26bff'; ctx.lineWidth = tpGlow ? 3 : 2;
   ctx.beginPath(); ctx.arc(0, 0, noli.r, 0, 6.3); ctx.fill(); ctx.stroke();
+  if (tpGlow) {
+    // Swirling black / white / light-purple bands across his body.
+    const t = performance.now() / 1000;
+    for (let i = 0; i < 3; i++) { ctx.strokeStyle = TP_COLORS[i]; ctx.globalAlpha = 0.8; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(0, 0, noli.r - 4 - i * 3, t * (5 + i * 2) + i * 2, t * (5 + i * 2) + i * 2 + 2.2); ctx.stroke(); }
+    ctx.globalAlpha = 1;
+  }
   ctx.fillStyle = '#e9e4ff';
   ctx.beginPath(); for (let i = 0; i < 10; i++) { const rr = i % 2 ? 4 : 9, a = i * Math.PI / 5; ctx.lineTo(8 + Math.cos(a) * rr, Math.sin(a) * rr); } ctx.fill();
   if (noli.state === 'stab') { ctx.fillStyle = '#ff6b8a'; ctx.fillRect(16, -3, 26 * Math.min(1, noli.st / KIT.stab.windup), 6); }
@@ -587,7 +667,7 @@ function render() {
   for (const f of fx) { const k = f.t / f.life; ctx.globalAlpha = 1 - k; if (f.trail) { ctx.fillStyle = f.c; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1 - k * 0.5), 0, 6.3); ctx.fill(); } else { ctx.strokeStyle = f.c; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (0.4 + k * 0.6), 0, 6.3); ctx.stroke(); } ctx.globalAlpha = 1; }
   if (showHitboxes) for (const b of hitboxes) {
     ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.a || 0);
-    ctx.globalAlpha = 0.25 * (1 - b.t / b.life) + 0.1; ctx.fillStyle = b.c; ctx.fillRect(-b.w / 2, -b.h / 2, b.w, b.h);
+    if (!b.outline) { ctx.globalAlpha = 0.25 * (1 - b.t / b.life) + 0.1; ctx.fillStyle = b.c; ctx.fillRect(-b.w / 2, -b.h / 2, b.w, b.h); }
     ctx.globalAlpha = 0.9; ctx.strokeStyle = b.c; ctx.lineWidth = 2; ctx.strokeRect(-b.w / 2, -b.h / 2, b.w, b.h);
     ctx.restore(); ctx.globalAlpha = 1;
   }
@@ -598,6 +678,7 @@ function render() {
   for (const d of dummies) drawDummy(d);
   if (hover && hover.kind === 'dummy') { ctx.strokeStyle = tool === 'erase' ? '#ff4d6d' : '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hover.o.x, hover.o.y, 24, 0, 6.3); ctx.stroke(); }
   drawNoli();
+  drawParts();
   // placement ghost
   if (!noli.stance && tool !== 'play') {
     ctx.globalAlpha = 0.45;
