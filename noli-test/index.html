@@ -1032,6 +1032,7 @@ function render() {
 // ------------------------------------------------------------- Void Rush charge UI
 // Dark orb with a soft white glow and a black four-point star; a crumbly white ring drains as you charge.
 const chargeUI = { a: 0, k: 0, last: 0 };
+const RUSH_PULSE = 0.5;   // seconds per white+purple cycle while rushing
 function hash1(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
 function drawChargeUI() {
   const now = performance.now() / 1000, dt = Math.min(0.05, now - (chargeUI.last || now)); chargeUI.last = now;
@@ -1061,8 +1062,8 @@ function drawChargeUI() {
   // Background glow: steady white normally; while rushing it pulses white -> dim -> purple -> dim with the star.
   let gr = 255, gg2 = 255, gb = 255, gi = 1;
   if (noli.state === 'rush') {
-    const ph = (now % 0.9) / 0.9; gi = 0.25 + 0.75 * Math.sin(((ph * 2) % 1) * Math.PI);
-    if (ph >= 0.5) { gr = 162; gg2 = 107; gb = 255; }
+    const ph = (now % RUSH_PULSE) / RUSH_PULSE; gi = 0.25 + 0.75 * Math.sin(((ph * 2) % 1) * Math.PI);
+    if (ph < 0.5) { gr = 162; gg2 = 107; gb = 255; }   // opposite of the star: purple glow while the star is white
   }
   const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R - 2);
   g.addColorStop(0, `rgba(${gr},${gg2},${gb},${0.95 * gi})`); g.addColorStop(0.35, `rgba(${Math.round(gr * 0.8)},${Math.round(gg2 * 0.8)},${Math.round(gb * 0.8)},${0.55 * gi})`);
@@ -1072,11 +1073,8 @@ function drawChargeUI() {
   star4(cx, cy, 13, '#ffffff', 0.9 * chargeUI.a); star4(cx, cy, 11, '#000000', chargeUI.a);
   if (noli.state === 'rush') {
     // While rushing (burning energy) the star pulses: up to white, dims, up to purple, dims, repeat.
-    const P = 0.9, ph = (now % P) / P, half = (ph * 2) % 1, glow = Math.sin(half * Math.PI);
+    const P = RUSH_PULSE, ph = (now % P) / P, half = (ph * 2) % 1, glow = Math.sin(half * Math.PI);
     const col = ph < 0.5 ? '#ffffff' : '#a26bff';
-    const gg = ctx.createRadialGradient(cx, cy, 0, cx, cy, 22);
-    gg.addColorStop(0, ph < 0.5 ? 'rgba(255,255,255,0.5)' : 'rgba(162,107,255,0.5)'); gg.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.globalAlpha = chargeUI.a * glow; ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(cx, cy, 22, 0, 6.3); ctx.fill();
     star4(cx, cy, 11, col, chargeUI.a * (0.15 + 0.85 * glow));
     ctx.globalAlpha = chargeUI.a;
   }
