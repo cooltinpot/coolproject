@@ -803,6 +803,7 @@ function useSkill(d, k) {
     case 'twotime.q': {
       const L = TT.lunge, cr = !!d.crouch;
       d.act = { kind: 'dagger', t: 0, crouched: cr, hit: false, dur: TT.windup + (cr ? L.time + L.endlag : TT.active + TT.endlag) };
+      if (cr) d.crouch = false;   // the lunge stab stands him back up
       d.resT = TT.resistT; txt(d.x, d.y - 44, cr ? 'LUNGE' : 'DAGGER', '#bff6ff'); tone(900, 0.12, 'triangle', 0.08, 0.6, d);
       break; }
     case 'twotime.e':
