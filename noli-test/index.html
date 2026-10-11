@@ -261,6 +261,7 @@ function obsStarFx(dt) {
   noli.obsStar.t += dt;
   const p = obsStarPos();
   // Electric lines being drawn into the star, like Nova's implosion.
+  if (p.k >= 1 && Math.random() < dt * 14) parts.push({ kind: 'star', x: p.x + rand(-16, 16), y: p.y + rand(-16, 16), c: Math.random() < 0.6 ? '#ffffff' : '#c9a8ff', size: rand(2, 4), t: 0, life: rand(0.25, 0.45) });   // tiny glints
   if (p.k >= 1 && Math.random() < dt * 30) { const a = rand(0, 6.3), r = rand(26, 55); parts.push({ kind: 'implode', cx: p.x, cy: p.y, sx: p.x + Math.cos(a) * r, sy: p.y + Math.sin(a) * r, c: Math.random() < 0.6 ? '#ffffff' : '#c9a8ff', t: 0, life: rand(0.25, 0.45) }); }
 }
 function drawObsStar() {
@@ -291,7 +292,16 @@ function drawObsStar() {
   const g = ctx.createRadialGradient(p.x, p.y, 1, p.x, p.y, 22);
   g.addColorStop(0, 'rgba(255,255,255,0.75)'); g.addColorStop(0.5, 'rgba(201,168,255,0.3)'); g.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.globalAlpha = appear; ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 22, 0, 6.3); ctx.fill();
-  ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(T * 3); star4(0, 0, 12 * (0.4 + 0.6 * appear) * (1 + 0.08 * Math.sin(T * 9)), '#ffffff', appear); ctx.restore();
+  // Shimmer while you're choosing: twinkling size/brightness plus sweeping glint crosses.
+  const held = p.k >= 1, sh = held ? 0.8 + 0.2 * Math.sin(T * 14) * Math.sin(T * 7.3 + 1) : 1;
+  ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(T * 3); star4(0, 0, 12 * (0.4 + 0.6 * appear) * sh, '#ffffff', appear * (held ? 0.75 + 0.25 * sh : 1)); ctx.restore();
+  if (held) {
+    const gl = Math.max(0, Math.sin(T * 5)), gl2 = Math.max(0, Math.sin(T * 5 + 3.1));
+    ctx.save(); ctx.translate(p.x, p.y);
+    ctx.rotate(-T * 1.5); star4(0, 0, 26 * gl, '#ffffff', 0.5 * gl);
+    ctx.rotate(Math.PI / 4); star4(0, 0, 20 * gl2, '#c9a8ff', 0.45 * gl2);
+    ctx.restore();
+  }
   ctx.globalAlpha = 1;
 }
 // ------------------------------------------------------------- Nova recast: star pulled back to his hand
