@@ -248,6 +248,52 @@ function releaseRush() {
   noli.state = 'free'; noli.cds.rush = KIT.rush.cdCancel; sfx('cancel'); log('Void Rush let go too early (1.2s cooldown)');
   chargeUI.cap = "You didn't charge it long enough >:(("; chargeUI.err = true; chargeUI.tint = 'red'; chargeUI.hold = 0.8;   // keep the ring up long enough to read it
 }
+// ------------------------------------------------------------- Observant star: held in front of his face
+const OBS_STAR = { delay: 0.15, travel: 0.35 };
+function obsStarPos() {
+  const k = clamp((noli.obsStar.t - OBS_STAR.delay) / OBS_STAR.travel, 0, 1), e = k * k * (3 - 2 * k);
+  const from = localToWorld(4, -(noli.r + 16)), face = localToWorld(noli.r + 8, 0);   // left side -> middle of his face
+  return { x: from.x + (face.x - from.x) * e, y: from.y + (face.y - from.y) * e, k };
+}
+function endObsStar() { if (!noli.obsStar) return; const p = obsStarPos(); stabBurst(p, 12, 12); ring(p.x, p.y, 26, '#ffffff', 0.3); noli.obsStar = null; }
+function obsStarFx(dt) {
+  if (!noli.obsStar) return;
+  noli.obsStar.t += dt;
+  const p = obsStarPos();
+  // Electric lines being drawn into the star, like Nova's implosion.
+  if (p.k >= 1 && Math.random() < dt * 30) { const a = rand(0, 6.3), r = rand(26, 55); parts.push({ kind: 'implode', cx: p.x, cy: p.y, sx: p.x + Math.cos(a) * r, sy: p.y + Math.sin(a) * r, c: Math.random() < 0.6 ? '#ffffff' : '#c9a8ff', t: 0, life: rand(0.25, 0.45) }); }
+}
+function drawObsStar() {
+  if (!noli.obsStar) return;
+  const p = obsStarPos(), T = performance.now() / 1000, appear = Math.min(1, noli.obsStar.t / OBS_STAR.delay);
+  if (p.k > 0 && p.k < 1) {
+    // Invisible hand: sparkly strands from his hand while it's pulled in.
+    const hand = localToWorld(noli.r * 0.6, noli.r * 0.55), dx = p.x - hand.x, dy = p.y - hand.y;
+    ctx.save(); ctx.lineCap = 'round';
+    for (let i = 0; i < 3; i++) { ctx.globalAlpha = 0.5 + 0.4 * Math.sin(T * 40 + i); ctx.strokeStyle = i % 2 ? '#9a9a9a' : '#ffffff'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(hand.x + i, hand.y); ctx.lineTo(p.x + i * 0.4, p.y); ctx.stroke(); }
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
+  if (p.k >= 1) {
+    // Crackling electric arcs jumping into the star.
+    const seed = Math.floor(T * 16);
+    ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (let a = 0; a < 3; a++) {
+      const ang = hash1(seed * 3 + a) * 6.3, r = 34 + hash1(seed * 7 + a) * 22;
+      let x = p.x + Math.cos(ang) * r, y = p.y + Math.sin(ang) * r;
+      ctx.strokeStyle = a % 2 ? '#c9a8ff' : '#ffffff'; ctx.lineWidth = 1.4; ctx.globalAlpha = 0.5 + 0.5 * hash1(seed + a * 11);
+      ctx.beginPath(); ctx.moveTo(x, y);
+      for (let i = 1; i <= 5; i++) { const f = i / 5, jx = (hash1(seed * 13 + a * 5 + i) - 0.5) * 12 * (1 - f), jy = (hash1(seed * 17 + a * 5 + i) - 0.5) * 12 * (1 - f); ctx.lineTo(x + (p.x - x) * f + jx, y + (p.y - y) * f + jy); }
+      ctx.stroke();
+    }
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
+  const g = ctx.createRadialGradient(p.x, p.y, 1, p.x, p.y, 22);
+  g.addColorStop(0, 'rgba(255,255,255,0.75)'); g.addColorStop(0.5, 'rgba(201,168,255,0.3)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.globalAlpha = appear; ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, 22, 0, 6.3); ctx.fill();
+  ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(T * 3); star4(0, 0, 12 * (0.4 + 0.6 * appear) * (1 + 0.08 * Math.sin(T * 9)), '#ffffff', appear); ctx.restore();
+  ctx.globalAlpha = 1;
+}
 // ------------------------------------------------------------- Nova recast: star pulled back to his hand
 let novaReturn = null;
 const NOVA_RETURN = { delay: 0.2, travel: 0.4 };   // reappears, then gets drawn back
@@ -455,10 +501,11 @@ function detonate(n, why) {
 
 function stallVol() { return gens.length ? clamp(1 - Math.min(...gens.map((g) => dist(noli, g))) / KIT.obs.stallRange, 0, 1) : 0; }
 function toggleObservant() {
-  if (noli.stance) { stopSfx('stall'); stopSfx('gen_start'); sfx('gen_end'); noli.stance = false; noli.cds.obs = KIT.obs.cdLeave; log('Left Observant (15s cooldown)'); return; }
+  if (noli.stance) { endObsStar(); stopSfx('stall'); stopSfx('gen_start'); sfx('gen_end'); noli.stance = false; noli.cds.obs = KIT.obs.cdLeave; log('Left Observant (15s cooldown)'); return; }
   if (busy() || !ready('obs')) return;
   if (!gens.length) { log('Observant needs a generator — place one'); return; }
   noli.stance = true; log('Observant: click a generator to teleport');
+  noli.obsStar = { t: 0 }; stabBurst(localToWorld(4, -(noli.r + 16)), 8, 10);   // star appears at his left side
   sfx('observant_enter');
   // Stall loops while choosing; its volume follows how close Noli is to a generator.
   sfx('stall', stallVol()); if (SFX.stall) SFX.stall.loop = true;
@@ -466,6 +513,7 @@ function toggleObservant() {
 }
 function observantPick(g) {
   // Short travel time before Noli arrives at the generator.
+  endObsStar();
   noli.stance = false; noli.state = 'tp'; noli.st = 0; noli.tp = g;
   stopSfx('stall'); stopSfx('gen_start'); sfx('gen_end');
   sfx('observant_tp');
@@ -598,6 +646,7 @@ function update(dt) {
   if (noli.state === 'exec') updateExec(dt);
   rushStarFx(dt);
   novaReturnFx(dt);
+  obsStarFx(dt);
   if (noli.stabVis) {
     noli.stabVis.t += dt;
     if (noli.stabVis.t > KIT.stab.windup + STAB_FX.thrust + STAB_FX.hold + STAB_FX.retrieve) noli.stabVis = null; else stabFx(dt);
@@ -1123,6 +1172,7 @@ function render() {
   drawStabStar();
   drawRushStar();
   drawNovaReturn();
+  drawObsStar();
   drawParts();
   // placement ghost
   if (!noli.stance && tool !== 'play') {
