@@ -246,6 +246,7 @@ function releaseRush() {
   stopSfx('charge');
   // Letting go before the charge finishes cancels it.
   noli.state = 'free'; noli.cds.rush = KIT.rush.cdCancel; sfx('cancel'); log('Void Rush let go too early (1.2s cooldown)');
+  chargeUI.cap = "You didn't charge it long enough >:(("; chargeUI.hold = 1.2;   // keep the ring up long enough to read it
 }
 function startRush(chain, ignore = null) {
   noli.state = 'rush';
@@ -1037,10 +1038,13 @@ function hash1(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x
 function drawChargeUI() {
   const now = performance.now() / 1000, dt = Math.min(0.05, now - (chargeUI.last || now)); chargeUI.last = now;
   // Shown for the whole Void Rush: full while charging and rushing, drains during the re-rush window.
-  const st = noli.state, on = st === 'rushWind' || st === 'rush' || st === 'reWindow';
+  const st = noli.state, rushing = st === 'rushWind' || st === 'rush' || st === 'reWindow';
+  if (rushing) chargeUI.hold = 0;
+  chargeUI.hold = Math.max(0, (chargeUI.hold || 0) - dt);
+  const on = rushing || chargeUI.hold > 0;
   // Fills while charging (empty -> full as the charge SFX plays), then tracks the time left:
   // the rush's remaining time while rushing, the re-rush window's remaining time after a hit.
-  if (on) {
+  if (rushing) {
     // After a hit it quickly refills (counter-clockwise, like the charge) and then drains through the window.
     const REFILL = 0.2, inWin = st === 'reWindow' ? KIT.rush.reRush - noli.rush.wt : 0;
     chargeUI.fill = st === 'rushWind' || (st === 'reWindow' && inWin < REFILL);
@@ -1049,7 +1053,7 @@ function drawChargeUI() {
       : inWin < REFILL ? 1 - clamp(inWin / REFILL, 0, 1)
       : clamp((inWin - REFILL) / (KIT.rush.reRush - REFILL), 0, 1);
   }
-  if (on) chargeUI.cap = st === 'rushWind' ? 'Charge VoidRush by holding down' : st === 'reWindow' ? 'Press Q to re-rush' : '';
+  if (rushing) chargeUI.cap = st === 'rushWind' ? 'Charge VoidRush by holding down' : st === 'reWindow' ? 'Press Q to re-rush' : '';
   chargeUI.a = clamp(chargeUI.a + (on ? dt * 8 : -dt * 5), 0, 1);
   if (chargeUI.a <= 0) return;
   // Sits just below Noli on screen (above him if he's near the bottom edge).
