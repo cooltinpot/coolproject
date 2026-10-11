@@ -265,8 +265,31 @@ function damage(d, amt, why, color = '#ff4d6d', opt = {}) {
 function ready(k) { return (noCd && mode === 'noli') || noli.cds[k] <= 0; }
 // Lethal unless Two Time's second life would catch it — damage modifiers count.
 // Weakness (Chance's tails), Shedletsky's Slash windup resistance, Two Time's Dagger Resistance I.
-function dmgMul(t) { return (t.res2T > 0 ? 1 - BLOCK.res2 : 1) * (t.weakT > 0 ? 1.5 : 1) * (t.vulnT > 0 ? 1 + OBL.vuln : 1) * (t.act && t.act.kind === 'slash' && t.act.t < SHED.windup ? 1 - SHED.resist : 1) * (t.resT > 0 ? 1 - TT.resist : 1); }
+function dmgMul(t) { return (t.res3T > 0 ? 1 - CHARGE.res3 : 1) * (t.res2T > 0 ? 1 - BLOCK.res2 : 1) * (t.weakT > 0 ? 1.5 : 1) * (t.vulnT > 0 ? 1 + OBL.vuln : 1) * (t.act && t.act.kind === 'slash' && t.act.t < SHED.windup ? 1 - SHED.resist : 1) * (t.resT > 0 ? 1 - TT.resist : 1); }
 function wouldDie(t, dmg) { return !t.inf && t.hp - dmg * dmgMul(t) <= 0 && !canSecondLife(t) && !(t.iT > 0); }
+// Guest 1337's Charge (from the guide). Distances in px (10 px = 1 stud).
+const CHARGE = { dur: 1.5, speed: 400, dmg: 5, kbMin: 60, kbMax: 110, kbBuild: 0.5, kbTime: 0.2, res3T: 0.5, res3: 0.6, global: 20, nearNoPenalty: 100, slowMin: 3, slowMax: 15, slow: 0.2 };
+function chargeHit(d, A) {
+  ring(noli.x, noli.y, 36, '#ffffff', 0.3); stabBurst(noli, 10, 16); noiseBurst(0.15, 0.35, d); cam.shake = Math.max(cam.shake || 0, d.player ? 5 : 2);
+  d.vx -= Math.cos(d.ang) * 120; d.vy -= Math.sin(d.ang) * 120;
+  // Already charged within the past 20s (by any Guest): nothing happens.
+  if (gameT - (noli.chargedAt ?? -1e9) < CHARGE.global) { txt(noli.x, noli.y - 44, 'NO EFFECT', '#9a90bf'); log(`${d.name}'s Charge had no effect (Noli was charged in the last 20s)`); return; }
+  noli.chargedAt = gameT;
+  damageNoli(CHARGE.dmg, `${d.name}'s Charge`);
+  // Knockback grows from 6 to 11 studs over the first 0.5s of charging; -10% per extra Guest alive.
+  const guests = dummies.filter((o) => o.kit === 'guest' && !o.dead && !o.dying).length;
+  const D = (CHARGE.kbMin + (CHARGE.kbMax - CHARGE.kbMin) * Math.min(1, A.t / CHARGE.kbBuild)) * Math.max(0, 1 - 0.1 * (guests - 1));
+  noli.kb = { vx: Math.cos(d.ang) * D / CHARGE.kbTime, vy: Math.sin(d.ang) * D / CHARGE.kbTime, t: CHARGE.kbTime };
+  d.res3T = CHARGE.res3T;
+  txt(noli.x, noli.y - 44, `KNOCKED BACK ${(D / STUD).toFixed(1)} studs`, '#ffffff');
+}
+function chargeMiss(d, why) {
+  // Missing: Slowness II for 3 x (studs to Noli) / 13 seconds, 3-15s — unless he's right by Noli.
+  const studs = dist(d, noli) / STUD;
+  if (dist(d, noli) <= CHARGE.nearNoPenalty) return;
+  d.slow2T = clamp(3 * studs / 13, CHARGE.slowMin, CHARGE.slowMax);
+  txt(d.x, d.y - 44, `${why} — SLOWNESS II ${d.slow2T.toFixed(1)}s`, '#c97a7a');
+}
 // Guest 1337's Block (from the guide). Resistance levels are 20% each (I = 20%, II = 40%, V = 100%).
 const BLOCK = { cd: 27, time: 1, slowT: 1.75, slow: 0.5, r: 23, overheal: 10, overhealMax: 30, speed1T: 2, speed1: 0.1,
                 noliSlowT: 1, noliSlow: 0.3, strengthT: 5, breakMul: 0.6, res2T: 3, res2: 0.4, failLock: 2 };
@@ -748,7 +771,7 @@ function respawnDummy(d) { Object.assign(d, { x: d.home.x, y: d.home.y, hp: d.ma
 const SURV = { walk: 150, sprint: 255, stamMax: 100, drain: 12, regen: 18 };
 const KITS = {
   guest:   { name: 'Guest 1337', hp: 110, torso: '#2e2e36', head: '#f5cd30', hair: '#141414',
-             skills: { q: { name: 'Block', cd: 27 }, e: { name: 'Punch', cd: 3 }, r: { name: 'Charge', cd: 45 } } },
+             skills: { q: { name: 'Block', cd: 27 }, e: { name: 'Punch', cd: 3 }, r: { name: 'Charge', cd: 40 } } },
   shed:    { name: 'Shedletsky', hp: 100, torso: '#efefef', head: '#f5cd30', hair: '#6b4220',
              skills: { q: { name: 'Slash', cd: 40 }, e: { name: 'Fried Chicken', cd: 70, uses: 2 } } },
   chance:  { name: 'Chance', hp: 90, torso: '#c9a24a', head: '#f5cd30', hair: '#3b2a1a',
@@ -795,14 +818,14 @@ const TT = { windup: 0.25, resistT: 0.7, resist: 0.2, active: 0.15, endlag: 0.2,
 const SHED = { windup: 0.65, active: 0.2, recover: 0.3, lunge: 320, dmg: 30, stun: 3, resist: 0.5, missNoSprint: 2,
                eat: 1.6, healAmt: 35, healTime: 10 };
 const KIT_HELP = {
-  guest: '<b>Q</b> Block (27s): brace for 1s — Resistance V, bigger hitbox, 50% slower for 1.75s. Blocking a <b>Stab</b>: +10 Overheal (max 30, no decay), Speed I 2s, Strength I 5s, Punch reset, Noli 30% slower 1s. An <b>ability</b> (Void Rush, slam, Nova) breaks the Block: hit for 40% less, then Resistance II 3s. Whiffing locks your abilities ~2s · <b>Passive: Made to Last</b> — +10 HP (110) · <b>Passive: Self Sacrifice</b> — Noli\'s single-target hits go to you first when you\'re in the hitbox with others (blocking Guests first of all); Nova still hits everyone · <b>E</b> Punch (needs a charge, stuns 2s) · <b>R</b> Charge (dash, stuns 1.25s on contact)',
+  guest: '<b>Q</b> Block (27s): brace for 1s — Resistance V, bigger hitbox, 50% slower for 1.75s. Blocking a <b>Stab</b>: +10 Overheal (max 30, no decay), Speed I 2s, Strength I 5s, Punch reset, Noli 30% slower 1s. An <b>ability</b> (Void Rush, slam, Nova) breaks the Block: hit for 40% less, then Resistance II 3s. Whiffing locks your abilities ~2s · <b>Passive: Made to Last</b> — +10 HP (110) · <b>Passive: Self Sacrifice</b> — Noli\'s single-target hits go to you first when you\'re in the hitbox with others (blocking Guests first of all); Nova still hits everyone · <b>E</b> Punch (needs a charge, stuns 2s) · <b>R</b> Charge (40s): a 1.5s shoulder-bash dash, no stamina regen. Hitting Noli: 5 dmg + knockback 6→11 studs (builds over 0.5s; -10% per extra Guest), Resistance III 0.5s — but nothing if Noli was charged in the last 20s (meter over the button). Missing: Slowness II for 3×studs-to-Noli÷13 s (3–15s), none if you ended right by him. Start repairing (F) at a generator mid-charge to cancel it',
   shed: '<b>Q</b> Slash (long windup with damage resistance, then a lunge: 30 dmg + 3s stun; a miss stops you running for a bit) · <b>E</b> Fried Chicken (heals 35 HP over 10s; 2 uses)',
   chance: '<b>Q</b> One Shot (aim 0.75s with the mouse; stun 4s up close → 1s at range) · <b>E</b> Coin Flip (heads: gun ready · tails: Weakness 15s)',
   elliot: '<b>Q</b> Pizza Throw (heals an ally 35; lands on the floor if it misses) · <b>E</b> Rush Hour (you and nearby allies run 35% faster for 4s)',
   twotime: '<b>Q</b> Dagger (0.25s windup, Resistance I for 0.7s; front stab: 10 dmg + Slowness II & Helpless 1s · backstab: 20 dmg + 2s stun · while crouched: a fast ~22 stud lunge that stands you up, backstab stun 3.5s) · <b>E</b> Crouch (35s cd; up to 15s: Undetectable + Invisibility III, silent footsteps, walk 10 / run 20 studs/s, up to +40% speed over 4s while running at Noli; uncrouch after 1s — within 30 studs of Noli that gives Speed II for 1s) · <b>R</b> Place Ritual — one time only (3.4s rooted: raise the dagger, stab the ground twice, stand up; taking damage cancels it, then you can try again). Once placed, <b>R</b> becomes <b>Pray</b> (hold near your Ritual: trades Oblation for HP, 1 HP per 2%; too far = the Ritual is revealed for 4s). Two lives only: after your second life there\'s no Ritual and no Pray · <b>Passive: Oblation</b> — front stab +20%, backstab +40%; with a full bar and a placed Ritual, lethal damage sends you to a second life at the Ritual (50 HP, 40% stamina, statuses cleared, 2s invincible, Speed II 6s, Vulnerable V 12s, +20s on the clock). Not if you\'re the last survivor.',
 };
 function resetSurv(d) {
-  Object.assign(d, { uses: Object.fromEntries(Object.entries(KITS[d.kit].skills).filter(([, s]) => s.uses).map(([k, s]) => [k, s.uses])), regen: null, noSprintT: 0, cds: { q: 0, e: 0, r: 0 }, stam: SURV.stamMax, tired: false, act: null, invT: 0, slowT: 0, speedT: 0, weakT: 0, punch: 0, crouch: false, crouchAge: 0, ambushT: 0, resT: 0, oblation: 0, oblShowT: 0, ritual: null, ritualUsed: false, secondLifeUsed: false, iT: 0, spdT: 0, vulnT: 0, overheal: 0, blockSlowT: 0, spd1T: 0, strT: 0, res2T: 0, lockT: 0, blockHit: false, r: 16 });
+  Object.assign(d, { uses: Object.fromEntries(Object.entries(KITS[d.kit].skills).filter(([, s]) => s.uses).map(([k, s]) => [k, s.uses])), regen: null, noSprintT: 0, cds: { q: 0, e: 0, r: 0 }, stam: SURV.stamMax, tired: false, act: null, invT: 0, slowT: 0, speedT: 0, weakT: 0, punch: 0, crouch: false, crouchAge: 0, ambushT: 0, resT: 0, oblation: 0, oblShowT: 0, ritual: null, ritualUsed: false, secondLifeUsed: false, iT: 0, spdT: 0, vulnT: 0, overheal: 0, blockSlowT: 0, spd1T: 0, strT: 0, res2T: 0, lockT: 0, blockHit: false, r: 16, res3T: 0, slow2T: 0 });
 }
 function applyKit(d, kit) {
   d.kit = kit || null;
@@ -845,7 +868,7 @@ function useSkill(d, k) {
       if (hit) { stunNoli(2, `${d.name}'s Punch`); ring(noli.x, noli.y, 30, '#ffffff', 0.25); }
       break; }
     case 'guest.r':
-      d.act = { kind: 'charge', t: 0, dur: 0.9 }; txt(d.x, d.y - 44, 'CHARGE!', '#ffffff'); tone(90, 0.5, 'sawtooth', 0.12, 2, d); break;
+      d.act = { kind: 'charge', t: 0, dur: CHARGE.dur }; txt(d.x, d.y - 44, 'CHARGE!', '#ffffff'); tone(90, 0.5, 'sawtooth', 0.12, 2, d); break;
     case 'shed.q':
       d.act = { kind: 'slash', t: 0, dur: SHED.windup + SHED.active + SHED.recover, hit: false }; survSfx('shed_unsheath', d); break;   // windup = the Unsheath sound
     case 'shed.e':
@@ -941,7 +964,7 @@ function fireGun(d) {
 function survivorTick(d, dt, ai) {
   for (const k in d.cds) d.cds[k] = Math.max(0, d.cds[k] - dt);
   if (d.invT > 0 && d.invT - dt <= 0 && d.kit === 'guest' && !d.blockDone) { d.blockDone = true; d.r = 16; d.lockT = BLOCK.failLock; }   // whiffed Block
-  for (const k of ['blockSlowT', 'spd1T', 'strT', 'res2T', 'lockT']) d[k] = Math.max(0, (d[k] || 0) - dt);
+  for (const k of ['blockSlowT', 'spd1T', 'strT', 'res2T', 'lockT', 'res3T', 'slow2T']) d[k] = Math.max(0, (d[k] || 0) - dt);
   d.invT = Math.max(0, d.invT - dt); d.resT = Math.max(0, (d.resT || 0) - dt);
   d.iT = Math.max(0, (d.iT || 0) - dt); d.ritRevealT = Math.max(0, (d.ritRevealT || 0) - dt); d.spdT = Math.max(0, (d.spdT || 0) - dt); d.oblShowT = Math.max(0, (d.oblShowT || 0) - dt);
   if (d.vulnT > 0 && !(d.iT > 0)) d.vulnT = Math.max(0, d.vulnT - dt);   // Vulnerable effectively runs 10s after the invincibility d.slowT = Math.max(0, d.slowT - dt); d.speedT = Math.max(0, d.speedT - dt);
@@ -973,15 +996,13 @@ function survivorTick(d, dt, ai) {
   if (A) {
     A.t += dt;
     if (A.kind === 'charge') {
-      // Guest's Charge: a straight, barely-steerable dash that stuns Noli on contact.
-      const sp = 440, res = moveCircle(d, Math.cos(d.ang) * sp * dt, Math.sin(d.ang) * sp * dt);
+      // Guest's Charge: a 1.5s shoulder-bash dash (barely steerable); stamina gain is paused.
+      const res = moveCircle(d, Math.cos(d.ang) * CHARGE.speed * dt, Math.sin(d.ang) * CHARGE.speed * dt);
       if (Math.random() < dt * 40) parts.push({ kind: 'trail', x: d.x + rand(-8, 8), y: d.y + rand(-8, 8), c: Math.random() < 0.5 ? '#ffffff' : '#9a9a9a', size: rand(2, 4), t: 0, life: 0.4 });
-      if (canHitNoli() && dist(d, noli) < d.r + noli.r + 6) {
-        stunNoli(1.25, `${d.name}'s Charge`); d.act = null; d.vx -= Math.cos(d.ang) * 200; d.vy -= Math.sin(d.ang) * 200;
-        noiseBurst(0.12, 0.3, d); ring(noli.x, noli.y, 36, '#ffffff', 0.3);
-      } else if (res.bx || res.by) { d.act = null; d.slowT = 0.6; ring(d.x, d.y, 26, '#ffffff', 0.3); tone(100, 0.15, 'square', 0.15, 0.5, d); }
-      else if (A.t >= A.dur) d.act = null;
-      d.stam = Math.min(SURV.stamMax, d.stam + SURV.regen * dt);
+      if (d.player && keys.f && gens.some((g) => g.prog < 1 && dist(g, d) < 80)) { d.act = null; txt(d.x, d.y - 44, 'charge cancelled', '#9a90bf'); return; }   // repair-cancel trick: no penalty
+      if (canHitNoli() && dist(d, noli) < d.r + noli.r + 6) { d.act = null; chargeHit(d, A); }
+      else if (res.bx || res.by) { d.act = null; ring(d.x, d.y, 26, '#ffffff', 0.3); tone(100, 0.15, 'square', 0.15, 0.5, d); chargeMiss(d, 'crashed'); }
+      else if (A.t >= A.dur) { d.act = null; chargeMiss(d, 'missed'); }
       return;
     }
     if (A.kind === 'slash') {
@@ -1073,6 +1094,7 @@ function survivorTick(d, dt, ai) {
   if (d.spdT > 0) sp *= 1 + OBL.speed;   // Speed II
   if (d.spd1T > 0) sp *= 1 + BLOCK.speed1;   // Speed I
   if (d.blockSlowT > 0) sp *= 1 - BLOCK.slow;   // bracing
+  if (d.slow2T > 0) sp *= 1 - CHARGE.slow;   // Slowness II (missed Charge)
   moveCircle(d, ai.mx * sp * dt, ai.my * sp * dt);
 }
 function updatePizzas(dt) {
@@ -1143,7 +1165,7 @@ function smartSkills(d, nd, toNoli, dt) {
     case 'guest':
       if (((noli.state === 'stab' && nd < 100) || (noli.state === 'rush' && nd < 170 && facingMe) || (noli.state === 'rushWind' && nd < 120)) && roll(14)) useSkill(d, 'q');
       else if (d.punch > 0 && nd < 62 && free) { d.ang = toNoli; useSkill(d, 'e'); }
-      else if (free && nd > 70 && nd < 210 && sight && roll(0.5)) { d.ang = toNoli; useSkill(d, 'r'); }
+      else if (free && nd > 70 && nd < 210 && sight && gameT - (noli.chargedAt ?? -1e9) >= CHARGE.global && roll(0.5)) { d.ang = toNoli; useSkill(d, 'r'); }
       break;
     case 'shed':
       if (free && nd < 105 && roll(6)) { d.ang = toNoli; useSkill(d, 'q'); }
@@ -1595,7 +1617,7 @@ function resetNoli() {
   if (noli.ex) { const d = noli.ex.d; Object.assign(d, { exec: false, dead: true, deadT: 0, squash: 0, fade: 1 }); noli.ex = null; }
   if (noli.stance) endObsStar();
   Object.assign(noli, { x: 1000, y: 1150, ang: -Math.PI / 2, stamina: KIT.stamina.max, state: 'free', st: 0, rush: null, stance: false, stunT: 0, slowT: 0, dazed: false,
-    stabVis: null, stabbed: false, tp: null, slamCam: null, obsStar: null, hp: noli.maxHp, stunImmT: 0, ifT: 0, helplessT: 0, slowEffT: 0, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart } });
+    stabVis: null, stabbed: false, tp: null, slamCam: null, obsStar: null, hp: noli.maxHp, stunImmT: 0, ifT: 0, helplessT: 0, slowEffT: 0, kb: null, chargedAt: undefined, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart } });
   if (hitWall(noli.x, noli.y, noli.r)) { noli.x = MAP.w / 2; noli.y = MAP.h / 2; }
   novas.length = 0; novaReturn = null; selGen = null; chargeUI.hold = 0; chargeUI.cap = '';
   AI.target = null; AI.wander = null; AI.mem.clear(); AI.search = null; AI.rushT = null; AI.bubble = null;
@@ -1721,6 +1743,7 @@ function update(dt) {
   if (noli.slowEffT > 0) sp *= 1 - TT.front.slow;   // Slowness II
   if (noli.blockSlowT > 0) sp *= 1 - BLOCK.noliSlow;   // a Guest blocked his stab   // slowed after cancelling a rush / missing the window
 
+  if (noli.kb) { const st = Math.min(dt, noli.kb.t); moveCircle(noli, noli.kb.vx * st, noli.kb.vy * st); noli.kb.t -= dt; if (noli.kb.t <= 0) noli.kb = null; }   // Guest's Charge knockback
   if (noli.state === 'exec') updateExec(dt);
   rushStarFx(dt);
   novaReturnFx(dt);
@@ -2731,8 +2754,9 @@ function hud() {
 
 function slotsRow(slots) {
   const S = 70, gap = 8, total = slots.length * S + (slots.length - 1) * gap, x0 = W / 2 - total / 2, y0 = H - S - 18;
-  slots.forEach(({ key, name, cd, max, hot, off }, i) => {
+  slots.forEach(({ key, name, cd, max, hot, off, meter }, i) => {
     const x = x0 + i * (S + gap);
+    if (meter > 0) { ctx.fillStyle = '#14111f'; ctx.fillRect(x, y0 - 8, S, 5); ctx.fillStyle = '#c9a8ff'; ctx.fillRect(x, y0 - 8, S * meter, 5); }   // Charge's global cooldown
     ctx.fillStyle = hot ? '#5b2bbf' : '#14111f'; ctx.fillRect(x, y0, S, S); ctx.strokeStyle = '#2c2540'; ctx.strokeRect(x, y0, S, S);
     if (off) { ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(x, y0, S, S); ctx.textAlign = 'left'; ctx.font = '700 11px system-ui'; ctx.fillStyle = '#5a5470'; ctx.fillText(key, x + 5, y0 + 13); ctx.textAlign = 'center'; ctx.fillText(name, x + S / 2, y0 + S / 2 + 2); return; }
     if (cd > 0) { ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(x, y0 + S * (1 - Math.min(1, cd / max)), S, S * Math.min(1, cd / max)); }
@@ -2752,7 +2776,8 @@ function survHud() {
     if (K.skills[k].uses) name += ` (${d.uses[k]})`;
     const uncrouch = d.kit === 'twotime' && k === 'e' && d.crouch;
     if (uncrouch) name = d.crouchAge >= CROUCH.minTime ? 'Uncrouch' : 'Crouched';
-    return { key: k.toUpperCase(), name, cd: noCd || uncrouch ? 0 : d.cds[k], max: K.skills[k].cd, off, hot: (d.kit === 'twotime' && k === 'r' && d.act && d.act.kind === 'pray') || (d.kit === 'guest' && k === 'q' && d.invT > 0) || (d.kit === 'twotime' && k === 'e' && d.crouch) };
+    const meter = d.kit === 'guest' && k === 'r' ? Math.max(0, 1 - (gameT - (noli.chargedAt ?? -1e9)) / CHARGE.global) : 0;
+    return { key: k.toUpperCase(), name, cd: noCd || uncrouch ? 0 : d.cds[k], max: K.skills[k].cd, off, meter, hot: (d.kit === 'twotime' && k === 'r' && d.act && d.act.kind === 'pray') || (d.kit === 'guest' && k === 'q' && d.invT > 0) || (d.kit === 'twotime' && k === 'e' && d.crouch) };
   });
   const y0 = slotsRow(slots);
   const bw = Math.min(320, W - 40), bx = W / 2 - bw / 2, by = y0 - 22;
@@ -2763,7 +2788,7 @@ function survHud() {
   label(W / 2, by - 4, 'STAMINA ' + Math.round(d.stam), '#e9e4ff');
   label(W / 2, by - 34, `${K.name.toUpperCase()} · ${d.inf ? '∞' : Math.max(0, Math.ceil(d.hp)) + ' / ' + d.maxHp} HP`, '#ffffff');
   const st = [];
-  if (d.invT > 0) st.push(d.kit === 'guest' ? 'BLOCKING · RESISTANCE V' : 'BLOCKING'); if (d.overheal > 0) st.push(`OVERHEAL ${Math.round(d.overheal)}`); if (d.spd1T > 0) st.push('SPEED I'); if (d.strT > 0) st.push(`STRENGTH I ${Math.ceil(d.strT)}s`); if (d.res2T > 0) st.push('RESISTANCE II'); if (d.speedT > 0) st.push(`RUSH HOUR ${d.speedT.toFixed(1)}s`); if (d.weakT > 0) st.push(`WEAKNESS ${Math.ceil(d.weakT)}s`);
+  if (d.invT > 0) st.push(d.kit === 'guest' ? 'BLOCKING · RESISTANCE V' : 'BLOCKING'); if (d.overheal > 0) st.push(`OVERHEAL ${Math.round(d.overheal)}`); if (d.spd1T > 0) st.push('SPEED I'); if (d.strT > 0) st.push(`STRENGTH I ${Math.ceil(d.strT)}s`); if (d.res2T > 0) st.push('RESISTANCE II'); if (d.res3T > 0) st.push('RESISTANCE III'); if (d.slow2T > 0) st.push(`SLOWNESS II ${d.slow2T.toFixed(1)}s`); if (d.speedT > 0) st.push(`RUSH HOUR ${d.speedT.toFixed(1)}s`); if (d.weakT > 0) st.push(`WEAKNESS ${Math.ceil(d.weakT)}s`);
   if (d.act && d.act.kind === 'pray') st.push('PRAYING');
   if (d.act && d.act.kind === 'ritual') st.push(`PLACING RITUAL ${Math.max(0, RITUAL.len - d.act.t).toFixed(1)}s`);
   if (d.crouch) st.push(`CROUCHED ${Math.ceil(CROUCH.dur - d.crouchAge)}s` + (d.ambushT > 0 ? ` · AMBUSH +${Math.round(CROUCH.ambush * d.ambushT / CROUCH.ambushTime * 100)}%` : '')); if (d.regen) st.push(`HEALING +${Math.ceil(d.regen.left)}`); if (d.noSprintT > 0) st.push(`CAN'T RUN ${d.noSprintT.toFixed(1)}s`); if (d.hall) st.push('HALLUCINATION ' + 'I'.repeat(d.hall)); if (d.resT > 0) st.push('RESISTANCE I'); if (d.iT > 0) st.push('INVINCIBLE'); if (d.spdT > 0) st.push(`SPEED II ${d.spdT.toFixed(1)}s`); if (d.vulnT > 0) st.push(`VULNERABLE V ${Math.ceil(d.vulnT)}s`);
