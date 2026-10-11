@@ -603,7 +603,7 @@
       }
       ctx.font = `bold 10px ${F}`;
       ctx.fillStyle = '#b8b0c8';
-      ctx.fillText(g.finale ? 'THE LAST ONE' : g.lms ? 'LAST MAN STANDING' : g.overtime ? 'OVERTIME' : 'SURVIVE THE ROUND', W / 2, 58);
+      ctx.fillText(g.finale ? 'THE LAST ONE' : g.lms ? 'LAST MAN STANDING' : g.overtime ? 'OVERTIME' : g.player.team === 'killer' ? 'DELETE THEM ALL' : 'SURVIVE THE ROUND', W / 2, 58);
       // Hacker HP.
       ctx.fillStyle = '#222'; ctx.fillRect(W / 2 - 100, 66, 200, 10);
       ctx.fillStyle = k.def.id === 'protocol2' && k.hp < 200 ? '#ff3b1a' : '#ff4b5c';
@@ -716,7 +716,9 @@
         ctx.font = `900 13px ${F}`;
         ctx.fillStyle = ready ? '#fff' : '#777';
         const words = label.split(' ');
-        words.forEach((w2, i) => ctx.fillText(w2.slice(0, 9), x + S / 2, y + S / 2 - (words.length - 1) * 7 + i * 14 + 4));
+        const widest = Math.max(...words.map((w2) => ctx.measureText(w2).width));
+        if (widest > S - 6) ctx.font = `900 ${Math.max(8, Math.floor(13 * (S - 6) / widest))}px ${F}`;
+        words.forEach((w2, i) => ctx.fillText(w2, x + S / 2, y + S / 2 - (words.length - 1) * 7 + i * 14 + 4));
         const cd = p.cds[slot];
         if (cd > 0) {
           const f = Math.min(1, cd / Math.max(0.1, ab.cd));

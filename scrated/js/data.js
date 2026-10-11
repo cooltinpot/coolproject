@@ -27,7 +27,7 @@
     sc: {
       id: 'sc', team: 'killer', name: 'SC', title: 'The Crowned · once 0.4', role: 'POWER',
       color: '#ffab19', color2: '#5b6b80', w: 30, h: 50, hp: 900,
-      walk: 205, sprint: 300, sprite: { src: 'sc', face: 1, ax: 0.62, scale: 1.55 },
+      walk: 215, sprint: 315, sprite: { src: 'sc', face: 1, ax: 0.62, scale: 1.55 },
       m1: { id: 'm1', name: 'Block Strike', windup: 0.18, cd: 1.1, dmg: 8,
         boxes: [[24, -8, 20, 0], [42, -4, 20, 0.05], [58, 2, 18, 0.1]], desc: 'Three hitboxes, 8 damage each. Land all three for the full 24.' },
       abilities: {
@@ -49,7 +49,7 @@
     protocol2: {
       id: 'protocol2', team: 'killer', name: 'PROTOCOL2', title: 'The Chaos King', role: 'CHAOS',
       color: '#c96a2a', color2: '#a26ad8', w: 30, h: 50, hp: 500,
-      walk: 210, sprint: 305, sprite: { src: 'protocol2', face: -1, ax: 0.55, scale: 1.5 },
+      walk: 220, sprint: 320, sprite: { src: 'protocol2', face: -1, ax: 0.55, scale: 1.5 },
       m1: { id: 'm1', name: 'Royal Flurry', windup: 0.08, cd: 0.45, dmg: 2,
         boxes: [[22, -20, 16, 0], [30, -10, 16, 0.03], [36, 0, 16, 0.06], [30, 10, 16, 0.09], [22, 18, 16, 0.12]], desc: 'Five quick hitboxes, 2 damage each, the shortest cooldown on the roster.' },
       abilities: {
@@ -71,7 +71,7 @@
     burgers: {
       id: 'burgers', team: 'killer', name: 'BURGERS', title: 'The Machine', role: 'BRUTE',
       color: '#202020', color2: '#d83a3a', w: 32, h: 52, hp: 1000,
-      walk: 188, sprint: 278, sprite: { src: 'burgers', face: -1, ax: 0.45, scale: 1.45 },
+      walk: 198, sprint: 293, sprite: { src: 'burgers', face: -1, ax: 0.45, scale: 1.45 },
       m1: { id: 'm1', name: 'Delete', windup: 0.3, cd: 1.6, dmg: 10,
         boxes: [[28, -14, 24, 0], [46, -4, 24, 0.06], [62, 6, 22, 0.12]], desc: 'Three heavy hitboxes, 10 damage each: the hardest-hitting basic on the roster, with a slow cooldown.' },
       abilities: {
@@ -93,7 +93,7 @@
     creaker: {
       id: 'creaker', team: 'killer', name: 'THE CREAKER', title: 'The Forgotten Machine', role: 'DECEPTION',
       color: '#7d8a76', color2: '#bfe9ff', w: 44, h: 62, hp: 900,
-      walk: 200, sprint: 295, sprite: null,
+      walk: 210, sprint: 310, sprite: null,
       m1: { id: 'm1', name: 'Creak', windup: 0.22, cd: 1.2, dmg: 8,
         boxes: [[28, -16, 28, 0], [48, -4, 28, 0.06], [64, 8, 26, 0.12]], desc: 'Three oversized hitboxes, 8 damage each.' },
       abilities: {
@@ -120,7 +120,7 @@
     revengest: {
       id: 'revengest', team: 'killer', name: 'THE REVENGEST', title: 'The Corrupted Sheriff', role: 'RANGED',
       color: '#ffb070', color2: '#e8e8e8', w: 30, h: 50, hp: 900,
-      walk: 205, sprint: 300, sprite: { src: 'revengest', face: -1, ax: 0.66, scale: 1.55 },
+      walk: 215, sprint: 315, sprite: { src: 'revengest', face: -1, ax: 0.66, scale: 1.55 },
       m1: { id: 'm1', name: 'FORKING!', windup: 0.16, cd: 1.1, dmg: 6,
         boxes: [[26, -6, 11, 0], [44, -6, 11, 0.03], [62, -6, 11, 0.06], [80, -6, 11, 0.09]], desc: 'A longer but thinner fork-shaped hitbox: four tines of 6 damage.' },
       abilities: {
@@ -145,7 +145,7 @@
     scratchy: {
       id: 'scratchy', team: 'survivor', name: 'Scratchy', title: 'The Betrayer · 2.0', role: 'SUPPORT',
       color: '#f07a10', color2: '#ffffff', w: 26, h: 44, hp: 90,
-      walk: 190, sprint: 285, sprite: { src: 'scratchy', face: 1, ax: 0.5, scale: 1.5 },
+      walk: 190, sprint: 270, sprite: { src: 'scratchy', face: 1, ax: 0.5, scale: 1.5 },
       abilities: {
         Q: {
           id: 'scr_roll', name: 'SCRATCHING ROLL!', cd: 16, windup: 0.4, moveMult: 0.3,
@@ -165,7 +165,7 @@
     griffpatch: {
       id: 'griffpatch', team: 'survivor', name: 'GRIFFPATCH', title: 'The Performer', role: 'STUNNER',
       color: '#7ab0ff', color2: '#e83030', w: 26, h: 44, hp: 100, maxHp: 115,
-      walk: 190, sprint: 285, sprite: { src: 'griffpatch', face: -1, ax: 0.55, scale: 1.5 },
+      walk: 190, sprint: 270, sprite: { src: 'griffpatch', face: -1, ax: 0.55, scale: 1.5 },
       abilities: {
         Q: {
           id: 'griff_slam', name: 'HYPER TENSIONAL SLAM', cd: 20, windup: 0.4, moveMult: 0.2,
@@ -180,7 +180,7 @@
     nano: {
       id: 'nano', team: 'survivor', name: 'NANO', title: 'The Loyal One', role: 'DEFENDER',
       color: '#8a7a68', color2: '#3d6b10', w: 26, h: 44, hp: 100,
-      walk: 190, sprint: 285, sprite: { src: 'nano', face: -1, ax: 0.5, scale: 1.45 },
+      walk: 190, sprint: 270, sprite: { src: 'nano', face: -1, ax: 0.5, scale: 1.45 },
       abilities: {
         Q: {
           id: 'nano_deflect', name: 'DEFLECT', cd: 10, windup: 0, moveMult: 0,

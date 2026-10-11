@@ -295,7 +295,7 @@
           const target = moving ? I.mx * sp : 0;
           const acc = e.grounded ? 2600 : 1500;
           e.vx += U.clamp(target - e.vx, -acc * dt, acc * dt);
-          if (e.sprinting) e.stamina -= dt * (e.team === 'killer' ? 18 : 22);
+          if (e.sprinting) e.stamina -= dt * (e.team === 'killer' ? 11 : 25);
           if (moving) e.facing = I.mx > 0 ? 1 : -1;
           // Jump / drop.
           if (can && I.jump && (e.grounded || e.coyote > 0)) {
@@ -313,7 +313,7 @@
         e.coyote = e.grounded ? 0.1 : Math.max(0, e.coyote - dt);
         if (!wasGround && e.grounded && e.vy >= 0) e.vy = 0;
       }
-      if (!e.sprinting) e.stamina = Math.min(100, e.stamina + dt * 14 * (Math.abs(e.vx) > 20 ? 0.7 : 1));
+      if (!e.sprinting) e.stamina = Math.min(100, e.stamina + dt * (e.team === 'killer' ? 16 : 12) * (Math.abs(e.vx) > 20 ? 0.6 : 1));
       e.stamina = Math.max(0, e.stamina);
       // Facing for aimed abilities (players aim with the mouse while casting).
       if (e.cast && e.cast.aimFace !== false && e.isPlayer) e.facing = e.aim.x >= e.x ? 1 : -1;
