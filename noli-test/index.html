@@ -535,7 +535,6 @@ function observantTeleport(g) {
   noli.stunT = KIT.obs.landRoot;   // stand still at the generator for 0.5s
   tpStrike(noli.x, noli.y);
   ring(g.x, g.y, 90, '#a26bff', 0.7);
-  for (const [range] of KIT.obs.bands) showBox({ x: g.x, y: g.y + 46, w: range * STUD * 2, h: range * STUD * 2, a: 0, outline: true }, '#c49bff', 0.9);
   for (const d of alive()) {
     const studs = Math.max(Math.abs(noli.x - d.x), Math.abs(noli.y - d.y)) / STUD;   // square zones
     const band = KIT.obs.bands.find(([range]) => studs <= range);
@@ -1144,9 +1143,7 @@ function render() {
     const half = noli.stance ? GEN_SIZE * (g.hs || 1) / 2 : 22;   // plain box outside Observant
     ctx.fillStyle = '#7dffa8'; ctx.fillRect(g.x - 30, g.y + half + 2, 60 * g.prog, 4);
     label(g.x, g.y - half - 4, g.fake ? 'Generator (fake)' : 'Generator', g.fake ? '#ff9fb4' : '#9a90bf');
-    if (noli.stance) { ctx.strokeStyle = '#a26bff'; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.arc(g.x, g.y, GEN_SIZE * (g.hs || 1) / 2 + 6, 0, 6.3); ctx.stroke(); ctx.setLineDash([]); }
   }
-  if (noli.stance) for (const d of alive()) for (const [r, l] of KIT.obs.bands) { ctx.strokeStyle = `rgba(196,155,255,${0.15 * l})`; ctx.strokeRect(d.x - r * STUD, d.y - r * STUD, r * STUD * 2, r * STUD * 2); }
   for (const f of fx) { const k = f.t / f.life; ctx.globalAlpha = 1 - k; if (f.trail) { ctx.fillStyle = f.c; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1 - k * 0.5), 0, 6.3); ctx.fill(); } else { ctx.strokeStyle = f.c; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (0.4 + k * 0.6), 0, 6.3); ctx.stroke(); } ctx.globalAlpha = 1; }
   if (showHitboxes) for (const b of hitboxes) {
     ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.a || 0);
