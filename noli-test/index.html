@@ -241,6 +241,7 @@ function damage(d, amt, why, color = '#ff4d6d', opt = {}) {
   if (d.dead || d.dying) return;
   if (d.iT > 0) { txt(d.x, d.y - 24, 'INVINCIBLE', '#ffffff'); return; }   // second-life invincibility
   amt *= dmgMul(d);
+  d.ambushT = 0;   // Two Time's crouch speed is lost on taking damage
   if (d.act && (d.act.kind === 'eat' || d.act.kind === 'aim' || d.act.kind === 'flip')) { d.act = null; txt(d.x, d.y - 52, 'interrupted', '#9a90bf'); }
   d.hp -= amt;
   txt(d.x, d.y - 24, '-' + amt.toFixed(amt % 1 ? 1 : 0), color);
@@ -722,12 +723,24 @@ const KITS = {
   elliot:  { name: 'Elliot', hp: 100, torso: '#d9452b', head: '#f5cd30', hair: '#ffffff',
              skills: { q: { name: 'Pizza Throw', cd: 25 }, e: { name: 'Rush Hour', cd: 50 } } },
   twotime: { name: 'Two Time', hp: 80, torso: '#3b2a55', head: '#d8d2c0', hair: '#241a36',
-             skills: { q: { name: 'Dagger', cd: 30 }, e: { name: 'Crouch', cd: 1 }, r: { name: 'Place Ritual', cd: 5 } } },
+             skills: { q: { name: 'Dagger', cd: 30 }, e: { name: 'Crouch', cd: 35 }, r: { name: 'Place Ritual', cd: 5 } } },
 };
 const KIT_IDS = Object.keys(KITS);
 // Two Time's Ghostfire Dagger (from the guide). reach = 5 studs from his body.
 // Oblation (Two Time's passive). Speed II / Vulnerable V strengths are my picks.
 const OBL = { front: 20, back: 40, hp: 50, stam: 0.4, inv: 2, speedT: 6, speed: 0.2, vulnT: 12, vuln: 0.5, clock: 20 };
+// Crouch (from the guide). Speeds in px/s (10 px = 1 stud).
+const CROUCH = { cd: 35, minTime: 1, dur: 15, walk: 100, run: 200, ambush: 0.4, ambushTime: 4, uncrouchRange: 300, uncrouchSpeedT: 1, auraRange: 1000, noliSees: 50 };
+function startCrouch(d) {
+  d.crouch = true; d.crouchAge = 0; d.ambushT = 0; d.cds.e = CROUCH.cd;   // the 35s cooldown ticks from activation
+  txt(d.x, d.y - 44, 'crouching', '#9a90bf'); stabBurst(d, 6, 10);
+}
+function endCrouch(d, manual) {
+  if (!d.crouch) return;
+  d.crouch = false; d.ambushT = 0;
+  if (manual && dist(d, noli) <= CROUCH.uncrouchRange) { d.spdT = Math.max(d.spdT || 0, CROUCH.uncrouchSpeedT); txt(d.x, d.y - 44, 'SPEED II', '#ffffff'); }
+  else txt(d.x, d.y - 44, 'standing up', '#9a90bf');
+}
 const TT = { windup: 0.25, resistT: 0.7, resist: 0.2, active: 0.15, endlag: 0.2, reach: 50, width: 34,
              front: { dmg: 10, slowT: 1, slow: 0.2, helpless: 1 }, back: { dmg: 20, stun: 2 },
              lunge: { dist: 220, time: 0.2, endlag: 0.6, stun: 3.5 } };
@@ -740,10 +753,10 @@ const KIT_HELP = {
   shed: '<b>Q</b> Slash (long windup with damage resistance, then a lunge: 30 dmg + 3s stun; a miss stops you running for a bit) · <b>E</b> Fried Chicken (heals 35 HP over 10s; 2 uses)',
   chance: '<b>Q</b> One Shot (aim 0.75s with the mouse; stun 4s up close → 1s at range) · <b>E</b> Coin Flip (heads: gun ready · tails: Weakness 15s)',
   elliot: '<b>Q</b> Pizza Throw (heals an ally 35; lands on the floor if it misses) · <b>E</b> Rush Hour (you and nearby allies run 35% faster for 4s)',
-  twotime: '<b>Q</b> Dagger (0.25s windup, Resistance I for 0.7s; front stab: 10 dmg + Slowness II & Helpless 1s · backstab: 20 dmg + 2s stun · while crouched: a fast ~22 stud lunge that stands you up, backstab stun 3.5s) · <b>E</b> Crouch (slow, Noli can\'t see you past 15 studs) · <b>R</b> Place Ritual (temporary) · <b>Passive: Oblation</b> — front stab +20%, backstab +40%; with a full bar and a placed Ritual, lethal damage sends you to a second life at the Ritual (50 HP, 40% stamina, statuses cleared, 2s invincible, Speed II 6s, Vulnerable V 12s, +20s on the clock). Not if you\'re the last survivor.',
+  twotime: '<b>Q</b> Dagger (0.25s windup, Resistance I for 0.7s; front stab: 10 dmg + Slowness II & Helpless 1s · backstab: 20 dmg + 2s stun · while crouched: a fast ~22 stud lunge that stands you up, backstab stun 3.5s) · <b>E</b> Crouch (35s cd; up to 15s: Undetectable + Invisibility III, silent footsteps, walk 10 / run 20 studs/s, up to +40% speed over 4s while running at Noli; uncrouch after 1s — within 30 studs of Noli that gives Speed II for 1s) · <b>R</b> Place Ritual (temporary) · <b>Passive: Oblation</b> — front stab +20%, backstab +40%; with a full bar and a placed Ritual, lethal damage sends you to a second life at the Ritual (50 HP, 40% stamina, statuses cleared, 2s invincible, Speed II 6s, Vulnerable V 12s, +20s on the clock). Not if you\'re the last survivor.',
 };
 function resetSurv(d) {
-  Object.assign(d, { uses: Object.fromEntries(Object.entries(KITS[d.kit].skills).filter(([, s]) => s.uses).map(([k, s]) => [k, s.uses])), regen: null, noSprintT: 0, cds: { q: 0, e: 0, r: 0 }, stam: SURV.stamMax, tired: false, act: null, invT: 0, slowT: 0, speedT: 0, weakT: 0, punch: 0, crouch: false, resT: 0, oblation: 0, oblShowT: 0, ritual: null, iT: 0, spdT: 0, vulnT: 0 });
+  Object.assign(d, { uses: Object.fromEntries(Object.entries(KITS[d.kit].skills).filter(([, s]) => s.uses).map(([k, s]) => [k, s.uses])), regen: null, noSprintT: 0, cds: { q: 0, e: 0, r: 0 }, stam: SURV.stamMax, tired: false, act: null, invT: 0, slowT: 0, speedT: 0, weakT: 0, punch: 0, crouch: false, crouchAge: 0, ambushT: 0, resT: 0, oblation: 0, oblShowT: 0, ritual: null, iT: 0, spdT: 0, vulnT: 0 });
 }
 function applyKit(d, kit) {
   d.kit = kit || null;
@@ -766,6 +779,7 @@ function swing(d, c, r = 34) { swings.push({ x: d.x, y: d.y, a: d.ang, c, r, t: 
 function useSkill(d, k) {
   const K = d.kit && KITS[d.kit], s = K && K.skills[k];
   if (!s || d.dead || d.dying || d.exec || d.air || d.knockT > 0 || d.act) return false;
+  if (d.kit === 'twotime' && k === 'e' && d.crouch) { if (d.crouchAge >= CROUCH.minTime) endCrouch(d, true); return false; }
   if (d.cds[k] > 0 && !(noCd && d.player)) return false;
   if (s.uses && !(d.uses[k] > 0)) { if (d.player) txt(d.x, d.y - 44, 'No uses left', '#9a90bf'); return false; }
   if (s.uses) d.uses[k]--;
@@ -802,14 +816,13 @@ function useSkill(d, k) {
     case 'twotime.q': {
       const L = TT.lunge, cr = !!d.crouch;
       d.act = { kind: 'dagger', t: 0, crouched: cr, hit: false, dur: TT.windup + (cr ? L.time + L.endlag : TT.active + TT.endlag) };
-      if (cr) d.crouch = false;   // the lunge stab stands him back up
+      if (cr) endCrouch(d, false);   // the lunge stab stands him back up
       d.resT = TT.resistT; txt(d.x, d.y - 44, cr ? 'LUNGE' : 'DAGGER', '#bff6ff'); tone(900, 0.12, 'triangle', 0.08, 0.6, d);
       break; }
     case 'twotime.r':
       // Temporary Ritual: marks where the second life respawns you (one at a time).
       d.ritual = { x: d.x, y: d.y, t: 0 }; ring(d.x, d.y, 30, '#c9a8ff', 0.5); txt(d.x, d.y - 44, 'RITUAL PLACED', '#c9a8ff'); tone(330, 0.3, 'sine', 0.1, 1.5, d); break;
-    case 'twotime.e':
-      d.crouch = !d.crouch; txt(d.x, d.y - 44, d.crouch ? 'crouching' : 'standing up', '#9a90bf'); break;
+    case 'twotime.e': startCrouch(d); break;
   }
   return true;
 }
@@ -883,6 +896,13 @@ function survivorTick(d, dt, ai) {
     d.hp = Math.min(d.maxHp, d.hp + step); d.regen.left -= step; d.regen.t += dt;
     if (Math.random() < dt * 6) parts.push({ kind: 'star', x: d.x + rand(-12, 12), y: d.y + rand(-12, 12), c: '#7dffa8', size: rand(2, 3.5), t: 0, life: 0.4 });
     if (d.regen.left <= 0.001 || d.hp >= d.maxHp) d.regen = null;
+  }
+  if (d.crouch) {
+    d.crouchAge += dt;
+    if (d.crouchAge >= CROUCH.dur) endCrouch(d, false);
+    // Ambush: speed builds while running toward Noli (up to +40% over 4s); lost the moment you stop.
+    const towards = ai && (ai.mx || ai.my) && Math.abs(angDiff(Math.atan2(ai.my, ai.mx), Math.atan2(noli.y - d.y, noli.x - d.x))) < 0.8;
+    d.ambushT = towards ? Math.min(CROUCH.ambushTime, d.ambushT + dt) : 0;
   }
   if (d.knockT > 0) { d.act = null; return; }
   const A = d.act;
@@ -959,12 +979,12 @@ function survivorTick(d, dt, ai) {
   }
   const moving = ai && (ai.mx || ai.my);
   if (d.stam <= 0) d.tired = true; if (d.stam >= 35) d.tired = false;
-  const sprint = moving && ai.sprint && d.stam > 0 && !(d.tired && !d.player) && !d.crouch && !A && !(d.noSprintT > 0);
+  const sprint = moving && ai.sprint && d.stam > 0 && !(d.tired && !d.player) && !A && !(d.noSprintT > 0);
   d.stam = clamp(d.stam + (sprint ? -SURV.drain : SURV.regen) * dt, 0, SURV.stamMax);
   if (!moving) return;
-  let sp = (sprint ? SURV.sprint : ai.sp && !ai.sprint ? Math.min(ai.sp, SURV.walk) : SURV.walk) * mul;
+  let sp = (d.crouch ? (sprint ? CROUCH.run : CROUCH.walk) : sprint ? SURV.sprint : ai.sp && !ai.sprint ? Math.min(ai.sp, SURV.walk) : SURV.walk) * mul;
+  if (d.crouch) sp *= 1 + CROUCH.ambush * (d.ambushT / CROUCH.ambushTime);
   if (d.speedT > 0) { sp *= 1.35; if (Math.random() < dt * 20) parts.push({ kind: 'trail', x: d.x + rand(-10, 10), y: d.y + rand(-10, 10), c: Math.random() < 0.5 ? '#ffffff' : '#c9a8ff', size: rand(1.5, 3), t: 0, life: 0.4 }); }
-  if (d.crouch) sp *= 0.5;
   if (d.slowT > 0) sp *= 0.5;
   if (d.spdT > 0) sp *= 1 + OBL.speed;   // Speed II
   moveCircle(d, ai.mx * sp * dt, ai.my * sp * dt);
@@ -1057,8 +1077,8 @@ function smartSkills(d, nd, toNoli, dt) {
       if (d.cds.q <= 0 && canHit && back && free && (nd < d.r + noli.r + TT.reach - 4 || (d.crouch && nd < TT.lunge.dist + 30 && sight)) && roll(10)) { d.ang = toNoli; useSkill(d, 'q'); }   // backstab / crouched lunge
       else if (d.cds.q <= 0 && canHit && !back && nd < d.r + noli.r + TT.reach - 6 && threatTo(d).chasing && roll(4)) { d.ang = toNoli; useSkill(d, 'q'); }   // front stab to slow him and escape
       else if (!d.ritual && d.cds.r <= 0 && d.plan !== 'flee' && nd > 450) useSkill(d, 'r');   // set up the second life somewhere safe
-      else if (!d.crouch && d.plan !== 'flee' && ((nd > 320 && nd < 700) || (d.plan === 'help' && nd < 360)) && roll(0.8)) useSkill(d, 'e');
-      else if (d.crouch && d.plan !== 'help' && nd < 260 && roll(5)) useSkill(d, 'e');
+      else if (!d.crouch && d.cds.e <= 0 && ((d.plan === 'help' && nd < 500) || (threatTo(d).chasing && nd > 120)) && roll(3)) useSkill(d, 'e');   // vanish to ambush, or to shake him off
+      else if (d.crouch && d.crouchAge >= CROUCH.minTime && nd < CROUCH.uncrouchRange && threatTo(d).near && d.plan === 'flee' && roll(3)) useSkill(d, 'e');   // pop out for Speed II
       break; }
   }
 }
@@ -1206,7 +1226,7 @@ function smartThink(d, dt) {
   if (th.chasing || (th.near && d.plan !== 'help')) { d.plan = 'flee'; d.calmT = 0; }
   else if (d.plan === 'flee') { d.calmT = (d.calmT || 0) + dt; if (d.calmT > 1.5 && nd > 380) { d.plan = null; d.job = null; d.jobT = 0; } }
   if (d.plan === 'flee') {
-    d.job = null; if (d.crouch) { d.crouch = false; txt(d.x, d.y - 44, 'standing up', '#9a90bf'); }   // can't run crouched
+    d.job = null;
     d.thinkT = (d.thinkT || 0) - dt;
     if (d.thinkT <= 0 || d.fleeA === undefined) { fleeDir(d); d.thinkT = 0.15; }
     return { mx: Math.cos(d.fleeA), my: Math.sin(d.fleeA), sprint: nd < 420 };
@@ -1234,12 +1254,12 @@ function playerThink(d, dt) {
 // teleport to the generator nearest a survivor when nobody's around.
 const AI = { target: null, mem: new Map(), noises: [], last: 'free', sprintLock: false, wander: null, obsT: 0, obsWait: 0.8,
   reDelay: 0, search: null, bubble: null, rushT: null, idleT: 0 };
-const AIV = { view: 800, sense: 130, crouchSee: 150, forget: 10, hearRun: 320, hearRepair: 480 };
+const AIV = { view: 800, sense: 130, crouchSee: CROUCH.noliSees, forget: 10, hearRun: 320, hearRepair: 480 };
 let gameT = 0;
 // ---- perception: Noli only knows what he can see, hear or remember.
 function canSee(d) {
   const nd = dist(noli, d);
-  if (d.crouch && nd > AIV.crouchSee) return false;
+  if (d.crouch && nd > AIV.crouchSee) return false;   // Undetectable + Invisibility III
   if (nd < AIV.sense) return true;   // right next to him: always noticed
   return nd <= AIV.view && clearPath(noli, d, 3);
 }
@@ -1254,7 +1274,7 @@ function perceive(dt) {
   for (const d of alive()) {
     if (canSee(d)) { remember(d, d.x, d.y, true); continue; }
     const nd = dist(noli, d), sp = Math.hypot(d.svx || 0, d.svy || 0);
-    if ((sp > 200 && nd < AIV.hearRun) || (d.repairing && nd < AIV.hearRepair)) remember(d, d.x + rand(-40, 40), d.y + rand(-40, 40), false);   // footsteps / generator noise
+    if ((!d.crouch && sp > 200 && nd < AIV.hearRun) || (d.repairing && nd < AIV.hearRepair)) remember(d, d.x + rand(-40, 40), d.y + rand(-40, 40), false);   // footsteps / generator noise
   }
   for (const n of AI.noises) if (dist(noli, n) < n.r) for (const d of alive()) if (dist(d, n) < 40) remember(d, n.x + rand(-30, 30), n.y + rand(-30, 30), false);
   AI.noises.length = 0;
@@ -2243,7 +2263,7 @@ function drawDummy(d) {
 // Survivors, top-down, facing +x: shoulders across, head on top, their item in the right hand.
 function drawSurvBody(d) {
   const K = KITS[d.kit];
-  if (d.crouch) ctx.globalAlpha *= d.player ? 0.55 : mode === 'noli' && dist(d, noli) > 150 ? 0.22 : 0.45;
+  if (d.crouch) ctx.globalAlpha *= d.player ? 0.55 : mode === 'noli' ? 0.1 : 0.4;   // Invisibility III (Noli barely sees a shimmer)
   ctx.rotate(d.ang || 0);
   ctx.fillStyle = K.torso; ctx.fillRect(-7, -14, 14, 28);
   ctx.fillStyle = K.head;
@@ -2292,6 +2312,11 @@ function drawRituals() {
 }
 function drawSurvExtras(d) {
   const { x, y } = d, T = performance.now() / 1000, A = d.act;
+  if (d.crouch && !d.player && mode === 'survivor' && player && dist(player, d) <= CROUCH.auraRange) {
+    // Aura shown to other survivors within 100 studs.
+    ctx.globalAlpha = 0.55 + 0.25 * Math.sin(T * 5); ctx.strokeStyle = '#c9a8ff'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(x, y, 20, 0, 6.3); ctx.stroke(); ctx.globalAlpha = 1;
+  }
+  if (d.crouch && d.ambushT > 0.3) { ctx.globalAlpha = Math.min(1, d.ambushT / CROUCH.ambushTime); ctx.strokeStyle = '#bff6ff'; ctx.lineWidth = 1.5; for (let i = 0; i < 3; i++) { const a = d.ang + Math.PI + (i - 1) * 0.35; ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * 18, y + Math.sin(a) * 18); ctx.lineTo(x + Math.cos(a) * (26 + 10 * d.ambushT / CROUCH.ambushTime), y + Math.sin(a) * (26 + 10 * d.ambushT / CROUCH.ambushTime)); ctx.stroke(); } ctx.globalAlpha = 1; }
   if (d.iT > 0) { ctx.globalAlpha = 0.5 + 0.4 * Math.sin(T * 25); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 22, 0, 6.3); ctx.stroke(); ctx.globalAlpha = 1; }
   if (d.vulnT > 0 && Math.random() < 0.1) parts.push({ kind: 'trail', x: x + rand(-12, 12), y: y + rand(-12, 12), c: '#c97a7a', size: rand(1.5, 3), t: 0, life: 0.4 });
   if (d.invT > 0) {   // Block bubble
@@ -2549,8 +2574,9 @@ function survHud() {
     let name = K.skills[k].name;
     if (d.kit === 'guest' && k === 'e') name += ` (${d.punch})`;
     if (K.skills[k].uses) name += ` (${d.uses[k]})`;
-    if (d.kit === 'twotime' && k === 'e' && d.crouch) name = 'Stand up';
-    return { key: k.toUpperCase(), name, cd: noCd ? 0 : d.cds[k], max: K.skills[k].cd, hot: (d.kit === 'guest' && k === 'q' && d.invT > 0) || (d.kit === 'twotime' && k === 'e' && d.crouch) };
+    const uncrouch = d.kit === 'twotime' && k === 'e' && d.crouch;
+    if (uncrouch) name = d.crouchAge >= CROUCH.minTime ? 'Uncrouch' : 'Crouched';
+    return { key: k.toUpperCase(), name, cd: noCd || uncrouch ? 0 : d.cds[k], max: K.skills[k].cd, hot: (d.kit === 'guest' && k === 'q' && d.invT > 0) || (d.kit === 'twotime' && k === 'e' && d.crouch) };
   });
   const y0 = slotsRow(slots);
   const bw = Math.min(320, W - 40), bx = W / 2 - bw / 2, by = y0 - 22;
@@ -2561,7 +2587,7 @@ function survHud() {
   label(W / 2, by - 34, `${K.name.toUpperCase()} · ${d.inf ? '∞' : Math.max(0, Math.ceil(d.hp)) + ' / ' + d.maxHp} HP`, '#ffffff');
   const st = [];
   if (d.invT > 0) st.push('BLOCKING'); if (d.speedT > 0) st.push(`RUSH HOUR ${d.speedT.toFixed(1)}s`); if (d.weakT > 0) st.push(`WEAKNESS ${Math.ceil(d.weakT)}s`);
-  if (d.crouch) st.push('CROUCHED'); if (d.regen) st.push(`HEALING +${Math.ceil(d.regen.left)}`); if (d.noSprintT > 0) st.push(`CAN'T RUN ${d.noSprintT.toFixed(1)}s`); if (d.hall) st.push('HALLUCINATION ' + 'I'.repeat(d.hall)); if (d.resT > 0) st.push('RESISTANCE I'); if (d.iT > 0) st.push('INVINCIBLE'); if (d.spdT > 0) st.push(`SPEED II ${d.spdT.toFixed(1)}s`); if (d.vulnT > 0) st.push(`VULNERABLE V ${Math.ceil(d.vulnT)}s`);
+  if (d.crouch) st.push(`CROUCHED ${Math.ceil(CROUCH.dur - d.crouchAge)}s` + (d.ambushT > 0 ? ` · AMBUSH +${Math.round(CROUCH.ambush * d.ambushT / CROUCH.ambushTime * 100)}%` : '')); if (d.regen) st.push(`HEALING +${Math.ceil(d.regen.left)}`); if (d.noSprintT > 0) st.push(`CAN'T RUN ${d.noSprintT.toFixed(1)}s`); if (d.hall) st.push('HALLUCINATION ' + 'I'.repeat(d.hall)); if (d.resT > 0) st.push('RESISTANCE I'); if (d.iT > 0) st.push('INVINCIBLE'); if (d.spdT > 0) st.push(`SPEED II ${d.spdT.toFixed(1)}s`); if (d.vulnT > 0) st.push(`VULNERABLE V ${Math.ceil(d.vulnT)}s`);
   if (d.kit === 'twotime') st.push(d.ritual ? (d.oblation >= 100 ? 'SECOND LIFE READY' : 'ritual placed') : 'no ritual');
   if (st.length) label(W / 2, by - 54, st.join('  ·  '), '#c9a8ff');
   if (d.kit === 'twotime' && (d.oblShowT > 0 || d.oblation >= 100)) {
