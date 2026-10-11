@@ -86,7 +86,7 @@ const KIT = {
   speed: { walk: 160, sprint: 270 }, stamina: { max: 110, drain: 10, regen: 20 },
   stab: { dmg: 25, perStack: 5, cd: 2.0, windup: 0.18, box: { off: 38, w: 60, h: 60 } },
   rush: { cd: 20, cdStart: 10, cdCancel: 1.2, windup: 1.2, dur: 3.59,   // windup = charge SFX length, dur = NewVoidRush length
-          speed: 560, turn: 1.8, reRush: 3.67,   // re-rush window = Ding_ring length
+          speed: 560, turn: 1.8, reRush: 2.67,   // re-rush window = Ding_ring length minus 1s
           burst: 1.35, reSpeed: 1.4, windowMove: 0.3,
           boost: { time: 1, speed: 1.35, turn: 4.5 },
           box: { off: 10, w: 52, h: 52 }, hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
@@ -265,7 +265,7 @@ function rushHit(d) {
   ring(noli.x, noli.y, 36, '#ffffff', 0.3);
 }
 function stopWindowSfx() { stopSfx('ding'); stopSfx('hype'); stopSfx('din'); }
-function endRush(why) { stopSfx('voidrush'); stopWindowSfx(); if (why) sfx('stall', 0.7); noli.state = 'free'; noli.rush = null; noli.cds.rush = KIT.rush.cd; if (why) log(why); }
+function endRush(why, sound = 'stall') { stopSfx('voidrush'); stopWindowSfx(); if (why) sfx(sound, sound === 'stall' ? 0.7 : 0.9); noli.state = 'free'; noli.rush = null; noli.cds.rush = KIT.rush.cd; if (why) log(why); }
 
 function castNova() {
   const live = novas.find((n) => !n.boom);
@@ -438,7 +438,7 @@ function update(dt) {
     showBox(rbox, '#ff3b5c', 0.05);
     const hit = alive().find((d) => d !== r.ignore && boxHits(rbox, d));
     if (hit) rushHit(hit);
-    else if (blocked) endRush(r.chain ? `Void Rush hit a wall (chain x${r.chain} lost)` : 'Void Rush hit a wall');
+    else if (blocked) { endRush(r.chain ? `Void Rush crashed into a wall (chain x${r.chain} lost)` : 'Void Rush crashed into a wall', 'crash'); ring(noli.x, noli.y, 50, '#ffffff', 0.4); }
     else if (r.t >= KIT.rush.dur) endRush('Void Rush ran out');
   } else if (moving) {
     moveCircle(noli, mx * sp * dt, my * sp * dt);
