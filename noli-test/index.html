@@ -239,8 +239,7 @@ function addHall(d, n, why) {
 function setHall(d, n, why) { if (d.hall < n) addHall(d, n - d.hall, why); }
 function damage(d, amt, why, color = '#ff4d6d', opt = {}) {
   if (d.dead || d.dying) return;
-  if (d.weakT > 0) amt *= 1.5;   // Chance's tails: Weakness
-  if (d.act && d.act.kind === 'slash' && d.act.t < SHED.windup) amt *= 1 - SHED.resist;   // Shedletsky's Slash windup: damage resistance
+  amt *= dmgMul(d);
   if (d.act && (d.act.kind === 'eat' || d.act.kind === 'aim' || d.act.kind === 'flip')) { d.act = null; txt(d.x, d.y - 52, 'interrupted', '#9a90bf'); }
   d.hp -= amt;
   txt(d.x, d.y - 24, '-' + amt.toFixed(amt % 1 ? 1 : 0), color);
@@ -264,7 +263,9 @@ function damage(d, amt, why, color = '#ff4d6d', opt = {}) {
 // ------------------------------------------------------------- abilities
 function ready(k) { return (noCd && mode === 'noli') || noli.cds[k] <= 0; }
 // Lethal unless they have a revive left (Two Time) — Weakness counts.
-function wouldDie(t, dmg) { return !t.inf && t.hp - dmg * (t.weakT > 0 ? 1.5 : 1) * (t.act && t.act.kind === 'slash' && t.act.t < SHED.windup ? 1 - SHED.resist : 1) <= 0 && !(t.kit === 'twotime' && !t.revived); }
+// Weakness (Chance's tails), Shedletsky's Slash windup resistance, Two Time's Dagger Resistance I.
+function dmgMul(t) { return (t.weakT > 0 ? 1.5 : 1) * (t.act && t.act.kind === 'slash' && t.act.t < SHED.windup ? 1 - SHED.resist : 1) * (t.resT > 0 ? 1 - TT.resist : 1); }
+function wouldDie(t, dmg) { return !t.inf && t.hp - dmg * dmgMul(t) <= 0 && !(t.kit === 'twotime' && !t.revived); }
 // Guest 1337's Block: the hit is negated, Noli is slowed and Guest gains a Punch charge.
 function guard(d) {
   if (!(d.invT > 0)) return false;
@@ -298,9 +299,10 @@ function stunNoli(t, why) {
   return true;
 }
 function busy() { return noli.state !== 'free' || noli.stunT > 0; }
+function helpless() { return noli.helplessT > 0; }   // Two Time's front stab: no abilities
 
 function stab() {
-  if (busy() || noli.stance || !ready('stab')) return;
+  if (helpless() || busy() || noli.stance || !ready('stab')) return;
   noli.state = 'stab'; noli.st = 0; noli.cds.stab = KIT.stab.cd;
   noli.stabVis = { t: 0, f: {} };
   sfx('stab');
@@ -322,6 +324,7 @@ function stabHit() {
 }
 
 function castRush() {
+  if (helpless()) return;
   if (noli.state === 'reWindow') {
     // Re-rush off the survivor you just hit.
     stopWindowSfx();
@@ -613,6 +616,7 @@ function stopWindowSfx() { stopSfx('hype'); stopSfx('hype2'); stopSfx('din'); }
 function endRush(why, sound = null) { stopSfx('voidrush'); stopWindowSfx(); if (sound) sfx(sound, 0.9); noli.state = 'free'; noli.rush = null; noli.cds.rush = KIT.rush.cd; if (why) log(why); }
 
 function castNova() {
+  if (helpless()) return;
   const live = novas.find((n) => !n.boom);
   if (live && live.t >= KIT.nova.recast) { detonate(live, 'recast'); return; }
   if (busy() || noli.stance || !ready('nova') || live) return;
@@ -649,7 +653,7 @@ function detonate(n, why) {
 function stallVol() { return gens.length ? clamp(1 - Math.min(...gens.map((g) => dist(noli, g))) / KIT.obs.stallRange, 0, 1) : 0; }
 function toggleObservant() {
   if (noli.stance) { endObsStar(); stopSfx('stall'); stopSfx('gen_start'); sfx('gen_end'); noli.stance = false; noli.cds.obs = KIT.obs.cdLeave; log('Left Observant (15s cooldown)'); return; }
-  if (busy() || !ready('obs')) return;
+  if (helpless() || busy() || !ready('obs')) return;
   if (!gens.length) { log('Observant needs a generator — place one'); return; }
   noli.stance = true; log(mode === 'noli' ? 'Observant: click a generator to teleport' : 'Noli entered Observant…');
   noli.obsStar = { t: 0 }; stabBurst(localToWorld(4, -(noli.r + 16)), 8, 10);   // star appears at his left side
@@ -721,9 +725,13 @@ const KITS = {
   elliot:  { name: 'Elliot', hp: 100, torso: '#d9452b', head: '#f5cd30', hair: '#ffffff',
              skills: { q: { name: 'Pizza Throw', cd: 25 }, e: { name: 'Rush Hour', cd: 50 } } },
   twotime: { name: 'Two Time', hp: 80, torso: '#3b2a55', head: '#d8d2c0', hair: '#241a36',
-             skills: { q: { name: 'Backstab', cd: 30 }, e: { name: 'Crouch', cd: 1 } } },
+             skills: { q: { name: 'Dagger', cd: 30 }, e: { name: 'Crouch', cd: 1 } } },
 };
 const KIT_IDS = Object.keys(KITS);
+// Two Time's Ghostfire Dagger (from the guide). reach = 5 studs from his body.
+const TT = { windup: 0.25, resistT: 0.7, resist: 0.2, active: 0.15, endlag: 0.2, reach: 50, width: 34,
+             front: { dmg: 10, slowT: 1, slow: 0.2, helpless: 1 }, back: { dmg: 20, stun: 2 },
+             lunge: { dist: 220, time: 0.2, endlag: 0.6, stun: 3.5 } };
 // Shedletsky (from the guides): Slash = long windup with damage resistance, 30 dmg + 3s stun, 40s cd,
 // a miss means no running for a bit. Fried Chicken = 35 HP healed over 10s, 2 uses, 70s cd, slowed while eating.
 const SHED = { windup: 0.65, active: 0.2, recover: 0.3, lunge: 320, dmg: 30, stun: 3, resist: 0.5, missNoSprint: 2,
@@ -733,10 +741,10 @@ const KIT_HELP = {
   shed: '<b>Q</b> Slash (long windup with damage resistance, then a lunge: 30 dmg + 3s stun; a miss stops you running for a bit) · <b>E</b> Fried Chicken (heals 35 HP over 10s; 2 uses)',
   chance: '<b>Q</b> One Shot (aim 0.75s with the mouse; stun 4s up close → 1s at range) · <b>E</b> Coin Flip (heads: gun ready · tails: Weakness 15s)',
   elliot: '<b>Q</b> Pizza Throw (heals an ally 35; lands on the floor if it misses) · <b>E</b> Rush Hour (you and nearby allies run 35% faster for 4s)',
-  twotime: '<b>Q</b> Backstab (from behind Noli: slip in and stun 3.5s) · <b>E</b> Crouch (slow, Noli can\'t see you past 15 studs) · <b>Passive</b> revive once at 30 HP',
+  twotime: '<b>Q</b> Dagger (0.25s windup, Resistance I for 0.7s; front stab: 10 dmg + Slowness II & Helpless 1s · backstab: 20 dmg + 2s stun · while crouched: a fast ~22 stud lunge, backstab stun 3.5s; landed stabs give Oblation) · <b>E</b> Crouch (slow, Noli can\'t see you past 15 studs) · <b>Passive</b> revive once at 30 HP',
 };
 function resetSurv(d) {
-  Object.assign(d, { uses: Object.fromEntries(Object.entries(KITS[d.kit].skills).filter(([, s]) => s.uses).map(([k, s]) => [k, s.uses])), regen: null, noSprintT: 0, cds: { q: 0, e: 0, r: 0 }, stam: SURV.stamMax, tired: false, act: null, invT: 0, slowT: 0, speedT: 0, weakT: 0, punch: 0, crouch: false, revived: false });
+  Object.assign(d, { uses: Object.fromEntries(Object.entries(KITS[d.kit].skills).filter(([, s]) => s.uses).map(([k, s]) => [k, s.uses])), regen: null, noSprintT: 0, cds: { q: 0, e: 0, r: 0 }, stam: SURV.stamMax, tired: false, act: null, invT: 0, slowT: 0, speedT: 0, weakT: 0, punch: 0, crouch: false, revived: false, resT: 0, oblation: 0 });
 }
 function applyKit(d, kit) {
   d.kit = kit || null;
@@ -792,26 +800,32 @@ function useSkill(d, k) {
     case 'elliot.e':
       for (const o of dummies) if (o.kit && !o.dead && !o.dying && dist(o, d) <= 170) { o.speedT = 4; ring(o.x, o.y, 30, '#ffffff', 0.4); }
       ring(d.x, d.y, 170, '#c9a8ff', 0.5); txt(d.x, d.y - 44, 'RUSH HOUR!', '#ffffff'); tone(440, 0.3, 'square', 0.1, 2, d); break;
-    case 'twotime.q': backstab(d); break;
+    case 'twotime.q': {
+      const L = TT.lunge, cr = !!d.crouch;
+      d.act = { kind: 'dagger', t: 0, crouched: cr, hit: false, dur: TT.windup + (cr ? L.time + L.endlag : TT.active + TT.endlag) };
+      d.resT = TT.resistT; txt(d.x, d.y - 44, cr ? 'LUNGE' : 'DAGGER', '#bff6ff'); tone(900, 0.12, 'triangle', 0.08, 0.6, d);
+      break; }
     case 'twotime.e':
       d.crouch = !d.crouch; txt(d.x, d.y - 44, d.crouch ? 'crouching' : 'standing up', '#9a90bf'); break;
   }
   return true;
 }
-function backstab(d) {
-  d.crouch = false;
-  if (dist(d, noli) < 95 && behindNoli(d) && canHitNoli()) {
-    // Slip in right behind him and stab.
-    const a = noli.ang + Math.PI, p = { x: noli.x + Math.cos(a) * (noli.r + d.r + 2), y: noli.y + Math.sin(a) * (noli.r + d.r + 2) };
-    if (!hitWall(p.x, p.y, d.r)) { d.x = p.x; d.y = p.y; }
-    d.ang = noli.ang; swing(d, '#c9a8ff', 30);
-    txt(d.x, d.y - 44, 'BACKSTAB!', '#ffffff'); stunNoli(3.5, `${d.name}'s Backstab`);
-    noiseBurst(0.08, 0.25, d); tone(200, 0.2, 'sawtooth', 0.15, 0.5, d);
+function daggerHit(d, A) {
+  // Behind him = backstab (stun); in front = a weaker stab that slows him and stops his abilities.
+  const back = behindNoli(d), immune = noli.stunImmT > 0;
+  ring(noli.x, noli.y, 32, '#bff6ff', 0.3); stabBurst(noli, 10, 14);
+  if (back) {
+    damageNoli(TT.back.dmg, `${d.name}'s Backstab`);
+    stunNoli(A.crouched ? TT.lunge.stun : TT.back.stun, `${d.name}'s Backstab${A.crouched ? ' (lunge)' : ''}`);
+    txt(d.x, d.y - 44, 'BACKSTAB!', '#ffffff'); noiseBurst(0.08, 0.25, d); tone(200, 0.2, 'sawtooth', 0.15, 0.5, d);
   } else {
-    // Not behind him: a short lunge that hits nothing.
-    d.cds.q = 10; d.vx += Math.cos(d.ang) * 260; d.vy += Math.sin(d.ang) * 260;
-    swing(d, '#9a9a9a', 30); txt(d.x, d.y - 44, 'missed (get behind him)', '#9a90bf');
+    damageNoli(TT.front.dmg, `${d.name}'s Dagger (front)`);
+    noli.slowEffT = TT.front.slowT; noli.helplessT = TT.front.helpless;
+    txt(noli.x, noli.y - 58, 'SLOWNESS II · HELPLESS', '#bff6ff'); log(`Noli — Slowness II + Helpless ${TT.front.helpless}s`);
+    tone(420, 0.12, 'square', 0.12, 0.6, d);
   }
+  // Oblation: only from stabs on a Noli that wasn't stun immune.
+  if (!immune) { d.oblation = (d.oblation || 0) + 1; txt(d.x, d.y - 58, 'OBLATION +1', '#c9a8ff'); }
 }
 function fireGun(d) {
   const c = Math.cos(d.ang), s = Math.sin(d.ang), x0 = d.x + c * 18, y0 = d.y + s * 18;
@@ -833,7 +847,7 @@ function fireGun(d) {
 // Per-frame survivor logic: cooldowns, timers, actions and movement (ai = { mx, my, sprint, face }).
 function survivorTick(d, dt, ai) {
   for (const k in d.cds) d.cds[k] = Math.max(0, d.cds[k] - dt);
-  d.invT = Math.max(0, d.invT - dt); d.slowT = Math.max(0, d.slowT - dt); d.speedT = Math.max(0, d.speedT - dt);
+  d.invT = Math.max(0, d.invT - dt); d.resT = Math.max(0, (d.resT || 0) - dt); d.slowT = Math.max(0, d.slowT - dt); d.speedT = Math.max(0, d.speedT - dt);
   if (d.weakT > 0) { d.weakT -= dt; if (d.weakT <= 0) { d.weakT = 0; txt(d.x, d.y - 44, 'weakness wore off', '#9a90bf'); } }
   d.noSprintT = Math.max(0, (d.noSprintT || 0) - dt);
   if (d.regen && !d.dead && !d.dying) {
@@ -848,7 +862,7 @@ function survivorTick(d, dt, ai) {
   // Facing: the mouse for you, the way they're going (or what they aim at) for AI.
   const want = ai && ai.face !== undefined ? ai.face : ai && (ai.mx || ai.my) ? Math.atan2(ai.my, ai.mx) : d.ang;
   if (!A || A.kind === 'eat' || A.kind === 'flip') d.ang += angDiff(want, d.ang) * (d.player ? 1 : Math.min(1, dt * 12));
-  else if (A.kind === 'aim') d.ang += clamp(angDiff(want, d.ang), -4 * dt, 4 * dt);
+  else if (A.kind === 'aim' || (A.kind === 'dagger' && A.t < TT.windup)) d.ang += clamp(angDiff(want, d.ang), -4 * dt, 4 * dt);
   else if (A.kind === 'charge') d.ang += clamp(angDiff(want, d.ang), -2.2 * dt, 2.2 * dt);
   let mul = 1;
   if (A) {
@@ -883,6 +897,22 @@ function survivorTick(d, dt, ai) {
         d.act = null;
         if (!A.hit) { d.noSprintT = SHED.missNoSprint; txt(d.x, d.y - 44, 'missed — can\'t run', '#9a90bf'); }
       }
+    } else if (A.kind === 'dagger') {
+      // Windup, then the stab (or the crouched lunge); can't sprint while using it.
+      const L = TT.lunge, on = A.t >= TT.windup && A.t < TT.windup + (A.crouched ? L.time : TT.active);
+      mul = A.crouched ? 0.2 : 0.55;
+      if (Math.random() < dt * 30) { const h = { x: d.x + Math.cos(d.ang + 0.6) * 18, y: d.y + Math.sin(d.ang + 0.6) * 18 }; parts.push({ kind: 'trail', x: h.x + rand(-4, 4), y: h.y + rand(-4, 4), c: Math.random() < 0.5 ? '#bff6ff' : '#ffffff', size: rand(1.5, 3), t: 0, life: 0.35 }); }   // ghostfire
+      if (on) {
+        if (!A.swung) { A.swung = true; swing(d, '#bff6ff', 34); aiNoise(d.x, d.y, 300); }
+        if (A.crouched) {
+          moveCircle(d, Math.cos(d.ang) * L.dist / L.time * dt, Math.sin(d.ang) * L.dist / L.time * dt);
+          parts.push({ kind: 'trail', x: d.x + rand(-6, 6), y: d.y + rand(-6, 6), c: Math.random() < 0.5 ? '#bff6ff' : '#3b2a55', size: rand(2, 4), t: 0, life: 0.4 });
+        }
+        const b = survBox(d, d.r + TT.reach / 2, TT.reach, TT.width), hit = !A.hit && canHitNoli() && boxHits(b, noli);
+        showBox(b, hit || A.hit ? '#00ff4c' : '#ff0000', 0.05);
+        if (hit) { A.hit = true; daggerHit(d, A); }
+      }
+      if (A.t >= A.dur) d.act = null;
     } else if (A.kind === 'eat') {
       mul = 0.3;
       if (Math.random() < dt * 6) parts.push({ kind: 'star', x: d.x + rand(-10, 10), y: d.y - 20 + rand(-6, 6), c: '#ffd8a8', size: rand(2, 3), t: 0, life: 0.3 });
@@ -994,11 +1024,13 @@ function smartSkills(d, nd, toNoli, dt) {
       if (hurt && roll(3)) { d.ang = Math.atan2(hurt.y - d.y, hurt.x - d.x); useSkill(d, 'q'); }
       else if (free && nd < 260 && roll(3)) useSkill(d, 'e');
       break; }
-    case 'twotime':
-      if (free && nd < 90 && behindNoli(d) && roll(8)) useSkill(d, 'q');
-      else if (!d.crouch && nd > 320 && nd < 700 && roll(0.6)) useSkill(d, 'e');
-      else if (d.crouch && nd < 260 && roll(5)) useSkill(d, 'e');
-      break;
+    case 'twotime': {
+      const back = behindNoli(d), canHit = canHitNoli();
+      if (d.cds.q <= 0 && canHit && back && free && (nd < d.r + noli.r + TT.reach - 4 || (d.crouch && nd < TT.lunge.dist + 30 && sight)) && roll(10)) { d.ang = toNoli; useSkill(d, 'q'); }   // backstab / crouched lunge
+      else if (d.cds.q <= 0 && canHit && !back && nd < d.r + noli.r + TT.reach - 6 && threatTo(d).chasing && roll(4)) { d.ang = toNoli; useSkill(d, 'q'); }   // front stab to slow him and escape
+      else if (!d.crouch && d.plan !== 'flee' && ((nd > 320 && nd < 700) || (d.plan === 'help' && nd < 360)) && roll(0.8)) useSkill(d, 'e');
+      else if (d.crouch && d.plan !== 'help' && nd < 260 && roll(5)) useSkill(d, 'e');
+      break; }
   }
 }
 function repairThink(d, dt) {
@@ -1104,8 +1136,8 @@ function helpThink(d, nd) {
   d.helpT += d.lastDt || 0;
   if (d.helpT > 4) { d.plan = null; SQUAD.helper = null; d.noHelpT = 6; return null; }   // can't catch him: back to work
   SQUAD.helper = d; d.plan = 'help';
-  if (d.kit === 'twotime') {   // circle round to his back
-    const bx = noli.x - Math.cos(noli.ang) * 60, by = noli.y - Math.sin(noli.ang) * 60;
+  if (d.kit === 'twotime') {   // circle round to his back (crouched, for the lunge)
+    const back = d.crouch ? 160 : 40, bx = noli.x - Math.cos(noli.ang) * back, by = noli.y - Math.sin(noli.ang) * back;
     return goTo(d, bx, by, true, 4) || { mx: 0, my: 0, face: Math.atan2(noli.y - d.y, noli.x - d.x) };
   }
   if (d.kit === 'chance' && nd < 300 && clearPath(d, noli, 2)) return { mx: 0, my: 0, face: Math.atan2(noli.y - d.y, noli.x - d.x) };   // line up the shot
@@ -1283,7 +1315,7 @@ function dangerDodge() {
   for (const d of alive()) {
     if (!d.kit || !d.act || !visibleNow(d)) continue;
     const nd = dist(noli, d), aimed = Math.abs(angDiff(Math.atan2(noli.y - d.y, noli.x - d.x), d.ang)) < 0.45;
-    if (d.act.kind === 'slash' && d.act.t < SHED.windup && nd < 150 && aimed) return Math.atan2(noli.y - d.y, noli.x - d.x);   // straight back out of reach
+    if (((d.act.kind === 'slash' && d.act.t < SHED.windup) || (d.act.kind === 'dagger' && d.act.t < TT.windup && !d.act.crouched)) && nd < 150 && aimed) return Math.atan2(noli.y - d.y, noli.x - d.x);   // straight back out of reach
     if ((d.act.kind === 'aim' && nd < 720 && aimed) || (d.act.kind === 'charge' && nd < 260 && aimed)) {
       const a = Math.atan2(noli.y - d.y, noli.x - d.x) + (AI.dodgeSide || 1) * Math.PI / 2;
       if (hitWall(noli.x + Math.cos(a) * 40, noli.y + Math.sin(a) * 40, noli.r)) AI.dodgeSide = -(AI.dodgeSide || 1);
@@ -1419,7 +1451,7 @@ function resetNoli() {
   if (noli.ex) { const d = noli.ex.d; Object.assign(d, { exec: false, dead: true, deadT: 0, squash: 0, fade: 1 }); noli.ex = null; }
   if (noli.stance) endObsStar();
   Object.assign(noli, { x: 1000, y: 1150, ang: -Math.PI / 2, stamina: KIT.stamina.max, state: 'free', st: 0, rush: null, stance: false, stunT: 0, slowT: 0, dazed: false,
-    stabVis: null, stabbed: false, tp: null, slamCam: null, obsStar: null, hp: noli.maxHp, stunImmT: 0, ifT: 0, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart } });
+    stabVis: null, stabbed: false, tp: null, slamCam: null, obsStar: null, hp: noli.maxHp, stunImmT: 0, ifT: 0, helplessT: 0, slowEffT: 0, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart } });
   if (hitWall(noli.x, noli.y, noli.r)) { noli.x = MAP.w / 2; noli.y = MAP.h / 2; }
   novas.length = 0; novaReturn = null; selGen = null; chargeUI.hold = 0; chargeUI.cap = '';
   AI.target = null; AI.wander = null; AI.mem.clear(); AI.search = null; AI.rushT = null; AI.bubble = null;
@@ -1514,6 +1546,7 @@ function update(dt) {
   noli.stunT = Math.max(0, noli.stunT - dt);
   if (!noli.stunT && noli.dazed) { noli.dazed = false; noli.stunImmT = NOLI_PROT.stunImmune; txt(noli.x, noli.y - 44, 'STUN IMMUNE', '#5aa9ff'); }
   noli.stunImmT = Math.max(0, (noli.stunImmT || 0) - dt); noli.ifT = Math.max(0, (noli.ifT || 0) - dt);
+  noli.helplessT = Math.max(0, (noli.helplessT || 0) - dt); noli.slowEffT = Math.max(0, (noli.slowEffT || 0) - dt);
   if (mode === 'survivor' && (!player || !dummies.includes(player))) setMode('noli');   // your survivor was erased
   gameT += dt;
   if (mode === 'noli') readNoliInput(); else noliAI(dt);
@@ -1540,7 +1573,8 @@ function update(dt) {
   if (noli.state === 'tp') sp *= KIT.obs.waitMove;   // 80% slower while waiting to teleport
   if (noli.state === 'reWindow') sp *= KIT.rush.windowMove;   // walk/sprint at 70% less speed while the re-rush window is open
   if (noli.state === 'novaWind') sp *= KIT.nova.windMove;   // 30% slower during the Nova windup
-  if (noli.slowT > 0) { noli.slowT -= dt; sp *= KIT.rush.endSlow.mult; }   // slowed after cancelling a rush / missing the window
+  if (noli.slowT > 0) { noli.slowT -= dt; sp *= KIT.rush.endSlow.mult; }
+  if (noli.slowEffT > 0) sp *= 1 - TT.front.slow;   // Slowness II   // slowed after cancelling a rush / missing the window
 
   if (noli.state === 'exec') updateExec(dt);
   rushStarFx(dt);
@@ -2142,6 +2176,8 @@ function drawNoli() {
   }
   { const bw = 56; ctx.fillStyle = '#2a0f18'; ctx.fillRect(x - bw / 2, y - 52, bw, 6); ctx.fillStyle = '#c9a8ff'; ctx.fillRect(x - bw / 2, y - 52, bw * noli.hp / noli.maxHp, 6); }
   label(x, y - 34, 'NOLI', '#c49bff');
+  const fx2 = [noli.helplessT > 0 && 'HELPLESS', noli.slowEffT > 0 && 'SLOWNESS II'].filter(Boolean);
+  if (fx2.length) label(x, y + 38, fx2.join(' · '), '#bff6ff', '700 10px system-ui');
 }
 function drawDummy(d) {
   if (d.dead) { ctx.globalAlpha = 0.35; ctx.strokeStyle = '#9a90bf'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(d.home.x, d.home.y, 16, 0, 6.3); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; label(d.home.x, d.home.y - 22, 'respawning…', '#9a90bf'); return; }
@@ -2193,8 +2229,11 @@ function drawSurvBody(d) {
     ctx.fillStyle = '#3a3a3a'; ctx.fillRect(4, 11, A && A.kind === 'aim' ? 20 : 14, 5); ctx.fillStyle = '#6b4220'; ctx.fillRect(1, 11, 6, 6);
   } else if (d.kit === 'elliot') {   // pizza box
     ctx.fillStyle = '#e8c07a'; ctx.fillRect(2, 6, 14, 14); ctx.strokeStyle = '#a8742e'; ctx.lineWidth = 1; ctx.strokeRect(2, 6, 14, 14);
-  } else if (d.kit === 'twotime') {   // dagger
-    ctx.strokeStyle = '#c9c9c9'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(4, 14); ctx.lineTo(19, 14); ctx.stroke();
+  } else if (d.kit === 'twotime') {   // Ghostfire Dagger: pulled out and thrust forward when used
+    const out = A && A.kind === 'dagger', k = out ? (A.t < TT.windup ? A.t / TT.windup : 1) : 0, thrust = out && A.t >= TT.windup && A.t < TT.windup + 0.2 ? 12 : 0;
+    const x0 = 4 + thrust, y0 = 14 - 8 * k, len = 15 + 6 * k;
+    if (out) { ctx.globalAlpha *= 0.35; ctx.strokeStyle = '#bff6ff'; ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + len, y0); ctx.stroke(); ctx.globalAlpha /= 0.35; }
+    ctx.strokeStyle = out ? '#e8fbff' : '#c9c9c9'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + len, y0); ctx.stroke();
   }
   ctx.fillStyle = K.head; ctx.beginPath(); ctx.arc(0, 0, 8.5, 0, 6.3); ctx.fill();
   ctx.fillStyle = K.hair;
@@ -2474,7 +2513,7 @@ function survHud() {
   label(W / 2, by - 34, `${K.name.toUpperCase()} · ${d.inf ? '∞' : Math.max(0, Math.ceil(d.hp)) + ' / ' + d.maxHp} HP`, '#ffffff');
   const st = [];
   if (d.invT > 0) st.push('BLOCKING'); if (d.speedT > 0) st.push(`RUSH HOUR ${d.speedT.toFixed(1)}s`); if (d.weakT > 0) st.push(`WEAKNESS ${Math.ceil(d.weakT)}s`);
-  if (d.crouch) st.push('CROUCHED'); if (d.regen) st.push(`HEALING +${Math.ceil(d.regen.left)}`); if (d.noSprintT > 0) st.push(`CAN'T RUN ${d.noSprintT.toFixed(1)}s`); if (d.hall) st.push('HALLUCINATION ' + 'I'.repeat(d.hall)); if (d.kit === 'twotime') st.push(d.revived ? 'revive used' : 'revive ready');
+  if (d.crouch) st.push('CROUCHED'); if (d.regen) st.push(`HEALING +${Math.ceil(d.regen.left)}`); if (d.noSprintT > 0) st.push(`CAN'T RUN ${d.noSprintT.toFixed(1)}s`); if (d.hall) st.push('HALLUCINATION ' + 'I'.repeat(d.hall)); if (d.resT > 0) st.push('RESISTANCE I'); if (d.kit === 'twotime') st.push(`OBLATION ${d.oblation || 0}`, d.revived ? 'revive used' : 'revive ready');
   if (st.length) label(W / 2, by - 54, st.join('  ·  '), '#c9a8ff');
   // Round clock + Noli's status.
   if (round) {
@@ -2485,6 +2524,7 @@ function survHud() {
   { const nb = 220, nx = W / 2 - nb / 2; ctx.fillStyle = '#14111f'; ctx.fillRect(nx, 104, nb, 8); ctx.fillStyle = '#c9a8ff'; ctx.fillRect(nx, 104, nb * noli.hp / noli.maxHp, 8); label(W / 2, 126, `NOLI ${Math.ceil(noli.hp)} / ${noli.maxHp}`, '#c9a8ff', '700 11px system-ui'); }
   if (noli.stunImmT > 0 && !(noli.dazed && noli.stunT > 0)) label(W / 2, 88, `Noli is stun immune ${noli.stunImmT.toFixed(1)}s`, '#5aa9ff', '700 15px system-ui');
   else if (noli.dazed && noli.stunT > 0) label(W / 2, 88, `NOLI STUNNED ${noli.stunT.toFixed(1)}s — RUN!`, '#ffffff', '700 15px system-ui');
+  else if (noli.helplessT > 0) label(W / 2, 88, `NOLI HELPLESS ${noli.helplessT.toFixed(1)}s`, '#bff6ff', '700 15px system-ui');
   else if (noli.state === 'rushWind' || noli.state === 'rush') label(W / 2, 88, 'Void Rush incoming!', '#c9a8ff', '700 15px system-ui');
   if (d.dead || d.dying || d.exec) { ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, 0, W, H); label(W / 2, H / 2 - 20, 'YOU WERE CAUGHT', '#ffffff', '700 30px system-ui'); label(W / 2, H / 2 + 10, 'respawning…', '#9a90bf'); }
   if (banner) {
