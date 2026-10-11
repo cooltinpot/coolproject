@@ -94,7 +94,7 @@ const KIT = {
           burst: 1.35, reSpeed: 1.4, holdGrace: 0.3, endSlow: { time: 0.9, mult: 0.3 }, windowMove: 0.3,
           boost: { time: 1, speed: 1.35, turn: 4.5 },
           box: { off: 10, w: 52, h: 52 }, hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
-  nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, box: 28, blast: 280, pull: 1.1, fx: 2.2 },   // fx = how long the implosion visuals last
+  nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, box: 28, blast: 280, pull: 1.1, fx: 2.2, windup: 0.3, windMove: 0.7, boomRange: 450 },   // boomRange = Observant's 300 + 50%   // fx = how long the implosion visuals last
   hallDur: 5,   // Hallucination wears off 5s after it was last applied
   obs: { travel: 1.0, waitMove: 0.2, landRoot: 0.5, stallRange: 300,   // teleport lands at 00:01 of the teleport SFX
           cd: 30, cdStart: 25, cdLeave: 15, bands: [[20, 3], [50, 2], [100, 1]] },
@@ -279,13 +279,19 @@ function castNova() {
   const live = novas.find((n) => !n.boom);
   if (live && live.t >= KIT.nova.recast) { detonate(live, 'recast'); return; }
   if (busy() || noli.stance || !ready('nova') || live) return;
+  // 0.3s windup (moving 30% slower), then the throw.
+  noli.state = 'novaWind'; noli.st = 0; noli.cds.nova = KIT.nova.cd;
+  sfx('nova_throw');
+}
+function throwNova() {
+  noli.state = 'free';
   const w = world(), a = Math.atan2(w.y - noli.y, w.x - noli.x);
   novas.push({ x: noli.x + Math.cos(a) * 26, y: noli.y + Math.sin(a) * 26, r: 10, vx: Math.cos(a) * KIT.nova.speed, vy: Math.sin(a) * KIT.nova.speed, t: 0, boom: false, bt: 0, carry: null });
-  noli.cds.nova = KIT.nova.cd;
-  sfx('nova_throw');
 }
 function detonate(n, why) {
   n.boom = true; n.bt = 0;
+  // Explosion is louder the nearer Noli is.
+  sfx('nova_boom', clamp(1 - dist(noli, n) / KIT.nova.boomRange, 0, 1));
   ring(n.x, n.y, KIT.nova.blast / 2, '#c9a8ff', 0.9); ring(n.x, n.y, KIT.nova.blast / 3, '#ffffff', 0.6);
   // Implosion: streaks get pulled in from the edge of the blast toward the core.
   const R0 = KIT.nova.blast / 2;
@@ -429,16 +435,18 @@ function update(dt) {
   let mx = (keys.d ? 1 : 0) - (keys.a ? 1 : 0), my = (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
   const ml = Math.hypot(mx, my) || 1; mx /= ml; my /= ml;
   const moving = mx || my;
-  const sprint = keys.shift && moving && noli.stamina > 0 && (noli.state === 'free' || noli.state === 'reWindow') && !noli.stance;
+  const sprint = keys.shift && moving && noli.stamina > 0 && (noli.state === 'free' || noli.state === 'reWindow' || noli.state === 'novaWind') && !noli.stance;
   noli.stamina = clamp(noli.stamina + (sprint ? -KIT.stamina.drain : KIT.stamina.regen) * dt, 0, KIT.stamina.max);
   let sp = sprint ? KIT.speed.sprint : KIT.speed.walk;
   if (noli.stance || noli.state === 'rushWind' || noli.stunT > 0) sp = 0;
   if (noli.state === 'tp') sp *= KIT.obs.waitMove;   // 80% slower while waiting to teleport
   if (noli.state === 'reWindow') sp *= KIT.rush.windowMove;   // walk/sprint at 70% less speed while the re-rush window is open
   if (noli.state === 'stab') sp *= 0.4;
+  if (noli.state === 'novaWind') sp *= KIT.nova.windMove;   // 30% slower during the Nova windup
   if (noli.slowT > 0) { noli.slowT -= dt; sp *= KIT.rush.endSlow.mult; }   // slowed after cancelling a rush / missing the window
 
   if (noli.state === 'stab') { noli.st += dt; if (noli.st >= KIT.stab.windup && !noli.stabbed) { noli.stabbed = true; stabHit(); } if (noli.st > KIT.stab.windup + 0.25) { noli.state = 'free'; noli.stabbed = false; } }
+  if (noli.state === 'novaWind') { noli.st += dt; if (noli.st >= KIT.nova.windup) throwNova(); }
   if (noli.state === 'rushWind') { noli.st += dt; if (noli.st >= KIT.rush.windup) { stopSfx('charge'); startRush(0); } }
   if (noli.state === 'tp') {
     // Follow the sound's own clock so the teleport lands exactly on 00:01, even if
@@ -648,6 +656,7 @@ function drawNoli() {
   ctx.fillStyle = '#e9e4ff';
   ctx.beginPath(); for (let i = 0; i < 10; i++) { const rr = i % 2 ? 4 : 9, a = i * Math.PI / 5; ctx.lineTo(8 + Math.cos(a) * rr, Math.sin(a) * rr); } ctx.fill();
   if (noli.state === 'stab') { ctx.fillStyle = '#ff6b8a'; ctx.fillRect(16, -3, 26 * Math.min(1, noli.st / KIT.stab.windup), 6); }
+  if (noli.state === 'novaWind') { const k = Math.min(1, noli.st / KIT.nova.windup); star4(22, 0, 4 + k * 9, '#c9a8ff'); star4(22, 0, 2 + k * 4, '#ffffff'); }   // Nova forming in his hand
   ctx.restore();
   label(x, y - 34, 'NOLI', '#c49bff');
 }
