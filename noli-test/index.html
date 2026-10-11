@@ -868,15 +868,15 @@ function daggerHit(d, A) {
   // Behind him = backstab (stun); in front = a weaker stab that slows him and stops his abilities.
   const back = behindNoli(d), immune = noli.stunImmT > 0;
   ring(noli.x, noli.y, 32, '#bff6ff', 0.3); stabBurst(noli, 10, 14);
+  survSfx('tt_stabhit', d);   // any landed stab (front, back or lunge)
   if (back) {
     damageNoli(TT.back.dmg, `${d.name}'s Backstab`);
     stunNoli(A.crouched ? TT.lunge.stun : TT.back.stun, `${d.name}'s Backstab${A.crouched ? ' (lunge)' : ''}`);
-    txt(d.x, d.y - 44, 'BACKSTAB!', '#ffffff'); noiseBurst(0.08, 0.25, d); tone(200, 0.2, 'sawtooth', 0.15, 0.5, d);
+    txt(d.x, d.y - 44, 'BACKSTAB!', '#ffffff');
   } else {
     damageNoli(TT.front.dmg, `${d.name}'s Dagger (front)`);
     noli.slowEffT = TT.front.slowT; noli.helplessT = TT.front.helpless;
     txt(noli.x, noli.y - 58, 'SLOWNESS II · HELPLESS', '#bff6ff'); log(`Noli — Slowness II + Helpless ${TT.front.helpless}s`);
-    tone(420, 0.12, 'square', 0.12, 0.6, d);
   }
   // Oblation: only from stabs on a Noli that wasn't stun immune.
   if (!immune) {
