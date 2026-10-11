@@ -285,7 +285,15 @@ function castNova() {
 }
 function detonate(n, why) {
   n.boom = true; n.bt = 0;
-  ring(n.x, n.y, KIT.nova.blast / 2, '#7a3cff', 0.5);
+  ring(n.x, n.y, KIT.nova.blast / 2, '#c9a8ff', 0.5); ring(n.x, n.y, KIT.nova.blast / 3, '#ffffff', 0.3);
+  // Implosion: streaks get pulled in from the edge of the blast toward the core.
+  const R0 = KIT.nova.blast / 2;
+  for (let i = 0; i < 40; i++) { const a = rand(0, 6.3), r = rand(R0 * 0.6, R0 * 1.05); parts.push({ kind: 'implode', cx: n.x, cy: n.y, sx: n.x + Math.cos(a) * r, sy: n.y + Math.sin(a) * r, c: TP_COLORS[i % 3], t: rand(-0.2, 0), life: rand(0.45, 0.8) }); }
+  // A lot of stars bursting all over the blast.
+  for (let i = 0; i < 90; i++) {
+    const a = rand(0, 6.3), r = Math.sqrt(Math.random()) * R0 * 1.1;
+    parts.push({ kind: 'star', x: n.x + Math.cos(a) * r, y: n.y + Math.sin(a) * r, c: i % 4 === 0 ? '#000000' : i % 2 ? '#ffffff' : '#c9a8ff', size: rand(3, 11), t: rand(-0.6, 0), life: rand(0.4, 0.9) });
+  }
   const blast = { x: n.x, y: n.y, w: KIT.nova.blast, h: KIT.nova.blast, a: 0 };
   showBox(blast, '#ff3b5c', KIT.nova.pull);
   for (const d of alive()) if (boxHits(blast, d)) damage(d, KIT.nova.dmg, `Nova (${why})`, '#b98cff');
@@ -481,6 +489,7 @@ function update(dt) {
       const res = moveCircle(n, n.vx * dt, n.vy * dt);
       // Grabs the first survivor it touches and drags them along.
       n.spin = (n.spin || 0) + dt * 6;
+      if (Math.random() < dt * 40) parts.push({ kind: 'trail', x: n.x + rand(-6, 6), y: n.y + rand(-6, 6), c: TP_COLORS[Math.floor(rand(0, 3))], size: rand(2, 4), t: 0, life: rand(0.25, 0.5) });
       const nb = { x: n.x, y: n.y, w: KIT.nova.box, h: KIT.nova.box, a: n.spin };
       showBox(nb, '#ff3b5c', 0.05);
       if (!n.carry) { const d = alive().find((d) => boxHits(nb, d)); if (d) { n.carry = d; n.vx *= 0.5; n.vy *= 0.5; } }
@@ -590,6 +599,14 @@ function drawParts() {
       const tw = Math.sin(k * Math.PI) * (0.75 + 0.25 * Math.sin(q.t * 40));
       if (q.c === '#000000') star4(q.x, q.y, q.size * tw + 2, '#c9a8ff', 0.6 * (1 - k));
       star4(q.x, q.y, q.size * tw, q.c, 1 - k * 0.6);
+    } else if (q.kind === 'trail') {
+      ctx.globalAlpha = 1 - k; ctx.fillStyle = q.c; ctx.beginPath(); ctx.arc(q.x, q.y, q.size * (1 - k), 0, 6.3); ctx.fill(); ctx.globalAlpha = 1;
+    } else if (q.kind === 'implode') {
+      // Eased pull toward the core, drawn as a streak pointing inward.
+      const e = k * k, x = q.sx + (q.cx - q.sx) * e, y = q.sy + (q.cy - q.sy) * e;
+      const dx = q.cx - q.sx, dy = q.cy - q.sy, L = Math.hypot(dx, dy) || 1, len = 6 + 22 * k;
+      ctx.globalAlpha = 0.9 * (1 - k * 0.7); ctx.strokeStyle = q.c; ctx.lineWidth = q.c === '#000000' ? 3 : 2; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - dx / L * len, y - dy / L * len); ctx.stroke(); ctx.lineCap = 'butt'; ctx.globalAlpha = 1;
     } else if (q.kind === 'spark') {
       // Fades, shrinks and turns as it goes; shadow shows its height above the floor.
       const fade = 1 - k, sz = q.size * (1 - k * 0.8);
@@ -687,8 +704,24 @@ function render() {
     ctx.restore(); ctx.globalAlpha = 1;
   }
   for (const n of novas) {
-    if (!n.boom) { ctx.fillStyle = '#000'; ctx.strokeStyle = '#c49bff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(n.x, n.y, 12, 0, 6.3); ctx.fill(); ctx.stroke(); }
-    else { const k = n.bt / KIT.nova.pull; ctx.fillStyle = `rgba(40,10,80,${0.5 * (1 - k)})`; ctx.beginPath(); ctx.arc(n.x, n.y, KIT.nova.blast / 2 * (1 - k * 0.6), 0, 6.3); ctx.fill(); }
+    const T = performance.now() / 1000;
+    if (!n.boom) {
+      // Void orb: soft glow, black core, spinning star, orbiting wisps.
+      const g = ctx.createRadialGradient(n.x, n.y, 4, n.x, n.y, 30);
+      g.addColorStop(0, 'rgba(201,168,255,0.55)'); g.addColorStop(1, 'rgba(201,168,255,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(n.x, n.y, 30, 0, 6.3); ctx.fill();
+      ctx.fillStyle = '#000'; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(n.x, n.y, 12, 0, 6.3); ctx.fill(); ctx.stroke();
+      ctx.save(); ctx.translate(n.x, n.y); ctx.rotate(T * 5); star4(0, 0, 9 + Math.sin(T * 20) * 1.5, '#c9a8ff'); star4(0, 0, 5, '#ffffff'); ctx.restore();
+      for (let i = 0; i < 6; i++) { const a = T * (i % 2 ? -6 : 5) + i * 1.05, r = 18 + (i % 3) * 4; ctx.fillStyle = TP_COLORS[i % 3]; ctx.beginPath(); ctx.arc(n.x + Math.cos(a) * r, n.y + Math.sin(a) * r * 0.8, 2.6, 0, 6.3); ctx.fill(); if (i % 3 === 0) { ctx.strokeStyle = '#c9a8ff'; ctx.lineWidth = 1; ctx.stroke(); } }
+    } else {
+      // Collapsing void with swirling rim.
+      const k = n.bt / KIT.nova.pull, R0 = KIT.nova.blast / 2 * (1 - k * 0.85);
+      const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, R0);
+      g.addColorStop(0, `rgba(0,0,0,${0.85 * (1 - k)})`); g.addColorStop(0.7, `rgba(40,12,80,${0.5 * (1 - k)})`); g.addColorStop(1, 'rgba(201,168,255,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(n.x, n.y, R0, 0, 6.3); ctx.fill();
+      for (let i = 0; i < 3; i++) { ctx.strokeStyle = TP_COLORS[i]; ctx.globalAlpha = 0.8 * (1 - k); ctx.lineWidth = 3 - i * 0.5; ctx.beginPath(); ctx.arc(n.x, n.y, R0 * (0.55 + i * 0.18), T * (4 + i * 2) + i, T * (4 + i * 2) + i + 2.4); ctx.stroke(); }
+      ctx.globalAlpha = 1;
+    }
   }
   for (const d of dummies) drawDummy(d);
   if (hover && hover.kind === 'dummy') { ctx.strokeStyle = tool === 'erase' ? '#ff4d6d' : '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hover.o.x, hover.o.y, 24, 0, 6.3); ctx.stroke(); }
