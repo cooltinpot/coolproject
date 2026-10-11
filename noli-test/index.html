@@ -185,7 +185,7 @@ addEventListener('keydown', (e) => {
   keys[k] = true;
   if (['q', 'e', 'r', ' ', 'tab'].includes(k)) e.preventDefault();
 });
-addEventListener('keyup', (e) => { const k = e.key.toLowerCase(); keys[k] = false; if (k === 'q' && mode === 'noli') releaseRush(); });
+addEventListener('keyup', (e) => { const k = e.key.toLowerCase(); keys[k] = false; if (k === 'q' && mode === 'noli') releaseRush(); if (k === 't' && player && player.act && player.act.kind === 'pray') endPray(player); });
 cv.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
 cv.addEventListener('mousedown', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; mouse.down = true; mouse.click = true; });
 addEventListener('mouseup', () => { mouse.down = false; mouse.up = true; });
@@ -205,7 +205,7 @@ function readNoliInput() {
 }
 
 function press(k) {
-  if (mode === 'survivor') { if (player && (k === 'q' || k === 'e' || k === 'r')) useSkill(player, k); }
+  if (mode === 'survivor') { if (player && (k === 'q' || k === 'e' || k === 'r' || k === 't')) useSkill(player, k); }
   else {
     if (k === 'q') castRush();
     if (k === 'e') castNova();
@@ -725,7 +725,7 @@ const KITS = {
   elliot:  { name: 'Elliot', hp: 100, torso: '#d9452b', head: '#f5cd30', hair: '#ffffff',
              skills: { q: { name: 'Pizza Throw', cd: 25 }, e: { name: 'Rush Hour', cd: 50 } } },
   twotime: { name: 'Two Time', hp: 80, torso: '#3b2a55', head: '#d8d2c0', hair: '#241a36',
-             skills: { q: { name: 'Dagger', cd: 30 }, e: { name: 'Crouch', cd: 35 }, r: { name: 'Place Ritual', cd: 5 } } },
+             skills: { q: { name: 'Dagger', cd: 30 }, e: { name: 'Crouch', cd: 35 }, r: { name: 'Place Ritual', cd: 5 }, t: { name: 'Pray (hold)', cd: 0 } } },
 };
 const KIT_IDS = Object.keys(KITS);
 // Two Time's Ghostfire Dagger (from the guide). reach = 5 studs from his body.
@@ -746,6 +746,16 @@ function endCrouch(d, manual, silent = false) {
 }
 // Ritual placement timeline (seconds into Placing_ritual): dagger up, stab, stab again 0.2s later, stand up as it ends.
 const RITUAL = { raise: 0.35, stab1: 1.35, stab2: 1.55, standFrom: 2.9, len: 3.4 };
+// Pray (hold): kneel at your Ritual and trade Oblation for HP — 1 HP per 2%, up to 50 HP for a full bar.
+const PRAY = { range: 70, rate: 40, reveal: 4 };   // rate = Oblation % spent per second ("rapidly"); range = how near the Ritual
+function startPray(d) {
+  if (!d.ritual) { if (d.player) txt(d.x, d.y - 44, 'No Ritual', '#9a90bf'); return false; }
+  if (dist(d, d.ritual) > PRAY.range) { d.ritRevealT = PRAY.reveal; if (d.player) txt(d.x, d.y - 44, 'Ritual revealed', '#ffffff'); return false; }
+  d.crouch && endCrouch(d, false, true);
+  d.act = { kind: 'pray', t: 0 }; d.ang = Math.atan2(d.ritual.y - d.y, d.ritual.x - d.x);
+  txt(d.x, d.y - 44, 'PRAYING', '#ffffff'); return true;
+}
+function endPray(d, why) { if (d.act && d.act.kind === 'pray') { d.act = null; if (why) txt(d.x, d.y - 44, why, '#9a90bf'); } }
 const TT = { windup: 0.25, resistT: 0.7, resist: 0.2, active: 0.15, endlag: 0.2, reach: 50, width: 34,
              front: { dmg: 10, slowT: 1, slow: 0.2, helpless: 1 }, back: { dmg: 20, stun: 2 },
              lunge: { dist: 220, time: 0.2, endlag: 0.6, stun: 3.5 } };
@@ -758,7 +768,7 @@ const KIT_HELP = {
   shed: '<b>Q</b> Slash (long windup with damage resistance, then a lunge: 30 dmg + 3s stun; a miss stops you running for a bit) · <b>E</b> Fried Chicken (heals 35 HP over 10s; 2 uses)',
   chance: '<b>Q</b> One Shot (aim 0.75s with the mouse; stun 4s up close → 1s at range) · <b>E</b> Coin Flip (heads: gun ready · tails: Weakness 15s)',
   elliot: '<b>Q</b> Pizza Throw (heals an ally 35; lands on the floor if it misses) · <b>E</b> Rush Hour (you and nearby allies run 35% faster for 4s)',
-  twotime: '<b>Q</b> Dagger (0.25s windup, Resistance I for 0.7s; front stab: 10 dmg + Slowness II & Helpless 1s · backstab: 20 dmg + 2s stun · while crouched: a fast ~22 stud lunge that stands you up, backstab stun 3.5s) · <b>E</b> Crouch (35s cd; up to 15s: Undetectable + Invisibility III, silent footsteps, walk 10 / run 20 studs/s, up to +40% speed over 4s while running at Noli; uncrouch after 1s — within 30 studs of Noli that gives Speed II for 1s) · <b>R</b> Place Ritual (temporary; 3.4s rooted — raise the dagger, stab the ground twice, stand up; taking damage cancels it) · <b>Passive: Oblation</b> — front stab +20%, backstab +40%; with a full bar and a placed Ritual, lethal damage sends you to a second life at the Ritual (50 HP, 40% stamina, statuses cleared, 2s invincible, Speed II 6s, Vulnerable V 12s, +20s on the clock). Not if you\'re the last survivor.',
+  twotime: '<b>Q</b> Dagger (0.25s windup, Resistance I for 0.7s; front stab: 10 dmg + Slowness II & Helpless 1s · backstab: 20 dmg + 2s stun · while crouched: a fast ~22 stud lunge that stands you up, backstab stun 3.5s) · <b>E</b> Crouch (35s cd; up to 15s: Undetectable + Invisibility III, silent footsteps, walk 10 / run 20 studs/s, up to +40% speed over 4s while running at Noli; uncrouch after 1s — within 30 studs of Noli that gives Speed II for 1s) · <b>T</b> Pray (hold near your Ritual: trades Oblation for HP, 1 HP per 2%; too far = the Ritual is revealed for 4s) · <b>R</b> Place Ritual (temporary; 3.4s rooted — raise the dagger, stab the ground twice, stand up; taking damage cancels it) · <b>Passive: Oblation</b> — front stab +20%, backstab +40%; with a full bar and a placed Ritual, lethal damage sends you to a second life at the Ritual (50 HP, 40% stamina, statuses cleared, 2s invincible, Speed II 6s, Vulnerable V 12s, +20s on the clock). Not if you\'re the last survivor.',
 };
 function resetSurv(d) {
   Object.assign(d, { uses: Object.fromEntries(Object.entries(KITS[d.kit].skills).filter(([, s]) => s.uses).map(([k, s]) => [k, s.uses])), regen: null, noSprintT: 0, cds: { q: 0, e: 0, r: 0 }, stam: SURV.stamMax, tired: false, act: null, invT: 0, slowT: 0, speedT: 0, weakT: 0, punch: 0, crouch: false, crouchAge: 0, ambushT: 0, resT: 0, oblation: 0, oblShowT: 0, ritual: null, iT: 0, spdT: 0, vulnT: 0 });
@@ -831,6 +841,7 @@ function useSkill(d, k) {
       d.act = { kind: 'ritual', t: 0, dur: RITUAL.len, at: { x: d.x + Math.cos(d.ang) * 16, y: d.y + Math.sin(d.ang) * 16 }, hits: 0, snd: survSfx('tt_ritual', d) };
       break;
     case 'twotime.e': startCrouch(d); break;
+    case 'twotime.t': return startPray(d);
   }
   return true;
 }
@@ -894,7 +905,7 @@ function fireGun(d) {
 function survivorTick(d, dt, ai) {
   for (const k in d.cds) d.cds[k] = Math.max(0, d.cds[k] - dt);
   d.invT = Math.max(0, d.invT - dt); d.resT = Math.max(0, (d.resT || 0) - dt);
-  d.iT = Math.max(0, (d.iT || 0) - dt); d.spdT = Math.max(0, (d.spdT || 0) - dt); d.oblShowT = Math.max(0, (d.oblShowT || 0) - dt);
+  d.iT = Math.max(0, (d.iT || 0) - dt); d.ritRevealT = Math.max(0, (d.ritRevealT || 0) - dt); d.spdT = Math.max(0, (d.spdT || 0) - dt); d.oblShowT = Math.max(0, (d.oblShowT || 0) - dt);
   if (d.vulnT > 0 && !(d.iT > 0)) d.vulnT = Math.max(0, d.vulnT - dt);   // Vulnerable effectively runs 10s after the invincibility d.slowT = Math.max(0, d.slowT - dt); d.speedT = Math.max(0, d.speedT - dt);
   if (d.weakT > 0) { d.weakT -= dt; if (d.weakT <= 0) { d.weakT = 0; txt(d.x, d.y - 44, 'weakness wore off', '#9a90bf'); } }
   d.noSprintT = Math.max(0, (d.noSprintT || 0) - dt);
@@ -916,7 +927,7 @@ function survivorTick(d, dt, ai) {
   const A = d.act;
   // Facing: the mouse for you, the way they're going (or what they aim at) for AI.
   const want = ai && ai.face !== undefined ? ai.face : ai && (ai.mx || ai.my) ? Math.atan2(ai.my, ai.mx) : d.ang;
-  if (A && A.kind === 'ritual') { /* kneeling: keep facing */ }
+  if (A && (A.kind === 'ritual' || A.kind === 'pray')) { /* kneeling: keep facing */ }
   else if (!A || A.kind === 'eat' || A.kind === 'flip') d.ang += angDiff(want, d.ang) * (d.player ? 1 : Math.min(1, dt * 12));
   else if (A.kind === 'aim' || (A.kind === 'dagger' && A.t < TT.windup)) d.ang += clamp(angDiff(want, d.ang), -4 * dt, 4 * dt);
   else if (A.kind === 'charge') d.ang += clamp(angDiff(want, d.ang), -2.2 * dt, 2.2 * dt);
@@ -952,6 +963,18 @@ function survivorTick(d, dt, ai) {
       if (A.t >= A.dur) {
         d.act = null;
         if (!A.hit) { d.noSprintT = SHED.missNoSprint; txt(d.x, d.y - 44, 'missed — can\'t run', '#9a90bf'); }
+      }
+    } else if (A.kind === 'pray') {
+      // Kneeling: Oblation drains fast and turns into HP. Stops when you let go, run dry, or are at full HP.
+      mul = 0; d.oblShowT = Math.max(d.oblShowT || 0, 0.6);   // the meter stays revealed while praying
+      if (!d.ritual || dist(d, d.ritual) > PRAY.range) endPray(d);
+      else if ((d.oblation || 0) <= 0) endPray(d, 'no Oblation left');
+      else if (d.hp >= d.maxHp) endPray(d, 'full HP');
+      else {
+        const spend = Math.min(d.oblation, PRAY.rate * dt, (d.maxHp - d.hp) * 2);
+        d.oblation -= spend; d.hp = Math.min(d.maxHp, d.hp + spend / 2); A.healed = (A.healed || 0) + spend / 2;
+        if (A.healed >= 1) { txt(d.x + rand(-8, 8), d.y - 30, '+' + Math.floor(A.healed), '#7dffa8'); A.healed -= Math.floor(A.healed); }
+        if (Math.random() < dt * 30) { const R = d.ritual, a = rand(0, 6.3), r = rand(10, RIT_SIZE * 0.45); parts.push({ kind: 'gstar', sx: R.x + Math.cos(a) * r, sy: R.y + Math.sin(a) * r, tx: d.x, ty: d.y, c: Math.random() < 0.6 ? '#ffffff' : '#c9a8ff', size: rand(2, 4), t: 0, life: rand(0.35, 0.6) }); }
       }
     } else if (A.kind === 'ritual') {
       // Rooted in place while he does it; follows the sound's own clock.
@@ -1222,6 +1245,14 @@ function supportThink(d) {
   if (!hurt || dist(hurt, d) < 260) return null;
   return goTo(d, hurt.x, hurt.y, false, 240);
 }
+// AI Two Time: when hurt and safe, walk back to the Ritual and pray Oblation into HP.
+function prayThink(d, nd) {
+  if (d.kit !== 'twotime' || !d.ritual) return undefined;
+  if (d.act && d.act.kind === 'pray') { if (threatTo(d).chasing || nd < 300) endPray(d); return null; }
+  if (d.hp > d.maxHp - 15 || (d.oblation || 0) < 20 || nd < 600 || dist(d.ritual, noli) < 500) return undefined;
+  if (dist(d, d.ritual) > PRAY.range - 15) return goTo(d, d.ritual.x, d.ritual.y, false, PRAY.range - 25);
+  startPray(d); return null;
+}
 function smartThink(d, dt) {
   d.repairing = null; d.lastDt = dt;
   if (d.knockT > 0) return null;
@@ -1256,6 +1287,7 @@ function smartThink(d, dt) {
   }
   d.fleeA = undefined;
   const help = helpThink(d, nd); if (help) return help;
+  const pray = prayThink(d, nd); if (pray !== undefined) return pray;
   const sup = supportThink(d); if (sup) return sup;
   return workThink(d, dt);
 }
@@ -2287,6 +2319,7 @@ function drawDummy(d) {
 function drawSurvBody(d) {
   const K = KITS[d.kit];
   if (d.crouch) ctx.globalAlpha *= d.player ? 0.55 : mode === 'noli' ? 0.1 : 0.4;   // Invisibility III (Noli barely sees a shimmer)
+  if (d.act && d.act.kind === 'pray') { const k = Math.min(1, d.act.t / 0.2), sc = 1 - 0.14 * k; ctx.scale(sc, sc); }   // kneeling to pray
   if (d.act && d.act.kind === 'ritual') {   // kneels down for it, then stands back up at the end
     const t = d.act.t, k = t < RITUAL.raise ? t / RITUAL.raise : t < RITUAL.standFrom ? 1 : 1 - (t - RITUAL.standFrom) / (RITUAL.len - RITUAL.standFrom);
     const sc = 1 - 0.14 * clamp(k, 0, 1); ctx.scale(sc, sc);
@@ -2345,7 +2378,7 @@ function drawRitualPlacing(d) {
 }
 // Ritual symbol on the floor (white tribal sun), with sparkles, a passing white shimmer and twinkling glimmers.
 const RIT_IMG = new Image(); RIT_IMG.src = 'img/ritual.png';
-const RIT_SIZE = 76, ritMask = document.createElement('canvas'), ritMaskCtx = ritMask.getContext('2d');
+const RIT_SIZE = 56, ritMask = document.createElement('canvas'), ritMaskCtx = ritMask.getContext('2d');
 ritMask.width = ritMask.height = RIT_SIZE * 2;
 // Spots on the symbol's arms where glimmers appear (sampled from the image's opaque pixels).
 const ritGlints = [[-0.094,0.016],[-0.188,-0.156],[0.125,0.062],[0.062,-0.281],[0.172,-0.25],[0.312,0.188],[-0.406,-0.203],[0.125,0.047],[-0.062,0.25],[-0.031,-0.266],[0.078,0.172],[0.047,-0.094],[0.094,-0.297],[-0.141,-0.219],[-0.031,0.094],[0.031,0.078]];
@@ -2383,7 +2416,11 @@ function drawRituals() {
     if (A && A.kind === 'ritual' && A.t >= RITUAL.stab1) drawRitualSymbol(A.at.x, A.at.y, clamp((A.t - RITUAL.stab1) / (RITUAL.len - RITUAL.stab1), 0, 1), false, d.id * 0.37);   // forming
     const R = d.ritual; if (!R) continue;
     drawRitualSymbol(R.x, R.y, 1, d.oblation >= 100, d.id * 0.37);
-    label(R.x, R.y + RIT_SIZE / 2 + 10, d.player ? 'YOUR RITUAL' : d.name + "'s Ritual", '#c9a8ff', '700 10px system-ui');
+    if (d.player && d.ritRevealT > 0) {   // Pray from too far away: the Ritual's spot is revealed for 4s
+      const T = performance.now() / 1000, a = Math.min(1, d.ritRevealT / 0.5);
+      ctx.globalAlpha = a * (0.6 + 0.4 * Math.sin(T * 8)); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(R.x, R.y, RIT_SIZE * 0.7 + 4 * Math.sin(T * 8), 0, 6.3); ctx.stroke(); ctx.globalAlpha = 1;
+    }
   }
 }
 function drawSurvExtras(d) {
@@ -2647,13 +2684,13 @@ function slotsRow(slots) {
 function survHud() {
   const d = player; if (!d) return;
   const K = KITS[d.kit];
-  const slots = ['q', 'e', 'r'].filter((k) => K.skills[k]).map((k) => {
+  const slots = ['q', 'e', 'r', 't'].filter((k) => K.skills[k]).map((k) => {
     let name = K.skills[k].name;
     if (d.kit === 'guest' && k === 'e') name += ` (${d.punch})`;
     if (K.skills[k].uses) name += ` (${d.uses[k]})`;
     const uncrouch = d.kit === 'twotime' && k === 'e' && d.crouch;
     if (uncrouch) name = d.crouchAge >= CROUCH.minTime ? 'Uncrouch' : 'Crouched';
-    return { key: k.toUpperCase(), name, cd: noCd || uncrouch ? 0 : d.cds[k], max: K.skills[k].cd, hot: (d.kit === 'guest' && k === 'q' && d.invT > 0) || (d.kit === 'twotime' && k === 'e' && d.crouch) };
+    return { key: k.toUpperCase(), name, cd: noCd || uncrouch ? 0 : d.cds[k], max: K.skills[k].cd, hot: (d.kit === 'twotime' && k === 't' && d.act && d.act.kind === 'pray') || (d.kit === 'guest' && k === 'q' && d.invT > 0) || (d.kit === 'twotime' && k === 'e' && d.crouch) };
   });
   const y0 = slotsRow(slots);
   const bw = Math.min(320, W - 40), bx = W / 2 - bw / 2, by = y0 - 22;
@@ -2664,6 +2701,7 @@ function survHud() {
   label(W / 2, by - 34, `${K.name.toUpperCase()} · ${d.inf ? '∞' : Math.max(0, Math.ceil(d.hp)) + ' / ' + d.maxHp} HP`, '#ffffff');
   const st = [];
   if (d.invT > 0) st.push('BLOCKING'); if (d.speedT > 0) st.push(`RUSH HOUR ${d.speedT.toFixed(1)}s`); if (d.weakT > 0) st.push(`WEAKNESS ${Math.ceil(d.weakT)}s`);
+  if (d.act && d.act.kind === 'pray') st.push('PRAYING');
   if (d.act && d.act.kind === 'ritual') st.push(`PLACING RITUAL ${Math.max(0, RITUAL.len - d.act.t).toFixed(1)}s`);
   if (d.crouch) st.push(`CROUCHED ${Math.ceil(CROUCH.dur - d.crouchAge)}s` + (d.ambushT > 0 ? ` · AMBUSH +${Math.round(CROUCH.ambush * d.ambushT / CROUCH.ambushTime * 100)}%` : '')); if (d.regen) st.push(`HEALING +${Math.ceil(d.regen.left)}`); if (d.noSprintT > 0) st.push(`CAN'T RUN ${d.noSprintT.toFixed(1)}s`); if (d.hall) st.push('HALLUCINATION ' + 'I'.repeat(d.hall)); if (d.resT > 0) st.push('RESISTANCE I'); if (d.iT > 0) st.push('INVINCIBLE'); if (d.spdT > 0) st.push(`SPEED II ${d.spdT.toFixed(1)}s`); if (d.vulnT > 0) st.push(`VULNERABLE V ${Math.ceil(d.vulnT)}s`);
   if (d.kit === 'twotime') st.push(d.ritual ? (d.oblation >= 100 ? 'SECOND LIFE READY' : 'ritual placed') : 'no ritual');
@@ -2677,6 +2715,20 @@ function survHud() {
     for (let i = 1; i < 5; i++) { ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(bx2, by2 + bh * i / 5, 14, 1); }
     ctx.save(); ctx.translate(bx2 - 12, H / 2); ctx.rotate(-Math.PI / 2); label(0, 0, `OBLATION ${Math.round(d.oblation)}%${f >= 1 ? (d.ritual ? ' · READY' : ' · NO RITUAL') : ''}`, f >= 1 ? '#ffffff' : '#c9a8ff', '700 11px system-ui'); ctx.restore();
     ctx.globalAlpha = 1;
+  }
+  if (d.ritRevealT > 0 && d.ritual) {
+    // Revealed Ritual: arrow on the screen edge pointing to it when it's off screen.
+    // Visible area = the screen minus the side panels.
+    const L = document.getElementById('tools').getBoundingClientRect(), Rr = document.getElementById('side').getBoundingClientRect();
+    const x0 = L.right < W / 2 ? L.right : 0, x1 = Rr.left > W / 2 ? Rr.left : W, m = 30;
+    const sx = (d.ritual.x - cam.x) * cam.s, sy = (d.ritual.y - cam.y) * cam.s;
+    if (sx < x0 + m || sy < m || sx > x1 - m || sy > H - m) {
+      const cx = (x0 + x1) / 2, cy = H / 2, a = Math.atan2(sy - cy, sx - cx), k = Math.min(((x1 - x0) / 2 - m) / Math.abs(Math.cos(a) || 1e-6), (H / 2 - m) / Math.abs(Math.sin(a) || 1e-6));
+      const ax = cx + Math.cos(a) * k, ay = cy + Math.sin(a) * k;
+      ctx.save(); ctx.translate(ax, ay); ctx.rotate(a); ctx.globalAlpha = Math.min(1, d.ritRevealT / 0.5);
+      ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-8, -9); ctx.lineTo(-3, 0); ctx.lineTo(-8, 9); ctx.closePath(); ctx.fill(); ctx.restore();
+      label(ax - Math.cos(a) * 26, ay - Math.sin(a) * 26 + 4, 'RITUAL', '#ffffff', '700 10px system-ui'); ctx.globalAlpha = 1;
+    }
   }
   // Round clock + Noli's status.
   if (round) {
