@@ -211,7 +211,7 @@ function stabHit() {
   // Active for 0.2s after the windup: the first survivor inside the square hitbox gets stabbed.
   const box = fwdBox(KIT.stab.box);
   const t = alive().filter((d) => boxHits(box, d)).sort((a, b) => dist(noli, a) - dist(noli, b))[0];
-  showBox(box, t ? '#ff3b5c' : '#ff9fb4', 0.05);
+  showBox(box, '#ff0000', 0.05);
   if (!t) return false;
   stopSfx('stab'); sfx('stabhit');   // a landed stab swaps the stab sound for the hit sound
   const stacks = t.hall;
@@ -304,7 +304,7 @@ function detonate(n, why) {
     parts.push({ kind: 'star', x: n.x + Math.cos(a) * r, y: n.y + Math.sin(a) * r, c: i % 4 === 0 ? '#000000' : i % 2 ? '#ffffff' : '#c9a8ff', size: rand(3, 11), t: rand(-1.4, 0), life: rand(0.8, 1.6) });
   }
   const blast = { x: n.x, y: n.y, w: KIT.nova.blast, h: KIT.nova.blast, a: 0 };
-  showBox(blast, '#ff3b5c', KIT.nova.pull);
+  showBox(blast, '#ff0000', KIT.nova.pull);
   for (const d of alive()) if (boxHits(blast, d)) damage(d, KIT.nova.dmg, `Nova (${why})`, '#b98cff');
 }
 
@@ -491,7 +491,7 @@ function update(dt) {
     // 0.3s grace where letting go doesn't end the re-rush.
     const letGo = !keys.q && !(r.chain > 0 && r.t < KIT.rush.holdGrace);
     const rbox = fwdBox(KIT.rush.box);
-    showBox(rbox, '#ff3b5c', 0.05);
+    showBox(rbox, '#ff0000', 0.05);
     const hit = alive().find((d) => d !== r.ignore && boxHits(rbox, d));
     if (letGo) { endRush(r.chain ? `Let go of Q — re-rush ended (chain x${r.chain})` : 'Let go of Q — Void Rush ended', 'cancel'); slowNoli(); }
     else if (hit) rushHit(hit);
@@ -778,8 +778,9 @@ function render() {
   for (const f of fx) { const k = f.t / f.life; ctx.globalAlpha = 1 - k; if (f.trail) { ctx.fillStyle = f.c; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1 - k * 0.5), 0, 6.3); ctx.fill(); } else { ctx.strokeStyle = f.c; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (0.4 + k * 0.6), 0, 6.3); ctx.stroke(); } ctx.globalAlpha = 1; }
   if (showHitboxes) for (const b of hitboxes) {
     ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.a || 0);
-    if (!b.outline) { ctx.globalAlpha = 0.25 * (1 - b.t / b.life) + 0.1; ctx.fillStyle = b.c; ctx.fillRect(-b.w / 2, -b.h / 2, b.w, b.h); }
-    ctx.globalAlpha = 0.9; ctx.strokeStyle = b.c; ctx.lineWidth = 2; ctx.strokeRect(-b.w / 2, -b.h / 2, b.w, b.h);
+    // Attack hitboxes: red, 50% more see-through than before.
+    if (!b.outline) { ctx.globalAlpha = (0.25 * (1 - b.t / b.life) + 0.1) * 0.5; ctx.fillStyle = b.c; ctx.fillRect(-b.w / 2, -b.h / 2, b.w, b.h); }
+    ctx.globalAlpha = b.outline ? 0.9 : 0.45; ctx.strokeStyle = b.c; ctx.lineWidth = 2; ctx.strokeRect(-b.w / 2, -b.h / 2, b.w, b.h);
     ctx.restore(); ctx.globalAlpha = 1;
   }
   for (const n of novas) {
