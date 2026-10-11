@@ -125,7 +125,7 @@ function defaultMap() {
 
 // ------------------------------------------------------------- entities
 const noli = { x: 1000, y: 1150, r: 18, ang: -Math.PI / 2, stamina: KIT.stamina.max, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart },
-  state: 'free', st: 0, rush: null, stance: false, stunT: 0 };
+  state: 'free', st: 0, rush: null, stance: false, stunT: 0, hp: 2222, maxHp: 2222 };
 const fwdBox = (o) => ({ x: noli.x + Math.cos(noli.ang) * o.off, y: noli.y + Math.sin(noli.ang) * o.off, w: o.w, h: o.h, a: noli.ang });
 let newMode = 'stand', newHp = 100, newKit = '', noCd = false, tool = 'play', dummyN = 0;
 const novas = [], fx = [], texts = [];
@@ -169,6 +169,10 @@ function noiseBurst(dur = 0.2, vol = 0.3, at = null) {
     const src = AC.createBufferSource(), g = AC.createGain(); src.buffer = buf; g.gain.value = v;
     src.connect(g).connect(AC.destination); src.start();
   } catch (e) { /* no audio */ }
+}
+function survSfx(name, at, vol = 0.8) {
+  const v = vol * clamp(1 - dist(listener(), at) / 1200, 0, 1);
+  if (v > 0.01) try { const a = new Audio('sfx/' + name + '.mp3'); a.volume = v; a.play().catch(() => {}); } catch (e) { /* no audio */ }
 }
 function ring(x, y, r, c, life = 0.4) { fx.push({ x, y, r, c, t: 0, life }); }
 
@@ -269,6 +273,10 @@ function guard(d) {
   log(`${d.name} blocked it — Punch charge ${d.punch}`); tone(880, 0.18, 'triangle', 0.15, 0.6, d);
   slowNoli();
   return true;
+}
+function damageNoli(amt, why) {
+  noli.hp = Math.max(0, noli.hp - amt);
+  txt(noli.x, noli.y - 26, '-' + amt, '#ff4d6d'); log(`Noli — ${why}: ${amt} dmg (${Math.round(noli.hp)} HP left)`);
 }
 function canHitNoli() { return noli.state !== 'exec' && noli.state !== 'slamHold'; }
 // Survivors stun Noli: whatever he was doing is cut off.
@@ -713,7 +721,7 @@ const KITS = {
 const KIT_IDS = Object.keys(KITS);
 // Shedletsky (from the guides): Slash = long windup with damage resistance, 30 dmg + 3s stun, 40s cd,
 // a miss means no running for a bit. Fried Chicken = 35 HP healed over 10s, 2 uses, 70s cd, slowed while eating.
-const SHED = { windup: 0.6, active: 0.2, recover: 0.3, lunge: 320, dmg: 30, stun: 3, resist: 0.5, missNoSprint: 2,
+const SHED = { windup: 0.65, active: 0.2, recover: 0.3, lunge: 320, dmg: 30, stun: 3, resist: 0.5, missNoSprint: 2,
                eat: 1.6, healAmt: 35, healTime: 10 };
 const KIT_HELP = {
   guest: '<b>Q</b> Block (1s; a blocked hit slows Noli and gives a Punch charge) · <b>E</b> Punch (needs a charge, stuns 2s) · <b>R</b> Charge (dash, stuns 1.25s on contact)',
@@ -764,7 +772,7 @@ function useSkill(d, k) {
     case 'guest.r':
       d.act = { kind: 'charge', t: 0, dur: 0.9 }; txt(d.x, d.y - 44, 'CHARGE!', '#ffffff'); tone(90, 0.5, 'sawtooth', 0.12, 2, d); break;
     case 'shed.q':
-      d.act = { kind: 'slash', t: 0, dur: SHED.windup + SHED.active + SHED.recover, hit: false }; tone(180, SHED.windup, 'sawtooth', 0.08, 1.6, d); break;
+      d.act = { kind: 'slash', t: 0, dur: SHED.windup + SHED.active + SHED.recover, hit: false }; survSfx('shed_unsheath', d); break;   // windup = the Unsheath sound
     case 'shed.e':
       d.act = { kind: 'eat', t: 0, dur: SHED.eat }; txt(d.x, d.y - 44, `Fried Chicken (${d.uses.e} left)`, '#ffd8a8'); break;
     case 'chance.q':
@@ -857,13 +865,13 @@ function survivorTick(d, dt, ai) {
       mul = 0.25;
       if (A.t < SHED.windup && Math.random() < dt * 25) parts.push({ kind: 'star', x: d.x + rand(-14, 14), y: d.y + rand(-14, 14), c: '#ffffff', size: rand(2, 3.5), t: 0, life: 0.3 });
       if (A.t >= SHED.windup && A.t < SHED.windup + SHED.active) {
-        if (!A.swung) { A.swung = true; swing(d, '#ffffff', 44); noiseBurst(0.1, 0.18, d); }
+        if (!A.swung) { A.swung = true; swing(d, '#ffffff', 40); survSfx('shed_lunge', d); }
         moveCircle(d, Math.cos(d.ang) * SHED.lunge * dt, Math.sin(d.ang) * SHED.lunge * dt);
-        const b = survBox(d, 34, 66, 52), hit = !A.hit && canHitNoli() && boxHits(b, noli);
+        const b = survBox(d, 28, 42, 36), hit = !A.hit && canHitNoli() && boxHits(b, noli);
         showBox(b, hit || A.hit ? '#00ff4c' : '#ff0000', 0.05);
         if (hit) {
           A.hit = true; stunNoli(SHED.stun, `${d.name}'s Slash`); ring(noli.x, noli.y, 40, '#ffffff', 0.3);
-          txt(noli.x, noli.y - 26, '-' + SHED.dmg, '#ff4d6d'); log(`${d.name}'s Slash hit Noli for ${SHED.dmg} dmg`);
+          survSfx('shed_hit', d); damageNoli(SHED.dmg, `${d.name}'s Slash`);
         }
       }
       if (A.t >= A.dur) {
@@ -1122,7 +1130,7 @@ function resetNoli() {
   if (noli.ex) { const d = noli.ex.d; Object.assign(d, { exec: false, dead: true, deadT: 0, squash: 0, fade: 1 }); noli.ex = null; }
   if (noli.stance) endObsStar();
   Object.assign(noli, { x: 1000, y: 1150, ang: -Math.PI / 2, stamina: KIT.stamina.max, state: 'free', st: 0, rush: null, stance: false, stunT: 0, slowT: 0, dazed: false,
-    stabVis: null, stabbed: false, tp: null, slamCam: null, obsStar: null, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart } });
+    stabVis: null, stabbed: false, tp: null, slamCam: null, obsStar: null, hp: noli.maxHp, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart } });
   if (hitWall(noli.x, noli.y, noli.r)) { noli.x = MAP.w / 2; noli.y = MAP.h / 2; }
   novas.length = 0; novaReturn = null; selGen = null; chargeUI.hold = 0; chargeUI.cap = '';
   AI.target = null; AI.wander = null;
@@ -1825,6 +1833,7 @@ function drawNoli() {
     const T = performance.now() / 1000;
     for (let i = 0; i < 4; i++) { const a = T * 5 + i * Math.PI / 2; star4(x + Math.cos(a) * 18, y - 28 + Math.sin(a) * 5, 5, i % 2 ? '#c9a8ff' : '#ffffff'); }
   }
+  { const bw = 56; ctx.fillStyle = '#2a0f18'; ctx.fillRect(x - bw / 2, y - 52, bw, 6); ctx.fillStyle = '#c9a8ff'; ctx.fillRect(x - bw / 2, y - 52, bw * noli.hp / noli.maxHp, 6); }
   label(x, y - 34, 'NOLI', '#c49bff');
 }
 function drawDummy(d) {
@@ -2109,17 +2118,19 @@ function hud() {
   ctx.fillStyle = '#14111f'; ctx.fillRect(bx, by, bw, 12);
   ctx.fillStyle = '#5aa9ff'; ctx.fillRect(bx, by, bw * noli.stamina / KIT.stamina.max, 12);
   label(W / 2, by - 4, 'STAMINA ' + Math.round(noli.stamina), '#e9e4ff');
+  ctx.fillStyle = '#14111f'; ctx.fillRect(bx, by - 30, bw, 14); ctx.fillStyle = '#c9a8ff'; ctx.fillRect(bx, by - 30, bw * noli.hp / noli.maxHp, 14);
+  label(W / 2, by - 34, `NOLI · ${Math.ceil(noli.hp)} / ${noli.maxHp} HP`, '#ffffff');
   if (inWindow) {
     // The countdown itself is the draining charge ring (drawChargeUI).
     const r = noli.rush;
     ctx.globalAlpha = 0.6 + 0.4 * Math.sin(performance.now() / 50);
-    label(W / 2, by - 26, `[Q] RE-RUSH! · next slam ${slamDmg(r.chain + 1).toFixed(1)} dmg`, '#ffffff');
+    label(W / 2, by - 56, `[Q] RE-RUSH! · next slam ${slamDmg(r.chain + 1).toFixed(1)} dmg`, '#ffffff');
     ctx.globalAlpha = 1;
   }
   drawChargeUI();
   if (noli.state === 'rush') {
     const r = noli.rush;
-    label(W / 2, by - 26, r.boostT > 0 ? `BOOST ${r.boostT.toFixed(1)}s · chain x${r.chain}` : r.chain ? (r.t < KIT.rush.boost.time ? `RE-RUSH x${r.chain} · hold Q · Shift = boost (${(KIT.rush.boost.time - r.t).toFixed(1)}s window)` : `RE-RUSH x${r.chain} · boost window over`) : 'VOID RUSH · keep holding Q · hit a survivor to open the re-rush window', r.boostT > 0 ? '#ffffff' : '#c49bff');
+    label(W / 2, by - 56, r.boostT > 0 ? `BOOST ${r.boostT.toFixed(1)}s · chain x${r.chain}` : r.chain ? (r.t < KIT.rush.boost.time ? `RE-RUSH x${r.chain} · hold Q · Shift = boost (${(KIT.rush.boost.time - r.t).toFixed(1)}s window)` : `RE-RUSH x${r.chain} · boost window over`) : 'VOID RUSH · keep holding Q · hit a survivor to open the re-rush window', r.boostT > 0 ? '#ffffff' : '#c49bff');
   }
   label(W / 2, 22, `Tool: ${TOOLS.find((t) => t.id === tool).name}  ·  ${dummies.length} dumm${dummies.length === 1 ? 'y' : 'ies'}`, '#9a90bf');
 }
@@ -2163,6 +2174,7 @@ function survHud() {
     label(W / 2, 46, `SURVIVE ${m}:${sec}`, '#ffffff', '700 22px system-ui');
     label(W / 2, 66, `Generators done: ${round.gens} · hold F at one to repair`, '#9a90bf');
   }
+  { const nb = 220, nx = W / 2 - nb / 2; ctx.fillStyle = '#14111f'; ctx.fillRect(nx, 104, nb, 8); ctx.fillStyle = '#c9a8ff'; ctx.fillRect(nx, 104, nb * noli.hp / noli.maxHp, 8); label(W / 2, 126, `NOLI ${Math.ceil(noli.hp)} / ${noli.maxHp}`, '#c9a8ff', '700 11px system-ui'); }
   if (noli.dazed && noli.stunT > 0) label(W / 2, 88, `NOLI STUNNED ${noli.stunT.toFixed(1)}s — RUN!`, '#ffffff', '700 15px system-ui');
   else if (noli.state === 'rushWind' || noli.state === 'rush') label(W / 2, 88, 'Void Rush incoming!', '#c9a8ff', '700 15px system-ui');
   if (d.dead || d.dying || d.exec) { ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(0, 0, W, H); label(W / 2, H / 2 - 20, 'YOU WERE CAUGHT', '#ffffff', '700 30px system-ui'); label(W / 2, H / 2 + 10, 'respawning…', '#9a90bf'); }
