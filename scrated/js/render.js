@@ -1292,6 +1292,7 @@
       } else {
         this.drawAbilityBar(ctx, g, p, W, H);
         this.drawVitals(ctx, g, p, W, H);
+        this.drawStamina(ctx, g, p, W, H);
         this.drawPrompt(ctx, g, p, W, H);
       }
       this.drawMinimap(ctx, g, focus, W, H);
@@ -1471,9 +1472,52 @@
       ctx.font = 'bold 15px "Trebuchet MS", Arial, sans-serif';
       ctx.textAlign = 'center';
       const tw = ctx.measureText(msg).width;
-      this.panel(ctx, W / 2 - tw / 2 - 12, H - 150, tw + 24, 28);
+      this.panel(ctx, W / 2 - tw / 2 - 12, H - 178, tw + 24, 28);
       ctx.fillStyle = '#ffe9b0';
-      ctx.fillText(msg, W / 2, H - 131);
+      ctx.fillText(msg, W / 2, H - 159);
+    },
+
+    // Big, centered stamina readout plus a ring around the player.
+    drawStamina(ctx, g, p, W, H) {
+      const F = '"Trebuchet MS", Arial, sans-serif';
+      const st = p.stamina / 100;
+      const low = st < 0.25;
+      const empty = p.stamina < 1;
+      const flash = empty && Math.sin(g.time * 14) > 0;
+      const col = empty ? (flash ? '#ff3b3b' : '#7a1a1a') : low ? '#ff9a3c' : p.sprinting ? '#7ad7ff' : '#4fb8e8';
+
+      // Ring around the player's character.
+      if (st < 0.999 || p.sprinting) {
+        const cam = g.cam;
+        const sx = (p.x - cam.x) * cam.zoom + W / 2, sy = (p.y - cam.y) * cam.zoom + H / 2;
+        const rr = (p.r + 13) * cam.zoom;
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+        ctx.beginPath(); ctx.arc(sx, sy, rr, 0, TAU); ctx.stroke();
+        ctx.strokeStyle = col;
+        ctx.beginPath(); ctx.arc(sx, sy, rr, -Math.PI / 2, -Math.PI / 2 + TAU * st); ctx.stroke();
+      }
+
+      // Bar centered above the ability bar.
+      const bw = Math.min(320, W * 0.4), bh = 14;
+      const x = W / 2 - bw / 2, y = H - 128;
+      this.panel(ctx, x - 4, y - 4, bw + 8, bh + 8);
+      ctx.fillStyle = '#1a1622';
+      ctx.fillRect(x, y, bw, bh);
+      ctx.fillStyle = col;
+      ctx.fillRect(x, y, bw * st, bh);
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.fillRect(x, y, bw * st, bh / 3);
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      for (let i = 1; i < 4; i++) ctx.fillRect(x + (bw * i) / 4 - 1, y, 2, bh);
+      ctx.font = `bold 11px ${F}`;
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#000';
+      const label = empty ? 'OUT OF STAMINA' : `STAMINA ${Math.round(p.stamina)}${p.sprinting ? '  ▶▶' : ''}`;
+      ctx.strokeText(label, W / 2, y + 11);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, W / 2, y + 11);
     },
 
     drawMinimap(ctx, g, focus, W, H) {
