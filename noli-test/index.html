@@ -49,6 +49,7 @@
   <div class="row">
     <button id="reset">Reset cooldowns</button>
     <button id="nocd">No cooldowns: off</button>
+    <button id="hbx" class="on">Hitboxes: on</button>
   </div>
   <small>WASD move · Shift sprint · Mouse aim<br>
   <b>LMB</b> Stab (Play tool) · <b>Q</b> Void Rush · <b>E</b> Nova (E again = detonate) · <b>R</b> Observant<br>
@@ -69,15 +70,25 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const rand = (a, b) => a + Math.random() * (b - a);
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const angDiff = (a, b) => ((a - b + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+// Square hitboxes: { x, y, w, h, a } centred boxes rotated by a, tested against a survivor's body.
+function boxHits(b, d) {
+  const c = Math.cos(-b.a || 0), s = Math.sin(-b.a || 0), dx = d.x - b.x, dy = d.y - b.y;
+  const lx = dx * c - dy * s, ly = dx * s + dy * c;
+  const cx = clamp(lx, -b.w / 2, b.w / 2), cy = clamp(ly, -b.h / 2, b.h / 2);
+  return (lx - cx) ** 2 + (ly - cy) ** 2 <= d.r * d.r;
+}
+const hitboxes = [];
+let showHitboxes = true;
+function showBox(b, c, life = 0.15) { hitboxes.push({ ...b, c, t: 0, life }); }
 
 // ------------------------------------------------------------- kit numbers
 const KIT = {
   speed: { walk: 160, sprint: 270 }, stamina: { max: 110, drain: 10, regen: 20 },
-  stab: { dmg: 25, perStack: 5, range: 62, arc: 0.9, cd: 2.0, windup: 0.18 },
+  stab: { dmg: 25, perStack: 5, cd: 2.0, windup: 0.18, box: { off: 38, w: 60, h: 60 } },
   rush: { cd: 20, cdStart: 10, cdCancel: 1.2, windup: 0.6, dur: 2.5, speed: 560, turn: 0.9, reRush: 0.85, burst: 1.35,
           boost: { time: 1, speed: 1.35, turn: 4.5 },
-          hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
-  nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, radius: 140, pull: 1.1 },
+          box: { off: 10, w: 52, h: 52 }, hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
+  nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, box: 28, blast: 280, pull: 1.1 },
   obs: { cd: 30, cdStart: 25, cdLeave: 15, bands: [[20, 3], [50, 2], [100, 1]] },
 };
 const slamDmg = (chain) => KIT.rush.slamBase + KIT.rush.slamExtra + KIT.rush.perReRush * chain;
@@ -98,6 +109,7 @@ function defaultMap() {
 // ------------------------------------------------------------- entities
 const noli = { x: 1000, y: 1150, r: 18, ang: -Math.PI / 2, stamina: KIT.stamina.max, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart },
   state: 'free', st: 0, rush: null, stance: false, stunT: 0 };
+const fwdBox = (o) => ({ x: noli.x + Math.cos(noli.ang) * o.off, y: noli.y + Math.sin(noli.ang) * o.off, w: o.w, h: o.h, a: noli.ang });
 let newMode = 'stand', newHp = 100, noCd = false, tool = 'play', dummyN = 0;
 const novas = [], fx = [], texts = [];
 function addDummy(x, y, mode = newMode, hp = newHp) {
@@ -180,10 +192,10 @@ function stab() {
   noli.state = 'stab'; noli.st = 0; noli.cds.stab = KIT.stab.cd;
 }
 function stabHit() {
-  ring(noli.x + Math.cos(noli.ang) * 40, noli.y + Math.sin(noli.ang) * 40, KIT.stab.range * 0.7, '#ff6b8a', 0.2);
-  // Stab hits the closest survivor in the arc.
-  const t = alive().filter((d) => dist(noli, d) < KIT.stab.range + d.r && Math.abs(angDiff(Math.atan2(d.y - noli.y, d.x - noli.x), noli.ang)) < KIT.stab.arc)
-    .sort((a, b) => dist(noli, a) - dist(noli, b))[0];
+  // Stab hits the closest survivor inside its square hitbox.
+  const box = fwdBox(KIT.stab.box);
+  const t = alive().filter((d) => boxHits(box, d)).sort((a, b) => dist(noli, a) - dist(noli, b))[0];
+  showBox(box, t ? '#ff3b5c' : '#ff9fb4', 0.2);
   if (!t) return;
   const stacks = t.hall;
   damage(t, KIT.stab.dmg + stacks * KIT.stab.perStack, `Stab (+${stacks} stack bonus)`);
@@ -240,8 +252,10 @@ function castNova() {
 }
 function detonate(n, why) {
   n.boom = true; n.bt = 0;
-  ring(n.x, n.y, KIT.nova.radius, '#7a3cff', 0.5);
-  for (const d of alive()) if (dist(n, d) < KIT.nova.radius) damage(d, KIT.nova.dmg, `Nova (${why})`, '#b98cff');
+  ring(n.x, n.y, KIT.nova.blast / 2, '#7a3cff', 0.5);
+  const blast = { x: n.x, y: n.y, w: KIT.nova.blast, h: KIT.nova.blast, a: 0 };
+  showBox(blast, '#ff3b5c', KIT.nova.pull);
+  for (const d of alive()) if (boxHits(blast, d)) damage(d, KIT.nova.dmg, `Nova (${why})`, '#b98cff');
 }
 
 function toggleObservant() {
@@ -253,8 +267,9 @@ function toggleObservant() {
 function observantTeleport(g) {
   noli.x = g.x; noli.y = g.y + 46; noli.stance = false; noli.cds.obs = KIT.obs.cd;
   ring(g.x, g.y, 90, '#a26bff', 0.7);
+  for (const [range] of KIT.obs.bands) showBox({ x: g.x, y: g.y + 46, w: range * STUD * 2, h: range * STUD * 2, a: 0 }, '#c49bff', 0.9);
   for (const d of alive()) {
-    const studs = dist(noli, d) / STUD;
+    const studs = Math.max(Math.abs(noli.x - d.x), Math.abs(noli.y - d.y)) / STUD;   // square zones
     const band = KIT.obs.bands.find(([range]) => studs <= range);
     if (band) setHall(d, band[1], `Observant (${studs.toFixed(0)} studs)`);
   }
@@ -383,7 +398,9 @@ function update(dt) {
     const blocked = r.t > 0.1 && Math.hypot(noli.x - ox, noli.y - oy) < Math.hypot(vx, vy) * 0.45;
     if (Math.random() < 0.6) fx.push({ x: noli.x, y: noli.y, r: B ? 18 : 14, c: B ? '#d36bff' : '#5b2bbf', t: 0, life: 0.35, trail: true });
     if (r.ignore && r.t > 0.3) r.ignore = null;
-    const hit = alive().find((d) => d !== r.ignore && dist(noli, d) < noli.r + d.r + 4);
+    const rbox = fwdBox(KIT.rush.box);
+    showBox(rbox, '#ff3b5c', 0.05);
+    const hit = alive().find((d) => d !== r.ignore && boxHits(rbox, d));
     if (hit) rushHit(hit);
     else if (blocked) endRush(r.chain ? `Void Rush hit a wall (chain x${r.chain} lost)` : 'Void Rush hit a wall');
     else if (r.t > KIT.rush.dur && !B) endRush('Void Rush ran out');
@@ -397,7 +414,10 @@ function update(dt) {
       n.t += dt;
       const res = moveCircle(n, n.vx * dt, n.vy * dt);
       // Grabs the first survivor it touches and drags them along.
-      if (!n.carry) { const d = alive().find((d) => dist(n, d) < d.r + 16); if (d) { n.carry = d; n.vx *= 0.5; n.vy *= 0.5; } }
+      n.spin = (n.spin || 0) + dt * 6;
+      const nb = { x: n.x, y: n.y, w: KIT.nova.box, h: KIT.nova.box, a: n.spin };
+      showBox(nb, '#ff3b5c', 0.05);
+      if (!n.carry) { const d = alive().find((d) => boxHits(nb, d)); if (d) { n.carry = d; n.vx *= 0.5; n.vy *= 0.5; } }
       if (n.carry && !n.carry.dead) { const d = n.carry; d.x += (n.x - d.x) * Math.min(1, dt * 10); d.y += (n.y - d.y) * Math.min(1, dt * 10); }
       if (res.bx || res.by) detonate(n, n.carry ? 'slammed into wall' : 'wall');
       else if (n.t > KIT.nova.life) detonate(n, 'expired');
@@ -405,7 +425,7 @@ function update(dt) {
       n.bt += dt;
       if (n.bt < KIT.nova.pull) for (const d of alive()) {
         const dd = dist(n, d);
-        if (dd < KIT.nova.radius && dd > 6) { const a = Math.atan2(n.y - d.y, n.x - d.x); moveCircle(d, Math.cos(a) * 240 * dt, Math.sin(a) * 240 * dt); }
+        if (boxHits({ x: n.x, y: n.y, w: KIT.nova.blast, h: KIT.nova.blast, a: 0 }, d) && dd > 6) { const a = Math.atan2(n.y - d.y, n.x - d.x); moveCircle(d, Math.cos(a) * 240 * dt, Math.sin(a) * 240 * dt); }
       }
     }
   }
@@ -423,6 +443,8 @@ function update(dt) {
     d.vx *= Math.pow(0.02, dt); d.vy *= Math.pow(0.02, dt);
   }
 
+  for (const b of hitboxes) b.t += dt;
+  for (let i = hitboxes.length - 1; i >= 0; i--) if (hitboxes[i].t > hitboxes[i].life) hitboxes.splice(i, 1);
   for (const f of fx) f.t += dt;
   for (let i = fx.length - 1; i >= 0; i--) if (fx[i].t > fx[i].life) fx.splice(i, 1);
   for (const t of texts) { t.t += dt; t.y -= 30 * dt; }
@@ -486,11 +508,17 @@ function render() {
     label(g.x, g.y - 24, g.fake ? 'Generator (fake)' : 'Generator', g.fake ? '#ff9fb4' : '#9a90bf');
     if (noli.stance) { ctx.strokeStyle = '#a26bff'; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.arc(g.x, g.y, 50, 0, 6.3); ctx.stroke(); ctx.setLineDash([]); }
   }
-  if (noli.stance) for (const d of alive()) for (const [r, l] of KIT.obs.bands) { ctx.strokeStyle = `rgba(196,155,255,${0.15 * l})`; ctx.beginPath(); ctx.arc(d.x, d.y, r * STUD, 0, 6.3); ctx.stroke(); }
+  if (noli.stance) for (const d of alive()) for (const [r, l] of KIT.obs.bands) { ctx.strokeStyle = `rgba(196,155,255,${0.15 * l})`; ctx.strokeRect(d.x - r * STUD, d.y - r * STUD, r * STUD * 2, r * STUD * 2); }
   for (const f of fx) { const k = f.t / f.life; ctx.globalAlpha = 1 - k; if (f.trail) { ctx.fillStyle = f.c; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1 - k * 0.5), 0, 6.3); ctx.fill(); } else { ctx.strokeStyle = f.c; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (0.4 + k * 0.6), 0, 6.3); ctx.stroke(); } ctx.globalAlpha = 1; }
+  if (showHitboxes) for (const b of hitboxes) {
+    ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.a || 0);
+    ctx.globalAlpha = 0.25 * (1 - b.t / b.life) + 0.1; ctx.fillStyle = b.c; ctx.fillRect(-b.w / 2, -b.h / 2, b.w, b.h);
+    ctx.globalAlpha = 0.9; ctx.strokeStyle = b.c; ctx.lineWidth = 2; ctx.strokeRect(-b.w / 2, -b.h / 2, b.w, b.h);
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
   for (const n of novas) {
     if (!n.boom) { ctx.fillStyle = '#000'; ctx.strokeStyle = '#c49bff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(n.x, n.y, 12, 0, 6.3); ctx.fill(); ctx.stroke(); }
-    else { const k = n.bt / KIT.nova.pull; ctx.fillStyle = `rgba(40,10,80,${0.5 * (1 - k)})`; ctx.beginPath(); ctx.arc(n.x, n.y, KIT.nova.radius * (1 - k * 0.6), 0, 6.3); ctx.fill(); }
+    else { const k = n.bt / KIT.nova.pull; ctx.fillStyle = `rgba(40,10,80,${0.5 * (1 - k)})`; ctx.beginPath(); ctx.arc(n.x, n.y, KIT.nova.blast / 2 * (1 - k * 0.6), 0, 6.3); ctx.fill(); }
   }
   for (const d of dummies) drawDummy(d);
   if (hover && hover.kind === 'dummy') { ctx.strokeStyle = tool === 'erase' ? '#ff4d6d' : '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hover.o.x, hover.o.y, 24, 0, 6.3); ctx.stroke(); }
@@ -566,6 +594,7 @@ document.getElementById('clearD').onclick = () => { dummies = []; log('Dummies c
 document.getElementById('clearAll').onclick = () => { walls = [...BORDER]; gens = []; dummies = []; log('Map emptied'); };
 document.getElementById('resetMap').onclick = () => { defaultMap(); log('Default map loaded'); };
 document.getElementById('reset').onclick = () => { for (const k in noli.cds) noli.cds[k] = 0; log('Cooldowns reset'); };
+document.getElementById('hbx').onclick = (e) => { showHitboxes = !showHitboxes; e.target.textContent = 'Hitboxes: ' + (showHitboxes ? 'on' : 'off'); e.target.classList.toggle('on', showHitboxes); };
 document.getElementById('nocd').onclick = (e) => { noCd = !noCd; e.target.textContent = 'No cooldowns: ' + (noCd ? 'on' : 'off'); e.target.classList.toggle('on', noCd); };
 for (const b of document.querySelectorAll('.panel')) b.addEventListener('mousedown', (e) => e.stopPropagation());
 
