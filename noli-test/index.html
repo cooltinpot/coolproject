@@ -908,7 +908,6 @@ function drawNoli() {
   const { x, y } = noli;
   ctx.save(); ctx.translate(x, y);
   const sc = noliScale(); if (sc !== 1) ctx.scale(sc, sc);
-  if (noli.state === 'rushWind') { ctx.strokeStyle = '#a26bff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, 22 + Math.min(1, noli.st / KIT.rush.windup) * 20, 0, 6.3); ctx.stroke(); if (noli.st >= KIT.rush.windup) { ctx.strokeStyle = '#ffffff'; ctx.beginPath(); ctx.arc(0, 0, 44, 0, 6.3); ctx.stroke(); } }
   ctx.fillStyle = 'rgba(162,107,255,0.18)'; ctx.beginPath(); ctx.arc(0, 0, 30, 0, 6.3); ctx.fill();
   ctx.rotate(noli.ang);
   const tpGlow = noli.state === 'tp';
@@ -1030,6 +1029,45 @@ function render() {
   if (noli.stance) { ctx.fillStyle = 'rgba(60,20,120,0.18)'; ctx.fillRect(0, 0, W, H); label(W / 2, 40, 'OBSERVANT — click a generator · R to leave', '#c49bff'); }
   hud();
 }
+// ------------------------------------------------------------- Void Rush charge UI
+// Dark orb with a soft white glow and a black four-point star; a crumbly white ring drains as you charge.
+const chargeUI = { a: 0, k: 0, last: 0 };
+function hash1(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+function drawChargeUI() {
+  const now = performance.now() / 1000, dt = Math.min(0.05, now - (chargeUI.last || now)); chargeUI.last = now;
+  const on = noli.state === 'rushWind';
+  if (on) chargeUI.k = Math.min(1, noli.st / KIT.rush.windup);
+  chargeUI.a = clamp(chargeUI.a + (on ? dt * 8 : -dt * 5), 0, 1);
+  if (chargeUI.a <= 0) return;
+  // Sits just below Noli on screen (above him if he's near the bottom edge).
+  const nsx = (noli.x - cam.x) * cam.s, nsy = (noli.y - cam.y) * cam.s;
+  const below = nsy + 100 + 80 < H - 120;
+  const cx = clamp(nsx, 160, W - 160), cy = below ? nsy + 100 : nsy - 130, R = 34, remain = 1 - chargeUI.k;
+  ctx.save(); ctx.globalAlpha = chargeUI.a;
+  // dark backing + soft white glow
+  ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.beginPath(); ctx.arc(cx, cy, R + 8, 0, 6.3); ctx.fill();
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R - 2);
+  g.addColorStop(0, 'rgba(255,255,255,0.95)'); g.addColorStop(0.35, 'rgba(200,200,200,0.55)'); g.addColorStop(0.8, 'rgba(60,60,60,0.25)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R - 2, 0, 6.3); ctx.fill();
+  // black four-point star with a thin light rim
+  star4(cx, cy, 13, '#ffffff', 0.9 * chargeUI.a); star4(cx, cy, 11, '#000000', chargeUI.a);
+  // crumbly ring that drains clockwise from the top
+  const segs = 90, shown = Math.ceil(segs * remain), flick = Math.floor(now * 12);
+  for (let i = 0; i < shown; i++) {
+    const n = hash1(i), gap = hash1(i * 3.7 + 1) < 0.16, edge = i > shown - 4;
+    if (gap) continue;
+    const a0 = -Math.PI / 2 + (i / segs) * Math.PI * 2, a1 = a0 + (Math.PI * 2 / segs) * (0.7 + 0.5 * hash1(i + flick * 0.01));
+    const r = R + (n - 0.5) * 5, w = 3 + n * 4 * (edge ? hash1(i + flick) : 1);
+    ctx.strokeStyle = n > 0.82 ? '#9a9a9a' : '#ffffff'; ctx.globalAlpha = chargeUI.a * (0.7 + 0.3 * n);
+    ctx.lineWidth = w; ctx.beginPath(); ctx.arc(cx, cy, r, a0, a1); ctx.stroke();
+    if (hash1(i * 9.1) > 0.7) { ctx.fillStyle = '#ffffff'; ctx.fillRect(cx + Math.cos(a0) * (r + w), cy + Math.sin(a0) * (r + w), 2, 2); }   // flecks
+  }
+  ctx.globalAlpha = chargeUI.a;
+  ctx.font = '17px Georgia, "Times New Roman", serif'; ctx.textAlign = 'center';
+  ctx.lineWidth = 3; ctx.strokeStyle = '#000000'; ctx.strokeText('Charge VoidRush by holding down', cx, cy + R + 32);
+  ctx.fillStyle = '#e8e8e8'; ctx.fillText('Charge VoidRush by holding down', cx, cy + R + 32);
+  ctx.restore();
+}
 function hud() {
   const inWindow = noli.state === 'reWindow';
   const slots = [['LMB', 'Stab', 'stab', KIT.stab.cd], ['Q', inWindow ? 'RE-RUSH' : 'Void Rush', 'rush', KIT.rush.cd], ['E', novas.some((n) => !n.boom) ? 'Detonate' : 'Nova', 'nova', KIT.nova.cd], ['R', noli.stance ? 'Leave' : 'Observant', 'obs', KIT.obs.cd]];
@@ -1057,7 +1095,7 @@ function hud() {
     label(W / 2, by - 26, `[Q] RE-RUSH! · next slam ${slamDmg(r.chain + 1).toFixed(1)} dmg`, '#ffffff');
     ctx.globalAlpha = 1;
   }
-  if (noli.state === 'rushWind') label(W / 2, by - 26, `CHARGING ${Math.round(noli.st / KIT.rush.windup * 100)}% · hold Q`, noli.st >= KIT.rush.windup ? '#ffffff' : '#c49bff');
+  drawChargeUI();
   if (noli.state === 'rush') {
     const r = noli.rush;
     label(W / 2, by - 26, r.boostT > 0 ? `BOOST ${r.boostT.toFixed(1)}s · chain x${r.chain}` : r.chain ? (r.t < KIT.rush.boost.time ? `RE-RUSH x${r.chain} · hold Q · Shift = boost (${(KIT.rush.boost.time - r.t).toFixed(1)}s window)` : `RE-RUSH x${r.chain} · boost window over`) : 'VOID RUSH · keep holding Q · hit a survivor to open the re-rush window', r.boostT > 0 ? '#ffffff' : '#c49bff');
