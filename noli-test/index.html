@@ -67,7 +67,7 @@ addEventListener('resize', resize); resize();
 const STUD = 10;
 // Generator art: 4-frame sprite sheet (from the animated image), frame times in ms.
 const GEN_IMG = new Image(); GEN_IMG.src = 'img/gen_anim.png';
-const GEN_FRAMES = [100, 80, 80, 80], GEN_LOOP = GEN_FRAMES.reduce((a, b) => a + b, 0), GEN_SIZE = 101;
+const GEN_FRAMES = [100, 80, 80, 80], GEN_LOOP = GEN_FRAMES.reduce((a, b) => a + b, 0), GEN_SIZE = 131, GEN_HOVER = 1.4;   // hovered generators grow 40%
 function genFrame(t) { let ms = (t * 1000) % GEN_LOOP; for (let i = 0; i < GEN_FRAMES.length; i++) { if (ms < GEN_FRAMES[i]) return i; ms -= GEN_FRAMES[i]; } return 0; }                  // px per stud
 const MAP = { w: 2000, h: 1400 };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -312,7 +312,7 @@ function detonate(n, why) {
 
 function stallVol() { return gens.length ? clamp(1 - Math.min(...gens.map((g) => dist(noli, g))) / KIT.obs.stallRange, 0, 1) : 0; }
 function toggleObservant() {
-  if (noli.stance) { stopSfx('stall'); stopSfx('gen_start'); noli.stance = false; noli.cds.obs = KIT.obs.cdLeave; log('Left Observant (15s cooldown)'); return; }
+  if (noli.stance) { stopSfx('stall'); stopSfx('gen_start'); sfx('gen_end'); noli.stance = false; noli.cds.obs = KIT.obs.cdLeave; log('Left Observant (15s cooldown)'); return; }
   if (busy() || !ready('obs')) return;
   if (!gens.length) { log('Observant needs a generator — place one'); return; }
   noli.stance = true; log('Observant: click a generator to teleport');
@@ -324,7 +324,7 @@ function toggleObservant() {
 function observantPick(g) {
   // Short travel time before Noli arrives at the generator.
   noli.stance = false; noli.state = 'tp'; noli.st = 0; noli.tp = g;
-  stopSfx('stall'); stopSfx('gen_start');
+  stopSfx('stall'); stopSfx('gen_start'); sfx('gen_end');
   sfx('observant_tp');
   ring(noli.x, noli.y, 50, '#a26bff', 0.8);
 }
@@ -540,7 +540,7 @@ function update(dt) {
   }
 
   if (noli.stance) { const v = stallVol(); if (SFX.stall) SFX.stall.volume = v; if (SFX.gen_start) SFX.gen_start.volume = v; }
-  for (const g of gens) { g.hov = Math.abs(w.x - g.x) < GEN_SIZE / 2 && Math.abs(w.y - g.y) < GEN_SIZE / 2; g.animT = (g.animT || 0) + dt * (g.hov ? 1 : 0.2); }
+  for (const g of gens) { g.hov = Math.abs(w.x - g.x) < GEN_SIZE / 2 && Math.abs(w.y - g.y) < GEN_SIZE / 2; g.animT = (g.animT || 0) + dt * (g.hov ? 1 : 0.2); g.hs = (g.hs || 1) + ((g.hov && noli.stance ? GEN_HOVER : 1) - (g.hs || 1)) * Math.min(1, dt * 10); }
   for (const b of hitboxes) b.t += dt;
   for (let i = hitboxes.length - 1; i >= 0; i--) if (hitboxes[i].t > hitboxes[i].life) hitboxes.splice(i, 1);
   if (noli.state === 'tp') tpSwirl(dt);
@@ -876,12 +876,14 @@ function render() {
     if (noli.stance && GEN_IMG.complete && GEN_IMG.naturalWidth) {
       const fw = GEN_IMG.naturalWidth / GEN_FRAMES.length, fr = genFrame(g.animT || 0);
       ctx.globalAlpha = g.hov ? 0.9 : 0.5;
-      ctx.drawImage(GEN_IMG, fr * fw, 0, fw, GEN_IMG.naturalHeight, g.x - GEN_SIZE / 2, g.y - GEN_SIZE / 2, GEN_SIZE, GEN_SIZE);
+      const sz = GEN_SIZE * (g.hs || 1);
+      ctx.drawImage(GEN_IMG, fr * fw, 0, fw, GEN_IMG.naturalHeight, g.x - sz / 2, g.y - sz / 2, sz, sz);
       ctx.globalAlpha = 1;
     } else { ctx.fillStyle = '#3a3150'; ctx.fillRect(g.x - 24, g.y - 18, 48, 36); }
-    ctx.fillStyle = '#7dffa8'; ctx.fillRect(g.x - 30, g.y + GEN_SIZE / 2 + 2, 60 * g.prog, 4);
-    label(g.x, g.y - GEN_SIZE / 2 - 4, g.fake ? 'Generator (fake)' : 'Generator', g.fake ? '#ff9fb4' : '#9a90bf');
-    if (noli.stance) { ctx.strokeStyle = '#a26bff'; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.arc(g.x, g.y, GEN_SIZE / 2 + 6, 0, 6.3); ctx.stroke(); ctx.setLineDash([]); }
+    const half = noli.stance ? GEN_SIZE * (g.hs || 1) / 2 : 22;   // plain box outside Observant
+    ctx.fillStyle = '#7dffa8'; ctx.fillRect(g.x - 30, g.y + half + 2, 60 * g.prog, 4);
+    label(g.x, g.y - half - 4, g.fake ? 'Generator (fake)' : 'Generator', g.fake ? '#ff9fb4' : '#9a90bf');
+    if (noli.stance) { ctx.strokeStyle = '#a26bff'; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.arc(g.x, g.y, GEN_SIZE * (g.hs || 1) / 2 + 6, 0, 6.3); ctx.stroke(); ctx.setLineDash([]); }
   }
   if (noli.stance) for (const d of alive()) for (const [r, l] of KIT.obs.bands) { ctx.strokeStyle = `rgba(196,155,255,${0.15 * l})`; ctx.strokeRect(d.x - r * STUD, d.y - r * STUD, r * STUD * 2, r * STUD * 2); }
   for (const f of fx) { const k = f.t / f.life; ctx.globalAlpha = 1 - k; if (f.trail) { ctx.fillStyle = f.c; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1 - k * 0.5), 0, 6.3); ctx.fill(); } else { ctx.strokeStyle = f.c; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (0.4 + k * 0.6), 0, 6.3); ctx.stroke(); } ctx.globalAlpha = 1; }
