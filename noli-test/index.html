@@ -707,7 +707,7 @@ function repairTick(d, g, dt) {
     d.repair = null;
   }
 }
-function respawnDummy(d) { Object.assign(d, { x: d.home.x, y: d.home.y, hp: d.maxHp, hall: 0, dead: false, dying: 0, air: null, rag: null, exec: false, squash: 0, fade: 1, wiggle: 0, deadT: 0, knockT: 0, vx: 0, vy: 0, repair: null, goal: null }); if (d.kit) resetSurv(d); }
+function respawnDummy(d) { Object.assign(d, { x: d.home.x, y: d.home.y, hp: d.maxHp, hall: 0, dead: false, dying: 0, air: null, rag: null, exec: false, squash: 0, fade: 1, wiggle: 0, deadT: 0, knockT: 0, vx: 0, vy: 0, repair: null, goal: null, plan: null, job: null, hide: null }); if (d.kit) resetSurv(d); }
 
 // ------------------------------------------------------------- survivors (Forsaken kits)
 const SURV = { walk: 150, sprint: 255, stamMax: 100, drain: 12, regen: 18 };
@@ -963,6 +963,7 @@ function fleeDir(d) {
     let sc = dist(p, noli) - Math.max(0, 230 - edge) * 1.3;   // don't get cornered
     if (d.fleeA !== undefined) sc += Math.cos(a - d.fleeA) * 30;   // keep running the same way
     if (!clearPath(p, noli, 2)) sc += 40;   // put a pillar between you and him
+    for (const o of mates(d)) if (dist(o, p) < 200) sc -= 70;   // don't lead him onto teammates
     if (sc > bs) { bs = sc; best = a; }
   }
   if (best === null) best = Math.atan2(d.y - noli.y, d.x - noli.x);
@@ -972,7 +973,7 @@ function smartSkills(d, nd, toNoli, dt) {
   if (!d.kit || d.act || d.knockT > 0) return;
   const free = noli.stunT <= 0 && !(noli.stunImmT > 0) && canHitNoli();
   const facingMe = Math.abs(angDiff(Math.atan2(d.y - noli.y, d.x - noli.x), noli.ang)) < 0.6;
-  const roll = (rate) => Math.random() < dt * rate;
+  const roll = (rate) => Math.random() < dt * rate * (d.plan === 'help' ? 4 : 1);   // going in to help: commit to it
   const sight = clearPath(d, noli, 2);
   switch (d.kit) {
     case 'guest':
@@ -1008,13 +1009,122 @@ function repairThink(d, dt) {
   repairTick(d, g, dt);
   return null;
 }
+// Squad brain: each survivor has its own job (a generator, a hiding spot, healing or bailing out
+// a teammate). Teammates claim different generators, only one goes in to help at a time, and
+// nobody hangs around Noli unless he's actually after them or they're going in for a stun.
+const SQUAD = { helper: null };
+const mates = (d) => dummies.filter((o) => o !== d && o.kit && !o.dead && !o.dying && !o.exec);
+// How dangerous Noli is to this survivor right now.
+function threatTo(d) {
+  const nd = dist(d, noli);
+  if (!canHitNoli() || noli.stunT > 0.4) return { chasing: false, near: nd < 120 };
+  const see = clearPath(noli, d, 4), ux = (d.x - noli.x) / (nd || 1), uy = (d.y - noli.y) / (nd || 1);
+  const closing = (noli.vx || 0) * ux + (noli.vy || 0) * uy;   // how fast he's coming at them
+  const facing = Math.abs(angDiff(Math.atan2(uy, ux), noli.ang)) < 0.5;
+  const chasing = (see && nd < 520 && closing > 70 && facing) ||
+    (mode === 'survivor' && AI.target === d && see && nd < 600) ||
+    ((noli.state === 'rush' || noli.state === 'rushWind' || noli.state === 'novaWind') && facing && nd < 450);
+  return { chasing, near: nd < 230 };
+}
+function canStun(d) {
+  const r = (k) => d.cds[k] <= 0;
+  switch (d.kit) {
+    case 'guest': return (d.punch > 0 && r('e')) || r('r');
+    case 'shed': case 'chance': case 'twotime': return r('q');
+  }
+  return false;
+}
+// Spread out: nudge the move direction away from teammates who are too close.
+function withSep(d, a, sprint) {
+  let mx = Math.cos(a), my = Math.sin(a);
+  for (const o of mates(d)) { const dd = dist(o, d); if (dd < 70 && dd > 0) { const k = (70 - dd) / 70 * 1.2; mx += (d.x - o.x) / dd * k; my += (d.y - o.y) / dd * k; } }
+  const l = Math.hypot(mx, my) || 1;
+  return { mx: mx / l, my: my / l, sprint };
+}
+function goTo(d, x, y, sprint, stopAt = 6) {
+  if (Math.hypot(x - d.x, y - d.y) < stopAt) return null;
+  return withSep(d, steerTo(d, x, y), sprint);
+}
+// Pick a generator nobody else is on (2 max), far from Noli, not too far from us.
+function pickJob(d) {
+  let best = null, bs = Infinity;
+  for (const g of gens) {
+    if (g.prog >= 1) continue;
+    const on = mates(d).filter((o) => o.job === g).length, danger = dist(g, noli);
+    if (on >= 2 || danger < 400) continue;
+    const s = dist(d, g) + on * 400 - Math.min(danger, 1000) * 0.5;
+    if (s < bs) { bs = s; best = g; }
+  }
+  return best;
+}
+function genSlot(d, g) {
+  // Each person on a generator works from their own side of it.
+  const on = dummies.filter((o) => o.job === g && o.kit && !o.dead).sort((a, b) => a.id - b.id), i = Math.max(0, on.indexOf(d));
+  const sides = [[0, 44], [0, -44], [48, 0], [-48, 0]], [ox, oy] = sides[i % 4];
+  return { x: g.x + ox, y: g.y + oy };
+}
+// Somewhere quiet: far from Noli, preferably with a pillar between, away from teammates.
+function pickHide(d) {
+  let best = null, bs = -Infinity;
+  for (let i = 0; i < 24; i++) {
+    const p = { x: rand(90, MAP.w - 90), y: rand(90, MAP.h - 90) };
+    if (hitWall(p.x, p.y, d.r + 6)) continue;
+    let s = Math.min(dist(p, noli), 1100) - dist(p, d) * 0.35 + (clearPath(p, noli, 2) ? 0 : 220);
+    for (const o of mates(d)) if (dist(o, p) < 220) s -= 150;
+    if (s > bs) { bs = s; best = p; }
+  }
+  return best;
+}
+function workThink(d, dt) {
+  d.jobT = (d.jobT || 0) - dt;
+  if (d.job && (!gens.includes(d.job) || d.job.prog >= 1 || dist(d.job, noli) < 300)) d.job = null;
+  if (!d.job && d.jobT <= 0) { d.job = pickJob(d); d.jobT = 1.5; if (d.job) d.hide = null; }
+  if (d.job) {
+    const s = genSlot(d, d.job);
+    const m = goTo(d, s.x, s.y, dist(d, s) > 400, 10);
+    if (m) return m;
+    d.ang = Math.atan2(d.job.y - d.y, d.job.x - d.x);
+    repairTick(d, d.job, dt); d.repairing = d.job;
+    return null;
+  }
+  // No generator worth doing: lie low somewhere of their own.
+  d.hideT = (d.hideT || 0) - dt;
+  if (!d.hide || d.hideT <= 0 || dist(d.hide, noli) < 450) { d.hide = pickHide(d); d.hideT = rand(5, 9); }
+  return d.hide ? goTo(d, d.hide.x, d.hide.y, false, 14) : null;
+}
+// One survivor with a stun ready goes in to save a teammate Noli is on.
+function helpThink(d, nd) {
+  if (SQUAD.helper && (SQUAD.helper.dead || SQUAD.helper.dying || SQUAD.helper.plan !== 'help')) SQUAD.helper = null;
+  if (SQUAD.helper && SQUAD.helper !== d) return null;
+  d.noHelpT = Math.max(0, (d.noHelpT || 0) - (d.lastDt || 0));
+  const victim = !(d.noHelpT > 0) && canStun(d) && d.hp > d.maxHp * 0.35 && nd < 750 && !(noli.stunImmT > 0) && noli.stunT <= 0 && canHitNoli()
+    ? mates(d).find((o) => threatTo(o).chasing && dist(o, noli) < 320) : null;
+  if (!victim) { if (SQUAD.helper === d) SQUAD.helper = null; if (d.plan === 'help') d.plan = null; return null; }
+  if (d.plan !== 'help') d.helpT = 0;
+  d.helpT += d.lastDt || 0;
+  if (d.helpT > 4) { d.plan = null; SQUAD.helper = null; d.noHelpT = 6; return null; }   // can't catch him: back to work
+  SQUAD.helper = d; d.plan = 'help';
+  if (d.kit === 'twotime') {   // circle round to his back
+    const bx = noli.x - Math.cos(noli.ang) * 60, by = noli.y - Math.sin(noli.ang) * 60;
+    return goTo(d, bx, by, true, 4) || { mx: 0, my: 0, face: Math.atan2(noli.y - d.y, noli.x - d.x) };
+  }
+  if (d.kit === 'chance' && nd < 300 && clearPath(d, noli, 2)) return { mx: 0, my: 0, face: Math.atan2(noli.y - d.y, noli.x - d.x) };   // line up the shot
+  return goTo(d, noli.x, noli.y, nd > 160, 50);
+}
+// Elliot keeps hurt teammates fed when it's safe to.
+function supportThink(d) {
+  if (d.kit !== 'elliot' || d.cds.q > 0) return null;
+  const hurt = mates(d).filter((o) => o.hp < o.maxHp - 30 && dist(o, noli) > 300).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+  if (!hurt || dist(hurt, d) < 260) return null;
+  return goTo(d, hurt.x, hurt.y, false, 240);
+}
 function smartThink(d, dt) {
+  d.repairing = null; d.lastDt = dt;
   if (d.knockT > 0) return null;
   const nd = dist(d, noli), toNoli = Math.atan2(noli.y - d.y, noli.x - d.x);
   smartSkills(d, nd, toNoli, dt);
   if (d.act && d.act.kind === 'aim') return { mx: 0, my: 0, face: Math.atan2(noli.y + (noli.vy || 0) * 0.1 - d.y, noli.x + (noli.vx || 0) * 0.1 - d.x) };   // tracks him
   if (d.act && (d.act.kind === 'slash' || d.act.kind === 'charge')) return { mx: 0, my: 0, face: toNoli };
-  const threat = noli.stunT <= 0.3 && canHitNoli();
   // Sidestep a Void Rush aimed at us.
   const facingMe = Math.abs(angDiff(Math.atan2(d.y - noli.y, d.x - noli.x), noli.ang)) < 0.45;
   d.dodgeT = (d.dodgeT || 0) - dt;
@@ -1030,13 +1140,20 @@ function smartThink(d, dt) {
     const side = Math.sign(nv.vx * (d.y - nv.y) - nv.vy * (d.x - nv.x)) || 1, a = Math.atan2(nv.vy, nv.vx) + side * Math.PI / 2;
     return { mx: Math.cos(a), my: Math.sin(a), sprint: true };
   }
-  if (threat && nd < 520) {
+  const th = threatTo(d);
+  // Being chased: run, and keep running until he's clearly lost interest.
+  if (th.chasing || (th.near && d.plan !== 'help')) { d.plan = 'flee'; d.calmT = 0; }
+  else if (d.plan === 'flee') { d.calmT = (d.calmT || 0) + dt; if (d.calmT > 1.5 && nd > 380) { d.plan = null; d.job = null; d.jobT = 0; } }
+  if (d.plan === 'flee') {
+    d.job = null; if (d.crouch) { d.crouch = false; txt(d.x, d.y - 44, 'standing up', '#9a90bf'); }   // can't run crouched
     d.thinkT = (d.thinkT || 0) - dt;
     if (d.thinkT <= 0 || d.fleeA === undefined) { fleeDir(d); d.thinkT = 0.15; }
-    return { mx: Math.cos(d.fleeA), my: Math.sin(d.fleeA), sprint: nd < 380 };
+    return { mx: Math.cos(d.fleeA), my: Math.sin(d.fleeA), sprint: nd < 420 };
   }
   d.fleeA = undefined;
-  return repairThink(d, dt);
+  const help = helpThink(d, nd); if (help) return help;
+  const sup = supportThink(d); if (sup) return sup;
+  return workThink(d, dt);
 }
 function playerThink(d, dt) {
   const w = world(), face = Math.atan2(w.y - d.y, w.x - d.x);
@@ -1072,7 +1189,13 @@ function bestGen() {
   return best;
 }
 function moveToward(x, y, sprint) {
-  const a = steerTo(noli, x, y); NI.mx = Math.cos(a); NI.my = Math.sin(a);
+  let a = steerTo(noli, x, y);
+  // Unstick: if he's barely moved for a while, sidestep for a moment.
+  const moved = Math.hypot(noli.x - (AI.sx ?? noli.x), noli.y - (AI.sy ?? noli.y)); AI.sx = noli.x; AI.sy = noli.y;
+  AI.stuck = moved < 0.6 && noli.state === 'free' && noli.stunT <= 0 ? (AI.stuck || 0) + 1 : 0;
+  if (AI.stuck > 40) { AI.side = { a: a + (Math.random() < 0.5 ? 1 : -1) * rand(1.2, 2), t: 30 }; AI.stuck = 0; }
+  if (AI.side && AI.side.t-- > 0) a = AI.side.a;
+  NI.mx = Math.cos(a); NI.my = Math.sin(a);
   if (noli.stamina < 5) AI.sprintLock = true; if (noli.stamina > 40) AI.sprintLock = false;
   NI.shift = sprint && !AI.sprintLock;
 }
@@ -1221,6 +1344,7 @@ function creativeInput() {
 
 // ------------------------------------------------------------- update
 function update(dt) {
+  const npx = noli.x, npy = noli.y;
   for (const k in noli.cds) {
     const was = noli.cds[k];
     noli.cds[k] = Math.max(0, was - dt);
@@ -1331,6 +1455,7 @@ function update(dt) {
     if (noli.stepDist >= 58) { noli.stepDist = 0; noli.stepAlt = !noli.stepAlt; sfx(noli.stepAlt ? 'step1' : 'step2', 0.55); }
   }
 
+  if (dt > 0) { noli.vx = (noli.x - npx) / dt; noli.vy = (noli.y - npy) / dt; }
   // novas
   for (const n of novas) {
     if (!n.boom) {
