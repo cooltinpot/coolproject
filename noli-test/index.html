@@ -248,6 +248,40 @@ function releaseRush() {
   noli.state = 'free'; noli.cds.rush = KIT.rush.cdCancel; sfx('cancel'); log('Void Rush let go too early (1.2s cooldown)');
   chargeUI.cap = "You didn't charge it long enough >:(("; chargeUI.err = true; chargeUI.tint = 'red'; chargeUI.hold = 0.8;   // keep the ring up long enough to read it
 }
+// ------------------------------------------------------------- Nova recast: star pulled back to his hand
+let novaReturn = null;
+const NOVA_RETURN = { delay: 0.18, travel: 0.5 };   // reappears, then gets drawn back
+function novaReturnFx(dt) {
+  const R = novaReturn; if (!R) return;
+  R.t += dt;
+  const hand = localToWorld(6, noli.r + 14);
+  const k = clamp((R.t - NOVA_RETURN.delay) / NOVA_RETURN.travel, 0, 1), e = k * k * (3 - 2 * k);
+  R.x = R.sx + (hand.x - R.sx) * e; R.y = R.sy + (hand.y - R.sy) * e;
+  if (k > 0 && k < 1 && Math.random() < dt * 40) parts.push({ kind: 'star', x: R.x + rand(-6, 6), y: R.y + rand(-6, 6), c: Math.random() < 0.6 ? '#ffffff' : '#c9a8ff', size: rand(2, 5), t: 0, life: rand(0.3, 0.5) });
+  if (k >= 1) { stabBurst(hand, 8, 10); novaReturn = null; }   // caught
+}
+function drawNovaReturn() {
+  const R = novaReturn; if (!R) return;
+  const T = performance.now() / 1000, appear = Math.min(1, R.t / NOVA_RETURN.delay);
+  const hand = localToWorld(noli.r * 0.6, noli.r * 0.55);
+  if (R.t > NOVA_RETURN.delay * 0.5) {
+    // Invisible hands: only the sparkly strands show the pull.
+    const dx = R.x - hand.x, dy = R.y - hand.y, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+    ctx.save(); ctx.lineCap = 'round';
+    for (let i = 0; i < 4; i++) {
+      const o = (i - 1.5) * 2, flick = 0.55 + 0.45 * Math.sin(T * 40 + i * 1.7);
+      ctx.globalAlpha = flick * appear; ctx.strokeStyle = i % 2 ? '#9a9a9a' : '#ffffff'; ctx.lineWidth = i % 2 ? 1 : 1.5;
+      ctx.beginPath(); ctx.moveTo(hand.x + nx * o, hand.y + ny * o); ctx.lineTo(R.x + nx * o * 0.4, R.y + ny * o * 0.4); ctx.stroke();
+    }
+    for (let i = 0; i < 6; i++) { const f = (T * 2.5 + i / 6) % 1, tw = Math.abs(Math.sin(T * 25 + i * 2)); star4(R.x - dx * f, R.y - dy * f, 1.5 + 2.5 * tw, i % 2 ? '#c8c8c8' : '#ffffff', (0.4 + 0.6 * tw) * appear); }
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
+  const g = ctx.createRadialGradient(R.x, R.y, 1, R.x, R.y, 20);
+  g.addColorStop(0, 'rgba(255,255,255,0.7)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.globalAlpha = appear; ctx.fillStyle = g; ctx.beginPath(); ctx.arc(R.x, R.y, 20, 0, 6.3); ctx.fill();
+  ctx.save(); ctx.translate(R.x, R.y); ctx.rotate(T * 12); star4(0, 0, 12 * (0.4 + 0.6 * appear), '#ffffff', appear); ctx.restore();
+  ctx.globalAlpha = 1;
+}
 // Noli draws his void star at his right side (his crushing side) while charging and holds it through the rush.
 function rushStarPos() {
   // At his side while charging; while rushing he eases it out in front of himself (not instantly).
@@ -396,6 +430,8 @@ function throwNova() {
 }
 function detonate(n, why) {
   n.boom = true; n.bt = 0;
+  // Recast: the star reappears and an unseen hand pulls it back to Noli's hand.
+  if (why === 'recast') { novaReturn = { x: n.x, y: n.y, t: 0, sx: n.x, sy: n.y }; ring(n.x, n.y, 24, '#ffffff', 0.3); }
   // Explosion is louder the nearer Noli is.
   sfx('nova_boom', clamp(1 - dist(noli, n) / KIT.nova.boomRange, 0, 1));
   ring(n.x, n.y, KIT.nova.blast / 2, '#c9a8ff', 0.9); ring(n.x, n.y, KIT.nova.blast / 3, '#ffffff', 0.6);
@@ -557,6 +593,7 @@ function update(dt) {
 
   if (noli.state === 'exec') updateExec(dt);
   rushStarFx(dt);
+  novaReturnFx(dt);
   if (noli.stabVis) {
     noli.stabVis.t += dt;
     if (noli.stabVis.t > KIT.stab.windup + STAB_FX.thrust + STAB_FX.hold + STAB_FX.retrieve) noli.stabVis = null; else stabFx(dt);
@@ -1081,6 +1118,7 @@ function render() {
   drawNoli();
   drawStabStar();
   drawRushStar();
+  drawNovaReturn();
   drawParts();
   // placement ghost
   if (!noli.stance && tool !== 'play') {
