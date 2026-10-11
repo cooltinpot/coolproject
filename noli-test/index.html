@@ -849,12 +849,12 @@ function update(dt) {
   if (!ex && !sl && charging) { zTarget = cam.zoom * 1.15; zRate = 4; }
   if (!ex && !sl && rushingNow) { zTarget = cam.zoom * 0.95; zRate = 3; }
   cam.s += (zTarget - cam.s) * Math.min(1, dt * zRate);
-  const lead = rushingNow && !ex && !sl ? { x: noli.x + Math.cos(noli.ang) * 160, y: noli.y + Math.sin(noli.ang) * 160 } : null;
+  const lead = rushingNow && !ex && !sl ? { x: noli.x + Math.cos(noli.ang) * 300, y: noli.y + Math.sin(noli.ang) * 300 } : null;
   const focus = ex && !ex.stomped ? ex.d : slFocus || lead || noli;
   cam.shake = Math.max(0, (cam.shake || 0) - dt * 40);
   // Smooth only around the kill / slam; otherwise the camera sticks to Noli.
   cam.ease = ex || sl || charging || rushingNow ? 0.5 : Math.max(0, (cam.ease || 0) - dt);
-  const fk = cam.ease > 0 && cam.fx !== undefined ? Math.min(1, dt * (rushingNow ? 6 : 12)) : 1;
+  const fk = cam.ease > 0 && cam.fx !== undefined ? Math.min(1, dt * (rushingNow ? 9 : 12)) : 1;
   cam.fx = cam.fx === undefined ? focus.x : cam.fx + (focus.x - cam.fx) * fk;
   cam.fy = cam.fy === undefined ? focus.y : cam.fy + (focus.y - cam.fy) * fk;
   const vw = W / cam.s, vh = H / cam.s;
