@@ -89,7 +89,7 @@ function showBox(b, c, life = 0.15) { hitboxes.push({ ...b, c, t: 0, life }); }
 const KIT = {
   speed: { walk: 160, sprint: 270 }, stamina: { max: 110, drain: 10, regen: 20 },
   stab: { dmg: 25, perStack: 5, cd: 2.0, windup: 0.18, active: 0.2, box: { off: 38, w: 60, h: 60 } },
-  rush: { cd: 20, cdStart: 10, cdCancel: 1.2, windup: 1.2, dur: 3.59,   // windup = charge SFX length, dur = NewVoidRush length
+  rush: { cd: 20, cdStart: 10, cdCancel: 1.2, windup: 1.0, dur: 3.59,   // windup = charge time, dur = NewVoidRush length
           speed: 560, turn: 1.8, reRush: 2.37,   // re-rush window length
           burst: 1.35, reSpeed: 1.4, holdGrace: 0.3, endSlow: { time: 0.9, mult: 0.3 }, windowMove: 0.3,
           boost: { time: 1, speed: 1.35, turn: 4.5 },
