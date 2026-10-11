@@ -498,12 +498,13 @@ function update(dt) {
   let mx = (keys.d ? 1 : 0) - (keys.a ? 1 : 0), my = (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
   const ml = Math.hypot(mx, my) || 1; mx /= ml; my /= ml;
   const moving = mx || my;
-  const sprint = keys.shift && moving && noli.stamina > 0 && (noli.state === 'free' || noli.state === 'novaWind') && !noli.stance;   // no sprinting during Void Rush
-  // Stamina is frozen for the whole Void Rush (charge, dash, re-rush window): no drain, no regen.
-  const inVoidRush = noli.state === 'rushWind' || noli.state === 'rush' || noli.state === 'reWindow';
+  const sprint = keys.shift && moving && noli.stamina > 0 && (noli.state === 'free' || noli.state === 'novaWind' || noli.state === 'rushWind') && !noli.stance;   // no sprinting while dashing / in the window
+  // Stamina is frozen while dashing and in the re-rush window: no drain, no regen.
+  const inVoidRush = noli.state === 'rush' || noli.state === 'reWindow';   // charging still uses stamina normally
   if (!inVoidRush) noli.stamina = clamp(noli.stamina + (sprint ? -KIT.stamina.drain : KIT.stamina.regen) * dt, 0, KIT.stamina.max);
   let sp = sprint ? KIT.speed.sprint : KIT.speed.walk;
-  if (noli.stance || noli.state === 'rushWind' || noli.state === 'exec' || noli.state === 'slamHold' || noli.stunT > 0) sp = 0;
+  if (noli.stance || noli.state === 'exec' || noli.state === 'slamHold' || noli.stunT > 0) sp = 0;
+  if (noli.state === 'rushWind') sp *= KIT.rush.windowMove;   // 70% slower while charging (sprint barely helps)
   if (noli.state === 'tp') sp *= KIT.obs.waitMove;   // 80% slower while waiting to teleport
   if (noli.state === 'reWindow') sp *= KIT.rush.windowMove;   // walk/sprint at 70% less speed while the re-rush window is open
   if (noli.state === 'novaWind') sp *= KIT.nova.windMove;   // 30% slower during the Nova windup
@@ -564,7 +565,7 @@ function update(dt) {
     const hit = alive().find((d) => d !== r.ignore && boxHits(rbox, d));
     if (letGo) { endRush(r.chain ? `Let go of Q — re-rush ended (chain x${r.chain})` : 'Let go of Q — Void Rush ended', 'cancel'); slowNoli(); }
     else if (hit) { showBox(rbox, '#00ff4c', 0.25); rushHit(hit); }
-    else if (blocked) { endRush(r.chain ? `Void Rush crashed into a wall (chain x${r.chain} lost)` : 'Void Rush crashed into a wall', 'crash'); ring(noli.x, noli.y, 50, '#ffffff', 0.4); }
+    else if (blocked) { endRush(r.chain ? `Void Rush crashed into a wall (chain x${r.chain} lost)` : 'Void Rush crashed into a wall', 'crash'); ring(noli.x, noli.y, 50, '#ffffff', 0.4); slowNoli(); }
     else if (r.t >= KIT.rush.dur) endRush('Void Rush ran out');
   } else if (moving) {
     moveCircle(noli, mx * sp * dt, my * sp * dt);
