@@ -1153,19 +1153,15 @@ function drawCrown() {
   ctx.lineWidth = 6; ctx.strokeStyle = '#141018'; ctx.beginPath(); ctx.arc(0, 0, R, 0, 6.3); ctx.stroke();
   ctx.lineWidth = 1.2; ctx.strokeStyle = '#6b5a86'; ctx.beginPath(); ctx.arc(0, 0, R + 3, 0, 6.3); ctx.stroke();
   ctx.strokeStyle = '#3a3048'; ctx.beginPath(); ctx.arc(0, 0, R - 3, 0, 6.3); ctx.stroke();
-  // Front: the two theatre masks (smiling and sad) on the band.
-  const mask = (a, happy) => {
-    ctx.save(); ctx.translate(Math.cos(a) * (R + 2), Math.sin(a) * (R + 2)); ctx.rotate(a + Math.PI / 2);
-    ctx.fillStyle = '#9a90a8'; ctx.strokeStyle = '#2a2433'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.ellipse(0, 0, 5.2, 6.2, 0, 0, 6.3); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#1b1720';
-    ctx.beginPath(); ctx.ellipse(-1.9, -1.2, 1.1, happy ? 0.6 : 0.9, happy ? 0.3 : -0.3, 0, 6.3); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(1.9, -1.2, 1.1, happy ? 0.6 : 0.9, happy ? -0.3 : 0.3, 0, 6.3); ctx.fill();
-    ctx.strokeStyle = '#1b1720'; ctx.lineWidth = 1.1; ctx.beginPath();
-    if (happy) ctx.arc(0, 1.2, 2.4, 0.15 * Math.PI, 0.85 * Math.PI); else ctx.arc(0, 3.8, 2.2, 1.15 * Math.PI, 1.85 * Math.PI);
-    ctx.stroke(); ctx.restore();
+  // Front: the two theatre masks stand upright on the band, so from above only their top edges show.
+  const maskTop = (a) => {
+    ctx.save(); ctx.rotate(a);
+    ctx.fillStyle = '#9a90a8'; ctx.strokeStyle = '#2a2433'; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.ellipse(R + 2.5, 0, 1.6, 5.5, 0, 0, 6.3); ctx.fill(); ctx.stroke();   // thin curved sliver
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.beginPath(); ctx.ellipse(R + 2.2, 0, 0.6, 4.2, 0, -1.2, 1.2); ctx.stroke();   // highlight
+    ctx.restore();
   };
-  mask(-0.24, true); mask(0.24, false);
+  maskTop(-0.27); maskTop(0.27);
   // Centre front spike with the four-point star on top.
   ctx.fillStyle = '#1b1720'; ctx.strokeStyle = '#4a3f5c'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(R - 1, -2.5); ctx.lineTo(R + 10, 0); ctx.lineTo(R - 1, 2.5); ctx.closePath(); ctx.fill(); ctx.stroke();
