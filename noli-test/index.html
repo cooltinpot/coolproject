@@ -254,7 +254,8 @@ function rushHit(d) {
     d.vx += Math.cos(noli.ang) * 200; d.vy += Math.sin(noli.ang) * 200;
   }
   // Hitting a survivor opens the re-rush countdown.
-  stopSfx('voidrush'); sfx('ding');
+  // Chain hit sounds: 1st hit = One_rush ... 5th and every hit after = Rush_five.
+  stopSfx('voidrush'); sfx('hit' + Math.min(5, r.chain + 1));
   noli.x -= Math.cos(noli.ang) * 10; noli.y -= Math.sin(noli.ang) * 10;
   noli.state = 'reWindow'; r.wt = KIT.rush.reRush; r.last = d;
   ring(noli.x, noli.y, 36, '#ffffff', 0.3);
