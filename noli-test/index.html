@@ -94,7 +94,7 @@ const KIT = {
           burst: 1.35, reSpeed: 1.4, holdGrace: 0.3, endSlow: { time: 0.9, mult: 0.3 }, windowMove: 0.3,
           boost: { time: 1, speed: 1.35, turn: 4.5 },
           box: { off: 10, w: 52, h: 52 }, hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
-  nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, box: 28, blast: 280, pull: 1.1 },
+  nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, box: 28, blast: 280, pull: 1.1, fx: 2.2 },   // fx = how long the implosion visuals last
   hallDur: 5,   // Hallucination wears off 5s after it was last applied
   obs: { travel: 1.0, waitMove: 0.2, landRoot: 0.5, stallRange: 300,   // teleport lands at 00:01 of the teleport SFX
           cd: 30, cdStart: 25, cdLeave: 15, bands: [[20, 3], [50, 2], [100, 1]] },
@@ -282,17 +282,18 @@ function castNova() {
   const w = world(), a = Math.atan2(w.y - noli.y, w.x - noli.x);
   novas.push({ x: noli.x + Math.cos(a) * 26, y: noli.y + Math.sin(a) * 26, r: 10, vx: Math.cos(a) * KIT.nova.speed, vy: Math.sin(a) * KIT.nova.speed, t: 0, boom: false, bt: 0, carry: null });
   noli.cds.nova = KIT.nova.cd;
+  sfx('nova_throw');
 }
 function detonate(n, why) {
   n.boom = true; n.bt = 0;
-  ring(n.x, n.y, KIT.nova.blast / 2, '#c9a8ff', 0.5); ring(n.x, n.y, KIT.nova.blast / 3, '#ffffff', 0.3);
+  ring(n.x, n.y, KIT.nova.blast / 2, '#c9a8ff', 0.9); ring(n.x, n.y, KIT.nova.blast / 3, '#ffffff', 0.6);
   // Implosion: streaks get pulled in from the edge of the blast toward the core.
   const R0 = KIT.nova.blast / 2;
-  for (let i = 0; i < 40; i++) { const a = rand(0, 6.3), r = rand(R0 * 0.6, R0 * 1.05); parts.push({ kind: 'implode', cx: n.x, cy: n.y, sx: n.x + Math.cos(a) * r, sy: n.y + Math.sin(a) * r, c: TP_COLORS[i % 3], t: rand(-0.2, 0), life: rand(0.45, 0.8) }); }
+  for (let i = 0; i < 60; i++) { const a = rand(0, 6.3), r = rand(R0 * 0.6, R0 * 1.05); parts.push({ kind: 'implode', cx: n.x, cy: n.y, sx: n.x + Math.cos(a) * r, sy: n.y + Math.sin(a) * r, c: TP_COLORS[i % 3], t: rand(-0.9, 0), life: rand(0.8, 1.4) }); }
   // A lot of stars bursting all over the blast.
-  for (let i = 0; i < 90; i++) {
+  for (let i = 0; i < 130; i++) {
     const a = rand(0, 6.3), r = Math.sqrt(Math.random()) * R0 * 1.1;
-    parts.push({ kind: 'star', x: n.x + Math.cos(a) * r, y: n.y + Math.sin(a) * r, c: i % 4 === 0 ? '#000000' : i % 2 ? '#ffffff' : '#c9a8ff', size: rand(3, 11), t: rand(-0.6, 0), life: rand(0.4, 0.9) });
+    parts.push({ kind: 'star', x: n.x + Math.cos(a) * r, y: n.y + Math.sin(a) * r, c: i % 4 === 0 ? '#000000' : i % 2 ? '#ffffff' : '#c9a8ff', size: rand(3, 11), t: rand(-1.4, 0), life: rand(0.8, 1.6) });
   }
   const blast = { x: n.x, y: n.y, w: KIT.nova.blast, h: KIT.nova.blast, a: 0 };
   showBox(blast, '#ff3b5c', KIT.nova.pull);
@@ -487,14 +488,11 @@ function update(dt) {
     if (!n.boom) {
       n.t += dt;
       const res = moveCircle(n, n.vx * dt, n.vy * dt);
-      // Grabs the first survivor it touches and drags them along.
+      // In flight it passes through survivors; it only pulls when it implodes or hits a wall.
       n.spin = (n.spin || 0) + dt * 6;
-      if (Math.random() < dt * 40) parts.push({ kind: 'trail', x: n.x + rand(-6, 6), y: n.y + rand(-6, 6), c: TP_COLORS[Math.floor(rand(0, 3))], size: rand(2, 4), t: 0, life: rand(0.25, 0.5) });
-      const nb = { x: n.x, y: n.y, w: KIT.nova.box, h: KIT.nova.box, a: n.spin };
-      showBox(nb, '#ff3b5c', 0.05);
-      if (!n.carry) { const d = alive().find((d) => boxHits(nb, d)); if (d) { n.carry = d; n.vx *= 0.5; n.vy *= 0.5; } }
-      if (n.carry && !n.carry.dead) { const d = n.carry; d.x += (n.x - d.x) * Math.min(1, dt * 10); d.y += (n.y - d.y) * Math.min(1, dt * 10); }
-      if (res.bx || res.by) detonate(n, n.carry ? 'slammed into wall' : 'wall');
+      if (Math.random() < dt * 40) parts.push({ kind: 'trail', x: n.x + rand(-6, 6), y: n.y + rand(-6, 6), c: TP_COLORS[Math.floor(rand(0, 3))], size: rand(2, 4), t: 0, life: rand(0.4, 0.8) });
+      if (Math.random() < dt * 28) parts.push({ kind: 'star', x: n.x + rand(-10, 10), y: n.y + rand(-10, 10), c: Math.random() < 0.6 ? '#ffffff' : '#c9a8ff', size: rand(3, 7), t: 0, life: rand(0.5, 0.9) });
+      if (res.bx || res.by) detonate(n, 'wall');
       else if (n.t > KIT.nova.life) detonate(n, 'expired');
     } else {
       n.bt += dt;
@@ -504,7 +502,7 @@ function update(dt) {
       }
     }
   }
-  for (let i = novas.length - 1; i >= 0; i--) if (novas[i].boom && novas[i].bt > KIT.nova.pull) novas.splice(i, 1);
+  for (let i = novas.length - 1; i >= 0; i--) if (novas[i].boom && novas[i].bt > Math.max(KIT.nova.pull, KIT.nova.fx)) novas.splice(i, 1);
 
   // dummies
   for (const d of dummies) {
@@ -715,7 +713,7 @@ function render() {
       for (let i = 0; i < 6; i++) { const a = T * (i % 2 ? -6 : 5) + i * 1.05, r = 18 + (i % 3) * 4; ctx.fillStyle = TP_COLORS[i % 3]; ctx.beginPath(); ctx.arc(n.x + Math.cos(a) * r, n.y + Math.sin(a) * r * 0.8, 2.6, 0, 6.3); ctx.fill(); if (i % 3 === 0) { ctx.strokeStyle = '#c9a8ff'; ctx.lineWidth = 1; ctx.stroke(); } }
     } else {
       // Collapsing void with swirling rim.
-      const k = n.bt / KIT.nova.pull, R0 = KIT.nova.blast / 2 * (1 - k * 0.85);
+      const k = Math.min(1, n.bt / KIT.nova.fx), R0 = KIT.nova.blast / 2 * (1 - k * 0.85);
       const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, R0);
       g.addColorStop(0, `rgba(0,0,0,${0.85 * (1 - k)})`); g.addColorStop(0.7, `rgba(40,12,80,${0.5 * (1 - k)})`); g.addColorStop(1, 'rgba(201,168,255,0)');
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(n.x, n.y, R0, 0, 6.3); ctx.fill();
