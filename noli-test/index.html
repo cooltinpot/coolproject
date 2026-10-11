@@ -762,7 +762,7 @@ function update(dt) {
     if (letGo) { endRush(r.chain ? `Let go of Q — re-rush ended (chain x${r.chain})` : 'Let go of Q — Void Rush ended', 'cancel'); slowNoli();
       chargeUI.cap = ['Aww :I', 'Why did you stop >:(', 'ok...'][Math.floor(Math.random() * 3)]; chargeUI.err = true; chargeUI.tint = 'red'; chargeUI.hold = 0.8; }   // same look as a cancelled charge
     else if (hit) { showBox(rbox, '#00ff4c', 0.25); rushHit(hit); }
-    else if (blocked) { endRush(r.chain ? `Void Rush crashed into a wall (chain x${r.chain} lost)` : 'Void Rush crashed into a wall', 'crash'); ring(noli.x, noli.y, 50, '#ffffff', 0.4); slowNoli();
+    else if (blocked) { endRush(r.chain ? `Void Rush crashed into a wall (chain x${r.chain} lost)` : 'Void Rush crashed into a wall', 'crash'); ring(noli.x, noli.y, 50, '#ffffff', 0.4); slowNoli(); crashFx();
       chargeUI.cap = ['OUCH', 'owwwww ;('][Math.floor(Math.random() * 2)]; chargeUI.err = true; chargeUI.tint = 'red'; chargeUI.hold = 0.8; }   // same look as a cancelled charge
     else if (r.t >= KIT.rush.dur) endRush('Void Rush ran out');
   } else if (moving) {
@@ -822,6 +822,7 @@ function update(dt) {
   if (noli.state === 'tp') tpSwirl(dt);
   updateParts(dt);
   updateCrown(dt);
+  updateCracks(dt);
   for (const f of fx) f.t += dt;
   for (let i = fx.length - 1; i >= 0; i--) if (fx[i].t > fx[i].life) fx.splice(i, 1);
   for (const t of texts) { t.t += dt; t.y -= 30 * dt; }
@@ -1120,6 +1121,47 @@ function drawStabStar() {
   star4(0, 0, 12 * sc, '#ffffff', s.alpha);
   ctx.restore(); ctx.globalAlpha = 1;
 }
+// ------------------------------------------------------------- Void Rush wall crash: crack + sparkles
+const cracks = [];
+const CRACK_LIFE = 4;
+function crashFx() {
+  const ix = noli.x + Math.cos(noli.ang) * (noli.r + 2), iy = noli.y + Math.sin(noli.ang) * (noli.r + 2);
+  // Jagged crack lines fanning out from the impact point, with a few side branches.
+  const lines = [];
+  const n = 6 + Math.floor(rand(0, 3));
+  for (let i = 0; i < n; i++) {
+    let a = noli.ang + rand(-1.6, 1.6) + (i % 2 ? Math.PI : 0) * (Math.random() < 0.3 ? 1 : 0);
+    let x = ix, y = iy; const pts = [[x, y]], len = rand(18, 46), segs = 4 + Math.floor(rand(0, 3));
+    for (let k = 0; k < segs; k++) { a += rand(-0.5, 0.5); x += Math.cos(a) * len / segs; y += Math.sin(a) * len / segs; pts.push([x, y]); }
+    lines.push({ pts, w: rand(1.4, 2.6) });
+    if (Math.random() < 0.6) {   // side branch
+      const b = pts[Math.floor(pts.length / 2)], ba = a + rand(-1, 1); let bx = b[0], by = b[1]; const bp = [[bx, by]];
+      for (let k = 0; k < 3; k++) { bx += Math.cos(ba + rand(-0.4, 0.4)) * rand(4, 8); by += Math.sin(ba + rand(-0.4, 0.4)) * rand(4, 8); bp.push([bx, by]); }
+      lines.push({ pts: bp, w: 1 });
+    }
+  }
+  cracks.push({ x: ix, y: iy, lines, t: 0 });
+  // Sparkles, stars and little sparks bursting off the impact.
+  for (let i = 0; i < 22; i++) parts.push({ kind: 'star', x: ix + rand(-18, 18), y: iy + rand(-18, 18), c: i % 3 === 0 ? '#000000' : i % 3 === 1 ? '#ffffff' : '#c9a8ff', size: rand(3, 8), t: rand(-0.15, 0), life: rand(0.4, 0.8) });
+  for (let i = 0; i < 14; i++) { const a = noli.ang + Math.PI + rand(-1.3, 1.3), sp = rand(60, 200); parts.push({ kind: 'spark', x: ix, y: iy, z: 4, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.8, vz: rand(120, 260), rot: rand(0, 6.3), spin: rand(6, 14), size: rand(2.5, 5), c: TP_COLORS[i % 3], t: 0, life: rand(0.6, 1.0) }); }
+  ring(ix, iy, 28, '#c9a8ff', 0.35);
+  cam.shake = Math.max(cam.shake || 0, 5);
+}
+function updateCracks(dt) { for (const c of cracks) c.t += dt; for (let i = cracks.length - 1; i >= 0; i--) if (cracks[i].t > CRACK_LIFE) cracks.splice(i, 1); }
+function drawCracks() {
+  for (const c of cracks) {
+    const a = Math.min(1, (CRACK_LIFE - c.t) / 1.2);   // fades out over the last 1.2s
+    ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const L of c.lines) {
+      ctx.globalAlpha = a * 0.55; ctx.strokeStyle = '#c9a8ff'; ctx.lineWidth = L.w + 1.6;   // faint purple edge
+      ctx.beginPath(); ctx.moveTo(L.pts[0][0], L.pts[0][1]); for (const q of L.pts) ctx.lineTo(q[0], q[1]); ctx.stroke();
+      ctx.globalAlpha = a; ctx.strokeStyle = '#07040c'; ctx.lineWidth = L.w;
+      ctx.beginPath(); ctx.moveTo(L.pts[0][0], L.pts[0][1]); for (const q of L.pts) ctx.lineTo(q[0], q[1]); ctx.stroke();
+    }
+    ctx.globalAlpha = a * 0.8; ctx.fillStyle = '#07040c'; ctx.beginPath(); ctx.arc(c.x, c.y, 4, 0, 6.3); ctx.fill();   // impact pit
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
+}
 // ------------------------------------------------------------- Noli's crown (top-down)
 // Rides on his head and trails a touch behind his movement and turning.
 const crown = { x: null, y: null, a: null };
@@ -1228,6 +1270,7 @@ function render() {
   const p = world();
   const hover = tool === 'move' || tool === 'erase' ? pick(p) : null;
   for (const w of walls) { ctx.fillStyle = hover && hover.o === w ? (tool === 'erase' ? '#6b2a3c' : '#4a3d70') : '#2a2340'; ctx.fillRect(w.x, w.y, w.w, w.h); }
+  drawCracks();
   for (const g of gens) {
     const hot = (noli.stance && Math.hypot(g.x - p.x, g.y - p.y) < 70) || (hover && hover.o === g);
     drawGenBack(g);
