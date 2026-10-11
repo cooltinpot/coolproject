@@ -445,7 +445,12 @@ function update(dt) {
   if (noli.state === 'novaWind') sp *= KIT.nova.windMove;   // 30% slower during the Nova windup
   if (noli.slowT > 0) { noli.slowT -= dt; sp *= KIT.rush.endSlow.mult; }   // slowed after cancelling a rush / missing the window
 
-  if (noli.state === 'stab') { noli.st += dt; if (noli.st >= KIT.stab.windup && !noli.stabbed) { noli.stabbed = true; stabHit(); } if (noli.st > KIT.stab.windup + 0.25) { noli.state = 'free'; noli.stabbed = false; } }
+  if (noli.state === 'stab') {
+    noli.st += dt;
+    stabFx(dt);
+    if (noli.st >= KIT.stab.windup && !noli.stabbed) { noli.stabbed = true; stabHit(); }
+    if (noli.st > KIT.stab.windup + 0.25) { noli.state = 'free'; noli.stabbed = false; noli.stabFx = null; }
+  }
   if (noli.state === 'novaWind') { noli.st += dt; if (noli.st >= KIT.nova.windup) throwNova(); }
   if (noli.state === 'rushWind') { noli.st += dt; if (noli.st >= KIT.rush.windup) { stopSfx('charge'); startRush(0); } }
   if (noli.state === 'tp') {
@@ -638,6 +643,52 @@ function drawParts() {
     ctx.globalAlpha = 1; ctx.lineCap = 'butt'; ctx.lineJoin = 'miter';
   }
 }
+// ------------------------------------------------------------- stab: void star grab -> thrust -> vanish
+// Phases (seconds into the stab): grab on his left, thrust forward, vanish growing 50%.
+const STAB_FX = { thrust: 0.1, vanish: 0.15 };
+const STAB_LEFT = { x: 4, y: -28 }, STAB_FRONT = { x: 52, y: 0 };
+function localToWorld(lx, ly) { const c = Math.cos(noli.ang), s = Math.sin(noli.ang); return { x: noli.x + c * lx - s * ly, y: noli.y + s * lx + c * ly }; }
+function stabStar() {
+  // Where the star is and how it looks right now.
+  const w = KIT.stab.windup, t = noli.st;
+  if (t < w) { const k = t / w; return { p: localToWorld(STAB_LEFT.x, STAB_LEFT.y), scale: 0.3 + 0.7 * k, alpha: 1, phase: 'grab' }; }
+  if (t < w + STAB_FX.thrust) { const k = (t - w) / STAB_FX.thrust, e = 1 - (1 - k) * (1 - k);
+    return { p: localToWorld(STAB_LEFT.x + (STAB_FRONT.x - STAB_LEFT.x) * e, STAB_LEFT.y + (STAB_FRONT.y - STAB_LEFT.y) * e), scale: 1, alpha: 1, phase: 'thrust' }; }
+  const k = Math.min(1, (t - w - STAB_FX.thrust) / STAB_FX.vanish);
+  return { p: localToWorld(STAB_FRONT.x, STAB_FRONT.y), scale: 1 + 0.5 * k, alpha: 1 - k, phase: 'vanish' };
+}
+function stabBurst(p, n, spread, sizeMul = 1) {
+  for (let i = 0; i < n; i++) parts.push({ kind: 'star', x: p.x + rand(-spread, spread), y: p.y + rand(-spread, spread), c: i % 3 === 0 ? '#000000' : i % 3 === 1 ? '#ffffff' : '#c9a8ff', size: rand(3, 7) * sizeMul, t: rand(-0.05, 0), life: rand(0.3, 0.55) });
+}
+function stabFx(dt) {
+  const f = noli.stabFx || (noli.stabFx = {});
+  const s = stabStar();
+  if (s.phase === 'grab') {
+    if (!f.appear) { f.appear = true; stabBurst(s.p, 10, 14); }   // star sparks into his hand
+    if (Math.random() < dt * 30) parts.push({ kind: 'trail', x: s.p.x + rand(-8, 8), y: s.p.y + rand(-8, 8), c: TP_COLORS[Math.floor(rand(0, 3))], size: rand(1.5, 3), t: 0, life: 0.3 });
+  } else if (s.phase === 'thrust') {
+    // Streak of stars along the thrust; flash at the tip.
+    for (let i = 0; i < 2; i++) parts.push({ kind: 'star', x: s.p.x + rand(-4, 4), y: s.p.y + rand(-4, 4), c: Math.random() < 0.5 ? '#ffffff' : '#c9a8ff', size: rand(3, 6), t: 0, life: rand(0.2, 0.35) });
+    if (!f.flash) { f.flash = true; const tip = localToWorld(STAB_FRONT.x + 6, 0); ring(tip.x, tip.y, 26, '#ffffff', 0.2); ring(tip.x, tip.y, 38, '#c9a8ff', 0.3); }
+  } else if (!f.vanish) {
+    // Vanish: 50% more sparkles than it appeared with, and 50% bigger.
+    f.vanish = true; stabBurst(s.p, 15, 21, 1.5); ring(s.p.x, s.p.y, 30, '#c9a8ff', 0.3);
+  }
+}
+function drawStabStar() {
+  if (noli.state !== 'stab') return;
+  const s = stabStar(), T = performance.now() / 1000, sc = s.scale;
+  ctx.save(); ctx.globalAlpha = s.alpha;
+  const g = ctx.createRadialGradient(s.p.x, s.p.y, 2, s.p.x, s.p.y, 24 * sc);
+  g.addColorStop(0, 'rgba(201,168,255,0.6)'); g.addColorStop(1, 'rgba(201,168,255,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(s.p.x, s.p.y, 24 * sc, 0, 6.3); ctx.fill();
+  ctx.translate(s.p.x, s.p.y); ctx.rotate(noli.ang + (s.phase === 'grab' ? T * 8 : 0));
+  // Stretched star while thrusting, so it reads as a blade.
+  if (s.phase === 'thrust') ctx.scale(1.6, 0.7);
+  ctx.globalAlpha = s.alpha;
+  star4(0, 0, 13 * sc, '#000000', s.alpha); star4(0, 0, 10 * sc, '#c9a8ff', s.alpha); star4(0, 0, 5 * sc, '#ffffff', s.alpha);
+  ctx.restore(); ctx.globalAlpha = 1;
+}
 function drawNoli() {
   const { x, y } = noli;
   ctx.save(); ctx.translate(x, y);
@@ -655,7 +706,6 @@ function drawNoli() {
   }
   ctx.fillStyle = '#e9e4ff';
   ctx.beginPath(); for (let i = 0; i < 10; i++) { const rr = i % 2 ? 4 : 9, a = i * Math.PI / 5; ctx.lineTo(8 + Math.cos(a) * rr, Math.sin(a) * rr); } ctx.fill();
-  if (noli.state === 'stab') { ctx.fillStyle = '#ff6b8a'; ctx.fillRect(16, -3, 26 * Math.min(1, noli.st / KIT.stab.windup), 6); }
   if (noli.state === 'novaWind') { const k = Math.min(1, noli.st / KIT.nova.windup); star4(22, 0, 4 + k * 9, '#c9a8ff'); star4(22, 0, 2 + k * 4, '#ffffff'); }   // Nova forming in his hand
   ctx.restore();
   label(x, y - 34, 'NOLI', '#c49bff');
@@ -733,6 +783,7 @@ function render() {
   for (const d of dummies) drawDummy(d);
   if (hover && hover.kind === 'dummy') { ctx.strokeStyle = tool === 'erase' ? '#ff4d6d' : '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hover.o.x, hover.o.y, 24, 0, 6.3); ctx.stroke(); }
   drawNoli();
+  drawStabStar();
   drawParts();
   // placement ghost
   if (!noli.stance && tool !== 'play') {
