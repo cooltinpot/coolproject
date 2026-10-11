@@ -254,29 +254,29 @@ let selGen = null;
 const SEL_FADE = 1.6;   // purple shine lingers after he lands
 function genFx(dt) {
   if (noli.stance) for (const g of gens) {
-    if (Math.random() < dt * 22) { const a = rand(0, 6.3), r = rand(40, 75); parts.push({ kind: 'smoke', x: g.x + Math.cos(a) * r, y: g.y + Math.sin(a) * r, vx: Math.cos(a) * rand(10, 26), vy: Math.sin(a) * rand(10, 26) - rand(10, 25), size: rand(14, 24), t: 0, life: rand(0.9, 1.5) }); }
-    if (Math.random() < dt * 5) parts.push({ kind: 'star', x: g.x + rand(-50, 50), y: g.y + rand(-50, 50), c: '#000000', size: rand(3, 6), t: 0, life: rand(0.4, 0.7) });
+    if (Math.random() < dt * 22) { const a = rand(0, 6.3), r = rand(20, 38); parts.push({ kind: 'smoke', x: g.x + Math.cos(a) * r, y: g.y + Math.sin(a) * r, vx: Math.cos(a) * rand(5, 13), vy: Math.sin(a) * rand(5, 13) - rand(5, 12), size: rand(7, 12), t: 0, life: rand(0.9, 1.5) }); }
+    if (Math.random() < dt * 5) parts.push({ kind: 'star', x: g.x + rand(-25, 25), y: g.y + rand(-25, 25), c: '#000000', size: rand(1.5, 3), t: 0, life: rand(0.4, 0.7) });
   }
   if (selGen) {
     selGen.t += dt;
     if (selGen.landed !== undefined) { selGen.landed += dt; if (selGen.landed > SEL_FADE) { selGen = null; return; } }
     const g = selGen.g;
     if (!gens.includes(g)) { selGen = null; return; }
-    if (Math.random() < dt * 30) parts.push({ kind: 'spark', x: g.x + rand(-40, 40), y: g.y + rand(-30, 30), z: 0, vx: rand(-15, 15), vy: rand(-15, 15), vz: rand(60, 160), rot: rand(0, 6.3), spin: rand(4, 9), size: rand(3, 5), c: Math.random() < 0.6 ? '#c9a8ff' : '#ffffff', t: 0, life: rand(0.6, 1.0) });
-    if (Math.random() < dt * 3) ring(g.x, g.y, rand(60, 95), '#a26bff', 0.6);
+    if (Math.random() < dt * 30) parts.push({ kind: 'spark', x: g.x + rand(-20, 20), y: g.y + rand(-15, 15), z: 0, vx: rand(-8, 8), vy: rand(-8, 8), vz: rand(30, 80), rot: rand(0, 6.3), spin: rand(4, 9), size: rand(1.5, 2.5), c: Math.random() < 0.6 ? '#c9a8ff' : '#ffffff', t: 0, life: rand(0.6, 1.0) });
+    if (Math.random() < dt * 3) ring(g.x, g.y, rand(30, 48), '#a26bff', 0.6);
   }
 }
 function drawGenBack(g) {
   // Dark halo while choosing.
   if (noli.stance) {
-    const r = GEN_SIZE * 1.1, h = ctx.createRadialGradient(g.x, g.y, 10, g.x, g.y, r);
+    const r = GEN_SIZE * 0.55, h = ctx.createRadialGradient(g.x, g.y, 5, g.x, g.y, r);
     h.addColorStop(0, 'rgba(0,0,0,0.8)'); h.addColorStop(0.6, 'rgba(10,0,20,0.55)'); h.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = h; ctx.beginPath(); ctx.arc(g.x, g.y, r, 0, 6.3); ctx.fill();
   }
   // Purple shine on the chosen generator.
   if (selGen && selGen.g === g) {
     const fade = selGen.landed !== undefined ? 1 - selGen.landed / SEL_FADE : Math.min(1, selGen.t / 0.15);
-    const T = performance.now() / 1000, pul = 0.75 + 0.25 * Math.sin(T * 10), r = 95 * (0.9 + 0.1 * pul);
+    const T = performance.now() / 1000, pul = 0.75 + 0.25 * Math.sin(T * 10), r = 48 * (0.9 + 0.1 * pul);
     const h = ctx.createRadialGradient(g.x, g.y, 5, g.x, g.y, r);
     h.addColorStop(0, `rgba(201,168,255,${0.7 * fade * pul})`); h.addColorStop(0.5, `rgba(162,107,255,${0.35 * fade})`); h.addColorStop(1, 'rgba(162,107,255,0)');
     ctx.fillStyle = h; ctx.beginPath(); ctx.arc(g.x, g.y, r, 0, 6.3); ctx.fill();
@@ -286,8 +286,8 @@ function drawGenFront(g) {
   // Noli's art floating above the chosen generator, 20% transparent.
   if (!(selGen && selGen.g === g) || !GEN_IMG.complete || !GEN_IMG.naturalWidth) return;
   const fade = selGen.landed !== undefined ? 1 - selGen.landed / SEL_FADE : Math.min(1, selGen.t / 0.15);
-  const T = performance.now() / 1000, fw = GEN_IMG.naturalWidth / GEN_FRAMES.length, fr = genFrame(T), sz = GEN_SIZE * 0.85;
-  const y = g.y - 78 + Math.sin(T * 3) * 4;
+  const T = performance.now() / 1000, fw = GEN_IMG.naturalWidth / GEN_FRAMES.length, fr = genFrame(T), sz = GEN_SIZE * 0.425;
+  const y = g.y - 48 + Math.sin(T * 3) * 3;
   ctx.globalAlpha = 0.8 * fade;
   ctx.drawImage(GEN_IMG, fr * fw, 0, fw, GEN_IMG.naturalHeight, g.x - sz / 2, y - sz / 2, sz, sz);
   ctx.globalAlpha = 1;
@@ -569,7 +569,7 @@ function observantPick(g) {
   // Short travel time before Noli arrives at the generator.
   endObsStar();
   noli.stance = false; noli.state = 'tp'; noli.st = 0; noli.tp = g;
-  selGen = { g, t: 0 }; ring(g.x, g.y, 70, '#c9a8ff', 0.6);   // the chosen generator shines purple
+  selGen = { g, t: 0 }; ring(g.x, g.y, 35, '#c9a8ff', 0.6);   // the chosen generator shines purple
   stopSfx('stall'); stopSfx('gen_start'); sfx('gen_end');
   sfx('observant_tp');
   ring(noli.x, noli.y, 50, '#a26bff', 0.8);
