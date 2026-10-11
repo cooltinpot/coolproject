@@ -1063,6 +1063,16 @@ function drawChargeUI() {
   ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R - 2, 0, 6.3); ctx.fill();
   // black four-point star with a thin light rim
   star4(cx, cy, 13, '#ffffff', 0.9 * chargeUI.a); star4(cx, cy, 11, '#000000', chargeUI.a);
+  if (noli.state === 'rush') {
+    // While rushing (burning energy) the star pulses: up to white, dims, up to purple, dims, repeat.
+    const P = 0.9, ph = (now % P) / P, half = (ph * 2) % 1, glow = Math.sin(half * Math.PI);
+    const col = ph < 0.5 ? '#ffffff' : '#a26bff';
+    const gg = ctx.createRadialGradient(cx, cy, 0, cx, cy, 22);
+    gg.addColorStop(0, ph < 0.5 ? 'rgba(255,255,255,0.5)' : 'rgba(162,107,255,0.5)'); gg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.globalAlpha = chargeUI.a * glow; ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(cx, cy, 22, 0, 6.3); ctx.fill();
+    star4(cx, cy, 11, col, chargeUI.a * (0.15 + 0.85 * glow));
+    ctx.globalAlpha = chargeUI.a;
+  }
   // crumbly ring; it empties clockwise starting from the top
   const segs = 90, shown = Math.ceil(segs * remain), flick = Math.floor(now * 12);
   // Fills counter-clockwise from the top while charging; drains clockwise from the top after.
