@@ -90,7 +90,7 @@ const KIT = {
           box: { off: 10, w: 52, h: 52 }, hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
   nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, box: 28, blast: 280, pull: 1.1 },
   hallDur: 5,   // Hallucination wears off 5s after it was last applied
-  obs: { cd: 30, cdStart: 25, cdLeave: 15, bands: [[20, 3], [50, 2], [100, 1]] },
+  obs: { travel: 0.8, cd: 30, cdStart: 25, cdLeave: 15, bands: [[20, 3], [50, 2], [100, 1]] },
 };
 const slamDmg = (chain) => KIT.rush.slamBase + KIT.rush.slamExtra + KIT.rush.perReRush * chain;
 
@@ -124,6 +124,12 @@ const alive = () => dummies.filter((d) => !d.dead);
 const logEl = document.getElementById('log');
 function log(s) { const d = document.createElement('div'); d.textContent = s; logEl.prepend(d); while (logEl.children.length > 40) logEl.lastChild.remove(); }
 function txt(x, y, s, c) { texts.push({ x, y, s, c, t: 0 }); }
+// ------------------------------------------------------------- sound
+const SFX = {};
+function sfx(name, vol = 0.8) {
+  try { const a = new Audio('sfx/' + name + '.mp3'); a.volume = vol; a.play().catch(() => {}); SFX[name] = a; } catch (e) { /* no audio */ }
+}
+function stopSfx(name) { const a = SFX[name]; if (a) { a.pause(); SFX[name] = null; } }
 function ring(x, y, r, c, life = 0.4) { fx.push({ x, y, r, c, t: 0, life }); }
 
 // ------------------------------------------------------------- input
@@ -181,7 +187,7 @@ function damage(d, amt, why, color = '#ff4d6d') {
   txt(d.x, d.y - 24, '-' + amt.toFixed(amt % 1 ? 1 : 0), color);
   log(`${d.name} — ${why}: ${amt.toFixed(1)} dmg` + (d.inf ? '' : ` (${Math.max(0, d.hp).toFixed(1)} HP left)`));
   if (d.inf) { if (d.hp <= 0) d.hp = d.maxHp; return; }
-  if (d.hp <= 0) { d.dead = true; d.deadT = 0; d.hall = 0; log(`${d.name} died — respawning in 3s`); }
+  if (d.hp <= 0) { sfx('kill', 0.9); d.dead = true; d.deadT = 0; d.hall = 0; log(`${d.name} died — respawning in 3s`); }
 }
 
 // ------------------------------------------------------------- abilities
@@ -210,15 +216,18 @@ function castRush() {
     startRush(noli.rush.chain + 1, noli.rush.last);
     return;
   }
-  if (noli.state === 'rushWind') { noli.state = 'free'; noli.cds.rush = KIT.rush.cdCancel; log('Void Rush cancelled (1.2s cooldown)'); return; }
+  if (noli.state === 'rushWind') { stopSfx('voidrush'); noli.state = 'free'; noli.cds.rush = KIT.rush.cdCancel; log('Void Rush cancelled (1.2s cooldown)'); return; }
   if (busy() || noli.stance || !ready('rush')) return;
   noli.state = 'rushWind'; noli.st = 0;
+  sfx('voidrush');
 }
 function startRush(chain, ignore = null) {
   noli.state = 'rush';
   noli.ang = Math.atan2(world().y - noli.y, world().x - noli.x);
   noli.rush = { t: 0, chain, boostT: 0, boosted: false, ignore, last: null };
   if (chain) {
+    stopSfx('voidrush');
+    sfx(chain >= 4 ? 'rush4' : 'rush3');   // x1/x2 borrow Three_rush until their sounds arrive
     ring(noli.x, noli.y, 60, '#d36bff', 0.5); ring(noli.x, noli.y, 30, '#ffffff', 0.25);
     txt(noli.x, noli.y - 30, 'RE-RUSH x' + chain, '#c49bff');
     log(`Re-rush x${chain} (slam now ${slamDmg(chain).toFixed(1)} dmg)`);
@@ -238,11 +247,12 @@ function rushHit(d) {
     d.vx += Math.cos(noli.ang) * 200; d.vy += Math.sin(noli.ang) * 200;
   }
   // Hitting a survivor opens the re-rush countdown.
+  stopSfx('voidrush'); sfx('ding');
   noli.x -= Math.cos(noli.ang) * 10; noli.y -= Math.sin(noli.ang) * 10;
   noli.state = 'reWindow'; r.wt = KIT.rush.reRush; r.last = d;
   ring(noli.x, noli.y, 36, '#ffffff', 0.3);
 }
-function endRush(why) { noli.state = 'free'; noli.rush = null; noli.cds.rush = KIT.rush.cd; if (why) log(why); }
+function endRush(why) { stopSfx('voidrush'); if (why) sfx('stall', 0.7); noli.state = 'free'; noli.rush = null; noli.cds.rush = KIT.rush.cd; if (why) log(why); }
 
 function castNova() {
   const live = novas.find((n) => !n.boom);
@@ -261,12 +271,21 @@ function detonate(n, why) {
 }
 
 function toggleObservant() {
-  if (noli.stance) { noli.stance = false; noli.cds.obs = KIT.obs.cdLeave; log('Left Observant (15s cooldown)'); return; }
+  if (noli.stance) { stopSfx('observant'); stopSfx('observant_start'); noli.stance = false; noli.cds.obs = KIT.obs.cdLeave; log('Left Observant (15s cooldown)'); return; }
   if (busy() || !ready('obs')) return;
   if (!gens.length) { log('Observant needs a generator — place one'); return; }
   noli.stance = true; log('Observant: click a generator to teleport');
+  sfx('observant_start'); sfx('observant', 0.6);
+}
+function observantPick(g) {
+  // Short travel time before Noli arrives at the generator.
+  noli.stance = false; noli.state = 'tp'; noli.st = 0; noli.tp = g;
+  stopSfx('observant'); stopSfx('observant_start'); sfx('gen_start');
+  ring(noli.x, noli.y, 50, '#a26bff', 0.8);
 }
 function observantTeleport(g) {
+  sfx('gen_end');
+  noli.state = 'free';
   noli.x = g.x; noli.y = g.y + 46; noli.stance = false; noli.cds.obs = KIT.obs.cd;
   ring(g.x, g.y, 90, '#a26bff', 0.7);
   for (const [range] of KIT.obs.bands) showBox({ x: g.x, y: g.y + 46, w: range * STUD * 2, h: range * STUD * 2, a: 0 }, '#c49bff', 0.9);
@@ -361,7 +380,7 @@ function update(dt) {
   if (noli.state !== 'rush') noli.ang = Math.atan2(w.y - noli.y, w.x - noli.x);
 
   if (noli.stance) {
-    if (mouse.click) { const g = gens.find((g) => Math.hypot(g.x - w.x, g.y - w.y) < 70); if (g) observantTeleport(g); }
+    if (mouse.click) { const g = gens.find((g) => Math.hypot(g.x - w.x, g.y - w.y) < 70); if (g) observantPick(g); }
   } else if (tool === 'play') {
     if (mouse.down) stab();
   } else creativeInput();
@@ -374,11 +393,12 @@ function update(dt) {
   const sprint = keys.shift && moving && noli.stamina > 0 && noli.state === 'free' && !noli.stance;
   noli.stamina = clamp(noli.stamina + (sprint ? -KIT.stamina.drain : KIT.stamina.regen) * dt, 0, KIT.stamina.max);
   let sp = sprint ? KIT.speed.sprint : KIT.speed.walk;
-  if (noli.stance || noli.state === 'rushWind' || noli.state === 'reWindow' || noli.stunT > 0) sp = 0;
+  if (noli.stance || noli.state === 'rushWind' || noli.state === 'reWindow' || noli.state === 'tp' || noli.stunT > 0) sp = 0;
   if (noli.state === 'stab') sp *= 0.4;
 
   if (noli.state === 'stab') { noli.st += dt; if (noli.st >= KIT.stab.windup && !noli.stabbed) { noli.stabbed = true; stabHit(); } if (noli.st > KIT.stab.windup + 0.25) { noli.state = 'free'; noli.stabbed = false; } }
   if (noli.state === 'rushWind') { noli.st += dt; if (noli.st >= KIT.rush.windup) startRush(0); }
+  if (noli.state === 'tp') { noli.st += dt; if (noli.st >= KIT.obs.travel) observantTeleport(noli.tp); }
   if (noli.state === 'reWindow') {
     const r = noli.rush; r.wt -= dt;
     if (r.wt <= 0) endRush(`Re-rush window closed (chain x${r.chain})`);
