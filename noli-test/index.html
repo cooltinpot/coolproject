@@ -823,6 +823,7 @@ function update(dt) {
   updateParts(dt);
   updateCrown(dt);
   updateCracks(dt);
+  updateDarkTrail(dt);
   for (const f of fx) f.t += dt;
   for (let i = fx.length - 1; i >= 0; i--) if (fx[i].t > fx[i].life) fx.splice(i, 1);
   for (const t of texts) { t.t += dt; t.y -= 30 * dt; }
@@ -1121,6 +1122,39 @@ function drawStabStar() {
   star4(0, 0, 12 * sc, '#ffffff', s.alpha);
   ctx.restore(); ctx.globalAlpha = 1;
 }
+// ------------------------------------------------------------- dark sharp trail behind Noli
+const DARK_IMG = new Image(); DARK_IMG.src = 'img/dark_trail.png';
+const DARK_EDGE = new Image(); DARK_EDGE.src = 'img/dark_trail_edge.png';   // faint purple rim so it reads on the dark floor
+const darkTrail = [];
+let trailPrev = null;
+function updateDarkTrail(dt) {
+  if (!trailPrev) trailPrev = { x: noli.x, y: noli.y };
+  const sp = Math.hypot(noli.x - trailPrev.x, noli.y - trailPrev.y) / Math.max(dt, 1e-4);
+  trailPrev = { x: noli.x, y: noli.y };
+  const rushing = noli.state === 'rush';
+  if (sp > 20) {
+    const rate = rushing ? 45 : 12;
+    if (Math.random() < dt * rate) {
+      const back = Math.atan2(noli.y - (trailPrev.y - 0), noli.x - trailPrev.x);
+      darkTrail.push({ x: noli.x - Math.cos(noli.ang) * noli.r * 0.6 + rand(-6, 6), y: noli.y - Math.sin(noli.ang) * noli.r * 0.6 + rand(-6, 6),
+        rot: rand(0, 6.3), spin: rand(-2.5, 2.5), size: rushing ? rand(38, 56) : rand(26, 36), t: 0, life: rushing ? rand(0.9, 1.4) : rand(0.5, 0.9) });
+    }
+  }
+  for (const d of darkTrail) { d.t += dt; d.rot += d.spin * dt; }
+  for (let i = darkTrail.length - 1; i >= 0; i--) if (darkTrail[i].t > darkTrail[i].life) darkTrail.splice(i, 1);
+}
+function drawDarkTrail() {
+  if (!DARK_IMG.complete || !DARK_IMG.naturalWidth) return;
+  for (const d of darkTrail) {
+    const k = d.t / d.life, sz = d.size * (1 - 0.6 * k);
+    ctx.save(); ctx.translate(d.x, d.y); ctx.rotate(d.rot);
+    if (DARK_EDGE.complete && DARK_EDGE.naturalWidth) { ctx.globalAlpha = 0.45 * (1 - k); ctx.drawImage(DARK_EDGE, -sz / 2, -sz / 2, sz, sz); }
+    ctx.globalAlpha = 0.95 * (1 - k);
+    ctx.drawImage(DARK_IMG, -sz / 2, -sz / 2, sz, sz);
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
 // ------------------------------------------------------------- Void Rush wall crash: crack + sparkles
 const cracks = [];
 const CRACK_LIFE = 4;
@@ -1277,6 +1311,7 @@ function render() {
   const hover = tool === 'move' || tool === 'erase' ? pick(p) : null;
   for (const w of walls) { ctx.fillStyle = hover && hover.o === w ? (tool === 'erase' ? '#6b2a3c' : '#4a3d70') : '#2a2340'; ctx.fillRect(w.x, w.y, w.w, w.h); }
   drawCracks();
+  drawDarkTrail();   // under everyone
   for (const g of gens) {
     const hot = (noli.stance && Math.hypot(g.x - p.x, g.y - p.y) < 70) || (hover && hover.o === g);
     drawGenBack(g);
