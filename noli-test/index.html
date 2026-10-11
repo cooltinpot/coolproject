@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Noli Test Map</title>
+<style>
+  :root { --bg:#07060c; --panel:#14111f; --line:#2c2540; --ink:#e9e4ff; --dim:#9a90bf; --void:#a26bff; --hot:#ff4d6d; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:14px/1.35 system-ui,Segoe UI,Roboto,sans-serif; overflow:hidden; }
+  canvas { display:block; width:100vw; height:100vh; cursor:crosshair; }
+  #side { position:fixed; top:12px; right:12px; width:260px; max-width:calc(100vw - 24px); background:rgba(20,17,31,.92); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  #side h2 { margin:0 0 6px; font-size:15px; color:var(--void); letter-spacing:.5px; }
+  #side .row { display:flex; flex-wrap:wrap; gap:5px; margin:6px 0; }
+  #side button { background:#211b33; color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:4px 8px; cursor:pointer; font-size:12px; }
+  #side button.on { background:var(--void); color:#120a22; border-color:var(--void); font-weight:700; }
+  #side small { color:var(--dim); display:block; margin-top:6px; }
+  #log { margin-top:6px; max-height:150px; overflow:auto; font:12px ui-monospace,monospace; color:var(--dim); }
+  #log div:first-child { color:var(--ink); }
+  #hide { position:fixed; top:12px; right:12px; display:none; }
+  @media (max-width:700px){ #side{ top:auto; bottom:12px; width:auto; left:12px; } #log{max-height:70px} }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="side">
+  <h2>NOLI — TEST MAP</h2>
+  <div>Dummy behaviour</div>
+  <div class="row" id="modes"></div>
+  <div class="row">
+    <button id="respawn">Respawn dummy</button>
+    <button id="reset">Reset cooldowns</button>
+    <button id="nocd">No cooldowns: off</button>
+  </div>
+  <small>WASD move · Shift sprint · Mouse aim<br>
+  <b>LMB</b> Stab · <b>Q</b> Void Rush (Q again = re-rush, steer with mouse) · <b>E</b> Nova (E again = detonate) · <b>R</b> Observant (click a generator to teleport, R to leave)</small>
+  <div id="log"></div>
+</div>
+<script>
+(() => {
+'use strict';
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+function resize() { DPR = Math.min(2, devicePixelRatio || 1); W = innerWidth; H = innerHeight; cv.width = W * DPR; cv.height = H * DPR; ctx.setTransform(DPR, 0, 0, DPR, 0, 0); }
+addEventListener('resize', resize); resize();
+
+const STUD = 10;                  // px per stud
+const MAP = { w: 2000, h: 1400 };
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const rand = (a, b) => a + Math.random() * (b - a);
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+// Empty map: border walls plus a few pillars so Void Rush curving and Nova wall-pulls can be tested.
+const walls = [
+  { x: 0, y: 0, w: MAP.w, h: 30 }, { x: 0, y: MAP.h - 30, w: MAP.w, h: 30 },
+  { x: 0, y: 0, w: 30, h: MAP.h }, { x: MAP.w - 30, y: 0, w: 30, h: MAP.h },
+  { x: 620, y: 380, w: 70, h: 70 }, { x: 1310, y: 380, w: 70, h: 70 },
+  { x: 620, y: 950, w: 70, h: 70 }, { x: 1310, y: 950, w: 70, h: 70 },
+  { x: 940, y: 640, w: 120, h: 120 },
+];
+const gens = [
+  { x: 260, y: 240, fake: false, prog: 0 }, { x: 1740, y: 240, fake: false, prog: 0 },
+  { x: 260, y: 1160, fake: false, prog: 0 }, { x: 1740, y: 1160, fake: true, prog: 0 }, // Prankster fake
+];
+
+// ------------------------------------------------------------- kit numbers
+const KIT = {
+  speed: { walk: 160, sprint: 270 }, stamina: { max: 110, drain: 10, regen: 20 },
+  stab: { dmg: 25, perStack: 5, range: 62, arc: 0.9, cd: 2.0, windup: 0.18 },
+  rush: { cd: 20, cdStart: 10, cdCancel: 1.2, windup: 0.6, dur: 2.6, speed: 520, turn: 3.2, reRush: 0.85,
+          hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
+  nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, radius: 140, pull: 1.1 },
+  obs: { cd: 30, cdStart: 25, cdLeave: 15, bands: [[20, 3], [50, 2], [100, 1]] },
+};
+
+// ------------------------------------------------------------- entities
+const noli = { x: 1000, y: 1150, r: 18, ang: -Math.PI / 2, stamina: KIT.stamina.max, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart },
+  state: 'free', st: 0, rush: null, stance: false, stunT: 0 };
+const dummy = { x: 1000, y: 500, r: 16, hp: 100, maxHp: 100, hall: 0, hallT: 0, vx: 0, vy: 0, knockT: 0, stunT: 0, dead: false, deadT: 0,
+  goal: null, genT: 0, repair: null };
+let mode = 'wander', noCd = false;
+const novas = [], fx = [], texts = [];
+const logEl = document.getElementById('log');
+function log(s) { const d = document.createElement('div'); d.textContent = s; logEl.prepend(d); while (logEl.children.length > 30) logEl.lastChild.remove(); }
+function txt(x, y, s, c) { texts.push({ x, y, s, c, t: 0 }); }
+function ring(x, y, r, c, life = 0.4) { fx.push({ x, y, r, c, t: 0, life }); }
+
+// ------------------------------------------------------------- input
+const keys = {}; const mouse = { x: 0, y: 0, down: false, click: false };
+addEventListener('keydown', (e) => { const k = e.key.toLowerCase(); if (!keys[k]) press(k); keys[k] = true; if (['q', 'e', 'r', ' '].includes(k)) e.preventDefault(); });
+addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+cv.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
+cv.addEventListener('mousedown', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; mouse.down = true; mouse.click = true; });
+addEventListener('mouseup', () => { mouse.down = false; });
+cv.addEventListener('touchstart', (e) => { const t = e.touches[0]; mouse.x = t.clientX; mouse.y = t.clientY; mouse.click = true; e.preventDefault(); }, { passive: false });
+const cam = { x: 0, y: 0, s: 1 };
+const world = () => ({ x: mouse.x / cam.s + cam.x, y: mouse.y / cam.s + cam.y });
+
+function press(k) {
+  if (k === 'q') castRush();
+  if (k === 'e') castNova();
+  if (k === 'r') toggleObservant();
+}
+
+// ------------------------------------------------------------- collisions
+function hitWall(x, y, r) {
+  for (const w of walls) {
+    const cx = clamp(x, w.x, w.x + w.w), cy = clamp(y, w.y, w.y + w.h);
+    if ((x - cx) ** 2 + (y - cy) ** 2 < r * r) return w;
+  }
+  return null;
+}
+function moveCircle(e, dx, dy) {
+  let bx = false, by = false;
+  if (!hitWall(e.x + dx, e.y, e.r)) e.x += dx; else bx = true;
+  if (!hitWall(e.x, e.y + dy, e.r)) e.y += dy; else by = true;
+  return { bx, by };
+}
+function wallNear(x, y, r) { return !!hitWall(x, y, r); }
+
+// ------------------------------------------------------------- hallucination
+function addHall(n, why) {
+  if (dummy.dead) return;
+  const before = dummy.hall;
+  dummy.hall = clamp(Math.max(dummy.hall, 0) + n, 0, 3);
+  dummy.hallT = 0;
+  if (dummy.hall !== before) { txt(dummy.x, dummy.y - 36, 'HALLUCINATION ' + 'I'.repeat(dummy.hall), '#c49bff'); log(`${why}: Hallucination ${before} → ${dummy.hall}`); }
+}
+function setHall(n, why) { if (dummy.hall < n) addHall(n - dummy.hall, why); }
+
+function damage(amt, why, color = '#ff4d6d') {
+  if (dummy.dead) return;
+  dummy.hp -= amt;
+  txt(dummy.x, dummy.y - 24, '-' + amt.toFixed(amt % 1 ? 1 : 0), color);
+  log(`${why}: ${amt.toFixed(1)} dmg (${Math.max(0, dummy.hp).toFixed(1)} HP left)`);
+  if (dummy.hp <= 0) { dummy.dead = true; dummy.deadT = 0; dummy.hall = 0; log('Dummy died — respawning in 3s'); }
+}
+
+// ------------------------------------------------------------- abilities
+function ready(k) { return noCd || noli.cds[k] <= 0; }
+function busy() { return noli.state !== 'free' || noli.stunT > 0; }
+
+function stab() {
+  if (busy() || noli.stance || !ready('stab')) return;
+  noli.state = 'stab'; noli.st = 0; noli.cds.stab = KIT.stab.cd;
+}
+function stabHit() {
+  ring(noli.x + Math.cos(noli.ang) * 40, noli.y + Math.sin(noli.ang) * 40, KIT.stab.range * 0.7, '#ff6b8a', 0.2);
+  if (dummy.dead) return;
+  const d = dist(noli, dummy), a = Math.atan2(dummy.y - noli.y, dummy.x - noli.x);
+  let da = Math.abs(((a - noli.ang + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+  if (d < KIT.stab.range + dummy.r && da < KIT.stab.arc) {
+    const stacks = dummy.hall;
+    damage(KIT.stab.dmg + stacks * KIT.stab.perStack, `Stab (+${stacks} stack bonus)`);
+    if (stacks) { dummy.hall = 0; txt(dummy.x, dummy.y - 48, 'STACKS CLEARED', '#9a90bf'); }
+    dummy.vx += Math.cos(noli.ang) * 120; dummy.vy += Math.sin(noli.ang) * 120;
+  }
+}
+
+function castRush() {
+  if (noli.state === 'rush' && noli.rush.t >= KIT.rush.reRush) {      // re-rush
+    noli.rush.t = 0; noli.rush.chain++;
+    noli.ang = Math.atan2(world().y - noli.y, world().x - noli.x);
+    ring(noli.x, noli.y, 40, '#a26bff');
+    txt(noli.x, noli.y - 30, 'RE-RUSH x' + noli.rush.chain, '#c49bff');
+    return;
+  }
+  if (noli.state === 'rushWind') { noli.state = 'free'; noli.cds.rush = KIT.rush.cdCancel; log('Void Rush cancelled (1.2s cooldown)'); return; }
+  if (busy() || noli.stance || !ready('rush')) return;
+  noli.state = 'rushWind'; noli.st = 0;
+}
+function rushHit() {
+  const r = noli.rush;
+  if (dummy.hall >= 2) {
+    const dmg = KIT.rush.slamBase + KIT.rush.slamExtra + KIT.rush.perReRush * r.chain;
+    damage(dmg, `Void Rush SLAM (re-rushes: ${r.chain})`, '#d36bff');
+    dummy.hall = 0;
+    dummy.knockT = KIT.rush.knock;
+    ring(dummy.x, dummy.y, 70, '#a26bff', 0.6);
+    txt(dummy.x, dummy.y - 48, 'KNOCKED DOWN', '#ffffff');
+  } else {
+    damage(KIT.rush.hitDmg, 'Void Rush hit');
+    setHall(2, 'Void Rush');
+    dummy.vx += Math.cos(noli.ang) * 260; dummy.vy += Math.sin(noli.ang) * 260;
+  }
+  endRush();
+}
+function endRush() { noli.state = 'free'; noli.rush = null; noli.cds.rush = KIT.rush.cd; }
+
+function castNova() {
+  const live = novas.find((n) => !n.boom);
+  if (live && live.t >= KIT.nova.recast) { detonate(live, 'recast'); return; }
+  if (busy() || noli.stance || !ready('nova') || live) return;
+  const w = world(), a = Math.atan2(w.y - noli.y, w.x - noli.x);
+  novas.push({ x: noli.x + Math.cos(a) * 26, y: noli.y + Math.sin(a) * 26, vx: Math.cos(a) * KIT.nova.speed, vy: Math.sin(a) * KIT.nova.speed, t: 0, boom: false, bt: 0, hit: false });
+  noli.cds.nova = KIT.nova.cd;
+}
+function detonate(n, why) {
+  n.boom = true; n.bt = 0;
+  ring(n.x, n.y, KIT.nova.radius, '#7a3cff', 0.5);
+  if (!dummy.dead && dist(n, dummy) < KIT.nova.radius) damage(KIT.nova.dmg, `Nova (${why})`, '#b98cff');
+}
+
+function toggleObservant() {
+  if (noli.stance) { noli.stance = false; noli.cds.obs = KIT.obs.cdLeave; log('Left Observant (15s cooldown)'); return; }
+  if (busy() || !ready('obs')) return;
+  noli.stance = true; log('Observant: click a generator to teleport');
+}
+function observantTeleport(g) {
+  noli.x = g.x; noli.y = g.y + 46; noli.stance = false; noli.cds.obs = KIT.obs.cd;
+  ring(g.x, g.y, 90, '#a26bff', 0.7);
+  if (dummy.dead) return;
+  const studs = dist(noli, dummy) / STUD;
+  for (const [range, lvl] of KIT.obs.bands) if (studs <= range) { setHall(lvl, `Observant (${studs.toFixed(0)} studs)`); return; }
+  log(`Observant: dummy ${studs.toFixed(0)} studs away — out of range`);
+}
+
+// ------------------------------------------------------------- dummy AI
+function dummyThink(dt) {
+  if (dummy.dead) { dummy.deadT += dt; if (dummy.deadT > 3) respawn(); return; }
+  if (dummy.knockT > 0 || dummy.stunT > 0) return { mx: 0, my: 0, sp: 0 };
+  let tx = dummy.x, ty = dummy.y, sp = 0;
+  if (mode === 'wander') {
+    if (!dummy.goal || dist(dummy, dummy.goal) < 20) dummy.goal = { x: rand(120, MAP.w - 120), y: rand(120, MAP.h - 120) };
+    tx = dummy.goal.x; ty = dummy.goal.y; sp = 120;
+  } else if (mode === 'flee') {
+    const a = Math.atan2(dummy.y - noli.y, dummy.x - noli.x);
+    tx = dummy.x + Math.cos(a) * 100; ty = dummy.y + Math.sin(a) * 100; sp = dist(dummy, noli) < 500 ? 210 : 120;
+    if (hitWall(tx, ty, dummy.r + 30)) { const b = a + Math.PI / 2; tx = dummy.x + Math.cos(b) * 100; ty = dummy.y + Math.sin(b) * 100; }
+  } else if (mode === 'repair') {
+    if (!dummy.repair || dummy.repair.prog >= 1) dummy.repair = gens.filter((g) => g.prog < 1).sort((a, b) => dist(a, dummy) - dist(b, dummy))[0] || null;
+    if (dummy.repair) {
+      const g = dummy.repair;
+      if (dist(dummy, g) > 44) { tx = g.x; ty = g.y + 40; sp = 140; }
+      else {
+        g.prog += dt / 8;
+        dummy.genT += dt;
+        if (g.fake && dummy.genT > 2.2) { dummy.genT = 0; addHall(1, 'Prankster puzzle'); }
+        if (g.prog >= 1) {
+          if (g.fake) { setHall(3, 'Prankster fake generator completed'); txt(g.x, g.y - 40, 'IT WAS FAKE', '#ff4d6d'); }
+          else txt(g.x, g.y - 40, 'GENERATOR DONE', '#7dffa8');
+          setTimeout(() => (g.prog = 0), 4000);
+          dummy.repair = null;
+        }
+      }
+    }
+  }
+  const a = Math.atan2(ty - dummy.y, tx - dummy.x), d = Math.hypot(tx - dummy.x, ty - dummy.y);
+  return d > 4 && sp ? { mx: Math.cos(a), my: Math.sin(a), sp } : { mx: 0, my: 0, sp: 0 };
+}
+function respawn() { Object.assign(dummy, { x: 1000, y: 500, hp: 100, hall: 0, dead: false, deadT: 0, knockT: 0, vx: 0, vy: 0, repair: null }); log('Dummy respawned'); }
+
+// ------------------------------------------------------------- update
+function update(dt) {
+  for (const k in noli.cds) noli.cds[k] = Math.max(0, noli.cds[k] - dt);
+  noli.stunT = Math.max(0, noli.stunT - dt);
+  const w = world();
+  if (noli.state !== 'rush') noli.ang = Math.atan2(w.y - noli.y, w.x - noli.x);
+
+  if (mouse.click) {
+    mouse.click = false;
+    if (noli.stance) { const g = gens.find((g) => Math.hypot(g.x - w.x, g.y - w.y) < 70); if (g) observantTeleport(g); }
+    else stab();
+  }
+  if (mouse.down && !noli.stance) stab();
+
+  // movement
+  let mx = (keys.d ? 1 : 0) - (keys.a ? 1 : 0), my = (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
+  const ml = Math.hypot(mx, my) || 1; mx /= ml; my /= ml;
+  const moving = mx || my;
+  const sprint = keys.shift && moving && noli.stamina > 0 && noli.state === 'free' && !noli.stance;
+  noli.stamina = clamp(noli.stamina + (sprint ? -KIT.stamina.drain : KIT.stamina.regen) * dt, 0, KIT.stamina.max);
+  let sp = sprint ? KIT.speed.sprint : KIT.speed.walk;
+  if (noli.stance || noli.state === 'rushWind' || noli.stunT > 0) sp = 0;
+  if (noli.state === 'stab') sp *= 0.4;
+
+  if (noli.state === 'stab') { noli.st += dt; if (noli.st >= KIT.stab.windup && !noli.stabbed) { noli.stabbed = true; stabHit(); } if (noli.st > KIT.stab.windup + 0.25) { noli.state = 'free'; noli.stabbed = false; } }
+  if (noli.state === 'rushWind') { noli.st += dt; if (noli.st >= KIT.rush.windup) { noli.state = 'rush'; noli.rush = { t: 0, chain: 0 }; log('Void Rush!'); } }
+  if (noli.state === 'rush') {
+    const r = noli.rush; r.t += dt;
+    // Steer toward the cursor with a limited turn rate.
+    const want = Math.atan2(w.y - noli.y, w.x - noli.x);
+    let d = ((want - noli.ang + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    noli.ang += clamp(d, -KIT.rush.turn * dt, KIT.rush.turn * dt);
+    const vx = Math.cos(noli.ang) * KIT.rush.speed * dt, vy = Math.sin(noli.ang) * KIT.rush.speed * dt;
+    // Curves around walls: the blocked axis is dropped so Noli slides along the surface.
+    const res = moveCircle(noli, vx, vy);
+    if (res.bx && res.by) noli.ang += Math.PI * dt * 2;
+    if (Math.random() < 0.6) fx.push({ x: noli.x, y: noli.y, r: 14, c: '#5b2bbf', t: 0, life: 0.35, trail: true });
+    if (!dummy.dead && dist(noli, dummy) < noli.r + dummy.r + 4) rushHit();
+    else if (r.t > KIT.rush.dur) { endRush(); log('Void Rush ended'); }
+  } else if (moving) {
+    moveCircle(noli, mx * sp * dt, my * sp * dt);
+  }
+
+  // novas
+  for (const n of novas) {
+    if (!n.boom) {
+      n.t += dt;
+      const r = moveCircle(n, n.vx * dt, n.vy * dt);
+      // Pulls survivors it touches.
+      if (!dummy.dead && dist(n, dummy) < dummy.r + 16) { n.vx *= 0.5; n.vy *= 0.5; n.carry = true; }
+      if (n.carry && !dummy.dead) { dummy.x += (n.x - dummy.x) * Math.min(1, dt * 10); dummy.y += (n.y - dummy.y) * Math.min(1, dt * 10); }
+      if (r.bx || r.by) detonate(n, n.carry ? 'slammed into wall' : 'wall');
+      else if (n.t > KIT.nova.life) detonate(n, 'expired');
+    } else {
+      n.bt += dt;
+      if (!dummy.dead && n.bt < KIT.nova.pull) {
+        const d = dist(n, dummy);
+        if (d < KIT.nova.radius && d > 6) { const a = Math.atan2(n.y - dummy.y, n.x - dummy.x); moveCircle(dummy, Math.cos(a) * 240 * dt, Math.sin(a) * 240 * dt); }
+      }
+    }
+  }
+  for (let i = novas.length - 1; i >= 0; i--) if (novas[i].boom && novas[i].bt > KIT.nova.pull) novas.splice(i, 1);
+
+  // dummy
+  const ai = dummyThink(dt);
+  dummy.knockT = Math.max(0, dummy.knockT - dt);
+  if (!dummy.dead) {
+    if (dummy.hall > 0) { dummy.hallT += dt; if (dummy.hallT > 20) { dummy.hall--; dummy.hallT = 0; } }
+    if (ai) moveCircle(dummy, ai.mx * ai.sp * dt, ai.my * ai.sp * dt);
+    moveCircle(dummy, dummy.vx * dt, dummy.vy * dt);
+    dummy.vx *= Math.pow(0.02, dt); dummy.vy *= Math.pow(0.02, dt);
+  }
+
+  for (const f of fx) f.t += dt;
+  for (let i = fx.length - 1; i >= 0; i--) if (fx[i].t > fx[i].life) fx.splice(i, 1);
+  for (const t of texts) { t.t += dt; t.y -= 30 * dt; }
+  for (let i = texts.length - 1; i >= 0; i--) if (texts[i].t > 1.4) texts.splice(i, 1);
+
+  // Observant zooms out so every generator can be picked.
+  const fit = Math.min(W / (MAP.w + 80), H / (MAP.h + 160));
+  cam.s += ((noli.stance ? fit : 1) - cam.s) * Math.min(1, dt * 8);
+  const vw = W / cam.s, vh = H / cam.s;
+  cam.x = vw >= MAP.w ? (MAP.w - vw) / 2 : clamp(noli.x - vw / 2, -60, MAP.w - vw + 60);
+  cam.y = vh >= MAP.h ? (MAP.h - vh) / 2 : clamp(noli.y - vh / 2, -60, MAP.h - vh + 60);
+}
+
+// ------------------------------------------------------------- render
+function drawNoli() {
+  const { x, y } = noli;
+  ctx.save(); ctx.translate(x, y);
+  if (noli.state === 'rushWind') { ctx.strokeStyle = '#a26bff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, 22 + noli.st / KIT.rush.windup * 20, 0, 6.3); ctx.stroke(); }
+  ctx.fillStyle = 'rgba(162,107,255,0.18)'; ctx.beginPath(); ctx.arc(0, 0, 30, 0, 6.3); ctx.fill();
+  ctx.rotate(noli.ang);
+  ctx.fillStyle = '#120d1f'; ctx.strokeStyle = '#a26bff'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(0, 0, noli.r, 0, 6.3); ctx.fill(); ctx.stroke();
+  // void-star face
+  ctx.fillStyle = '#e9e4ff';
+  ctx.beginPath(); for (let i = 0; i < 10; i++) { const rr = i % 2 ? 4 : 9, a = i * Math.PI / 5; ctx.lineTo(8 + Math.cos(a) * rr, Math.sin(a) * rr); } ctx.fill();
+  if (noli.state === 'stab') { ctx.fillStyle = '#ff6b8a'; ctx.fillRect(16, -3, 26 * Math.min(1, noli.st / KIT.stab.windup), 6); }
+  ctx.restore();
+  label(x, y - 34, 'NOLI', '#c49bff');
+}
+function drawDummy() {
+  if (dummy.dead) { label(1000, 500, 'respawning…', '#9a90bf'); return; }
+  const { x, y } = dummy;
+  ctx.save(); ctx.translate(x, y);
+  if (dummy.knockT > 0) ctx.rotate(Math.PI / 2);
+  // default Roblox-style NPC: yellow head, blue torso, green legs (top-down)
+  ctx.fillStyle = '#1f7a3a'; ctx.fillRect(-11, 4, 22, 12);
+  ctx.fillStyle = '#2a63c9'; ctx.fillRect(-14, -8, 28, 16);
+  ctx.fillStyle = '#f5cd30'; ctx.beginPath(); ctx.arc(0, -2, 9, 0, 6.3); ctx.fill();
+  ctx.restore();
+  if (dummy.hall) { ctx.strokeStyle = `rgba(196,155,255,${0.3 + dummy.hall * 0.2})`; ctx.lineWidth = 2; for (let i = 0; i < dummy.hall; i++) { ctx.beginPath(); ctx.arc(x, y, 22 + i * 6 + Math.sin(performance.now() / 200 + i) * 2, 0, 6.3); ctx.stroke(); } }
+  const bw = 46; ctx.fillStyle = '#2a0f18'; ctx.fillRect(x - bw / 2, y - 36, bw, 6);
+  ctx.fillStyle = '#7dffa8'; ctx.fillRect(x - bw / 2, y - 36, bw * Math.max(0, dummy.hp) / dummy.maxHp, 6);
+  label(x, y - 42, 'Dummy' + (dummy.hall ? '  H' + 'I'.repeat(dummy.hall) : ''), '#e9e4ff');
+}
+function label(x, y, s, c) { ctx.font = '700 12px system-ui'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.strokeText(s, x, y); ctx.fillStyle = c; ctx.fillText(s, x, y); }
+
+function render() {
+  ctx.fillStyle = '#07060c'; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.scale(cam.s, cam.s); ctx.translate(-cam.x, -cam.y);
+  ctx.fillStyle = '#100d18'; ctx.fillRect(0, 0, MAP.w, MAP.h);
+  ctx.strokeStyle = '#1b1628'; ctx.lineWidth = 1;
+  for (let x = 0; x <= MAP.w; x += 100) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, MAP.h); ctx.stroke(); }
+  for (let y = 0; y <= MAP.h; y += 100) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(MAP.w, y); ctx.stroke(); }
+  ctx.fillStyle = '#2a2340'; for (const w of walls) ctx.fillRect(w.x, w.y, w.w, w.h);
+  // generators
+  for (const g of gens) {
+    const hot = noli.stance && Math.hypot(g.x - world().x, g.y - world().y) < 50;
+    ctx.fillStyle = hot ? '#a26bff' : '#3a3150'; ctx.fillRect(g.x - 24, g.y - 18, 48, 36);
+    ctx.fillStyle = '#7dffa8'; ctx.fillRect(g.x - 22, g.y + 12, 44 * g.prog, 4);
+    label(g.x, g.y - 24, g.fake ? 'Generator (fake)' : 'Generator', g.fake ? '#ff9fb4' : '#9a90bf');
+    if (noli.stance) { ctx.strokeStyle = '#a26bff'; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.arc(g.x, g.y, 50, 0, 6.3); ctx.stroke(); ctx.setLineDash([]); }
+  }
+  // observant range bands around dummy preview
+  if (noli.stance && !dummy.dead) for (const [r, l] of KIT.obs.bands) { ctx.strokeStyle = `rgba(196,155,255,${0.15 * l})`; ctx.beginPath(); ctx.arc(dummy.x, dummy.y, r * STUD, 0, 6.3); ctx.stroke(); }
+  for (const f of fx) { const k = f.t / f.life; ctx.globalAlpha = 1 - k; if (f.trail) { ctx.fillStyle = f.c; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1 - k * 0.5), 0, 6.3); ctx.fill(); } else { ctx.strokeStyle = f.c; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (0.4 + k * 0.6), 0, 6.3); ctx.stroke(); } ctx.globalAlpha = 1; }
+  for (const n of novas) {
+    if (!n.boom) { ctx.fillStyle = '#000'; ctx.strokeStyle = '#c49bff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(n.x, n.y, 12, 0, 6.3); ctx.fill(); ctx.stroke(); }
+    else { const k = n.bt / KIT.nova.pull; ctx.fillStyle = `rgba(40,10,80,${0.5 * (1 - k)})`; ctx.beginPath(); ctx.arc(n.x, n.y, KIT.nova.radius * (1 - k * 0.6), 0, 6.3); ctx.fill(); }
+  }
+  drawDummy(); drawNoli();
+  for (const t of texts) { ctx.globalAlpha = 1 - t.t / 1.4; label(t.x, t.y, t.s, t.c); ctx.globalAlpha = 1; }
+  ctx.restore();
+  if (noli.stance) { ctx.fillStyle = 'rgba(60,20,120,0.18)'; ctx.fillRect(0, 0, W, H); label(W / 2, 40, 'OBSERVANT — click a generator · R to leave', '#c49bff'); }
+  hud();
+}
+function hud() {
+  const slots = [['LMB', 'Stab', 'stab', KIT.stab.cd], ['Q', noli.state === 'rush' ? 'Re-Rush' : 'Void Rush', 'rush', KIT.rush.cd], ['E', novas.some((n) => !n.boom) ? 'Detonate' : 'Nova', 'nova', KIT.nova.cd], ['R', noli.stance ? 'Leave' : 'Observant', 'obs', KIT.obs.cd]];
+  const S = 70, gap = 8, total = slots.length * S + (slots.length - 1) * gap, x0 = W / 2 - total / 2, y0 = H - S - 18;
+  slots.forEach(([key, name, id, max], i) => {
+    const x = x0 + i * (S + gap), cd = noCd ? 0 : noli.cds[id];
+    ctx.fillStyle = '#14111f'; ctx.fillRect(x, y0, S, S); ctx.strokeStyle = '#2c2540'; ctx.strokeRect(x, y0, S, S);
+    if (cd > 0) { ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(x, y0 + S * (1 - Math.min(1, cd / max)), S, S * Math.min(1, cd / max)); }
+    ctx.textAlign = 'left'; ctx.font = '700 11px system-ui'; ctx.fillStyle = '#a26bff'; ctx.fillText(key, x + 5, y0 + 13);
+    ctx.textAlign = 'center'; ctx.font = '700 11px system-ui'; ctx.fillStyle = cd > 0 ? '#777' : '#e9e4ff'; ctx.fillText(name, x + S / 2, y0 + S / 2 + 2);
+    if (cd > 0) { ctx.font = '700 16px system-ui'; ctx.fillStyle = '#fff'; ctx.fillText(cd >= 1 ? Math.ceil(cd) : cd.toFixed(1), x + S / 2, y0 + S / 2 + 22); }
+  });
+  const bw = Math.min(320, W - 40), bx = W / 2 - bw / 2, by = y0 - 22;
+  ctx.fillStyle = '#14111f'; ctx.fillRect(bx, by, bw, 12);
+  ctx.fillStyle = '#5aa9ff'; ctx.fillRect(bx, by, bw * noli.stamina / KIT.stamina.max, 12);
+  label(W / 2, by - 4, 'STAMINA ' + Math.round(noli.stamina), '#e9e4ff');
+  if (noli.state === 'rush') label(W / 2, by - 22, `VOID RUSH · re-rush ready in ${Math.max(0, KIT.rush.reRush - noli.rush.t).toFixed(1)}s · chain ${noli.rush.chain}`, '#c49bff');
+}
+
+// ------------------------------------------------------------- UI
+const modesEl = document.getElementById('modes');
+for (const m of ['stand', 'wander', 'flee', 'repair']) {
+  const b = document.createElement('button'); b.textContent = m[0].toUpperCase() + m.slice(1); b.dataset.m = m;
+  b.onclick = () => { mode = m; dummy.goal = null; dummy.repair = null; for (const x of modesEl.children) x.classList.toggle('on', x.dataset.m === m); };
+  if (m === mode) b.classList.add('on'); modesEl.appendChild(b);
+}
+document.getElementById('respawn').onclick = respawn;
+document.getElementById('reset').onclick = () => { for (const k in noli.cds) noli.cds[k] = 0; log('Cooldowns reset'); };
+document.getElementById('nocd').onclick = (e) => { noCd = !noCd; e.target.textContent = 'No cooldowns: ' + (noCd ? 'on' : 'off'); e.target.classList.toggle('on', noCd); };
+for (const b of document.querySelectorAll('#side button')) b.addEventListener('mousedown', (e) => e.stopPropagation());
+log('Noli spawned. Void Rush ready in 10s, Observant in 25s (round-start cooldowns).');
+
+let last = performance.now();
+function loop(now) { const dt = Math.min(0.05, (now - last) / 1000); last = now; update(dt); render(); requestAnimationFrame(loop); }
+window.__t = { noli, dummy, novas, cam };
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
