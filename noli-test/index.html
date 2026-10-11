@@ -665,8 +665,8 @@ function drawParts() {
   }
 }
 // ------------------------------------------------------------- stab kill: drag, stomp, wait (PG: stars, no blood)
-// The crush lands on the loudest hit of the kill SFX (1.45s in): drag + lift + stomp = 1.45.
-const EXEC = { drag: 1.17, lift: 0.2, stomp: 0.08, settle: 0.15, after: 0.3, followZoom: 1.2, punch: 1.7, punchTime: 0.12 };   // after = 0.3s wait once the survivor is gone
+// The crush lands 1.75s into the kill SFX: drag + lift + stomp = 1.75.
+const EXEC = { drag: 1.47, lift: 0.2, stomp: 0.08, settle: 0.15, after: 0.3, followZoom: 1.2, punch: 1.7, punchTime: 0.12 };   // after = 0.3s wait once the survivor is gone
 function startExec(d, dmg, stacks) {
   d.exec = true; d.hall = 0; d.hp = 0; d.vx = d.vy = 0; d.squash = 0; d.fade = 1;
   txt(d.x, d.y - 24, '-' + dmg, '#ff4d6d');
