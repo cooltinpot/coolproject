@@ -1136,7 +1136,7 @@ function updateDarkTrail(dt) {
     if (Math.random() < dt * rate) {
       const back = Math.atan2(noli.y - (trailPrev.y - 0), noli.x - trailPrev.x);
       darkTrail.push({ x: noli.x - Math.cos(noli.ang) * noli.r * 0.6 + rand(-6, 6), y: noli.y - Math.sin(noli.ang) * noli.r * 0.6 + rand(-6, 6),
-        rot: rand(0, 6.3), spin: rand(-2.5, 2.5), size: rushing ? rand(38, 56) : rand(26, 36), t: 0, life: rushing ? rand(0.9, 1.4) : rand(0.5, 0.9) });
+        rot: rand(0, 6.3), spin: rand(-2.5, 2.5), size: rushing ? rand(38, 56) : rand(26, 36), t: 0, life: rushing ? rand(1.8, 2.8) : rand(1.0, 1.8) });   // lasts 2x longer
     }
   }
   for (const d of darkTrail) { d.t += dt; d.rot += d.spin * dt; }
