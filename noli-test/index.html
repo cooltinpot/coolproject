@@ -95,7 +95,7 @@ const KIT = {
           boost: { time: 1, speed: 1.35, turn: 4.5 },
           box: { off: 10, w: 52, h: 52 }, launch: 380, dashDeath: 1.35,   // body stays 0.9s, then fades over 0.45s
           hitDmg: 10, slamBase: 10, slamExtra: 30, perReRush: 3.5, knock: 2.0 },
-  nova: { cd: 12, recast: 0.9, speed: 430, life: 1.6, dmg: 15, box: 28, blast: 280, pull: 1.1, fx: 2.2, windup: 0.5, windMove: 0.7, boomRange: 819 },   // fx = implosion visual length; boomRange = explosion hearing radius
+  nova: { cd: 12, recast: 0.3, speed: 430, life: 1.6, dmg: 15, box: 28, blast: 280, pull: 1.1, fx: 2.2, windup: 0.5, windMove: 0.7, boomRange: 819 },   // fx = implosion visual length; boomRange = explosion hearing radius
   hallDur: 5,   // Hallucination wears off 5s after it was last applied
   obs: { travel: 1.0, waitMove: 0.2, landRoot: 0.5, stallRange: 300,   // teleport lands at 00:01 of the teleport SFX
           cd: 30, cdStart: 25, cdLeave: 15, bands: [[20, 3], [50, 2], [100, 1]] },
@@ -630,8 +630,8 @@ function update(dt) {
       const res = moveCircle(n, n.vx * dt, n.vy * dt);
       // In flight it passes through survivors; it only pulls when it implodes or hits a wall.
       n.spin = (n.spin || 0) + dt * 6;
-      if (Math.random() < dt * 40) parts.push({ kind: 'trail', x: n.x + rand(-6, 6), y: n.y + rand(-6, 6), c: TP_COLORS[Math.floor(rand(0, 3))], size: rand(2, 4), t: 0, life: rand(0.4, 0.8) });
-      if (Math.random() < dt * 28) parts.push({ kind: 'star', x: n.x + rand(-10, 10), y: n.y + rand(-10, 10), c: Math.random() < 0.6 ? '#ffffff' : '#c9a8ff', size: rand(3, 7), t: 0, life: rand(0.5, 0.9) });
+      if (Math.random() < dt * 40) parts.push({ kind: 'trail', x: n.x + rand(-6, 6), y: n.y + rand(-6, 6), c: TP_COLORS[Math.floor(rand(0, 3))], size: rand(2, 4), t: 0, life: rand(0.76, 1.52) });   // trail lasts 1.9x longer
+      if (Math.random() < dt * 28) parts.push({ kind: 'star', x: n.x + rand(-10, 10), y: n.y + rand(-10, 10), c: Math.random() < 0.6 ? '#ffffff' : '#c9a8ff', size: rand(3, 7), t: 0, life: rand(0.95, 1.71) });
       if (res.bx || res.by) detonate(n, 'wall');
       else if (n.t > KIT.nova.life) detonate(n, 'expired');
     } else {
