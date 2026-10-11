@@ -697,7 +697,7 @@ function dummyThink(d, dt) {
   return dd > 4 && sp ? { mx: Math.cos(a), my: Math.sin(a), sp, sprint: sp > 150 } : null;
 }
 function repairTick(d, g, dt) {
-  g.prog += dt / 8; d.genT += dt;
+  g.prog += dt / 8; d.genT += dt; g.workT = gameT;
   if (g.fake && d.genT > 2.2) { d.genT = 0; addHall(d, 1, 'Prankster puzzle'); }
   if (g.prog >= 1) {
     g.prog = 1;
@@ -821,7 +821,7 @@ function fireGun(d) {
     if (hitWall(x, y, 2)) break;
     if (canHitNoli() && Math.hypot(noli.x - x, noli.y - y) < noli.r + 3) { hit = true; break; }
   }
-  beams.push({ x1: x0, y1: y0, x2: x, y2: y, t: 0, life: 0.35 });
+  beams.push({ x1: x0, y1: y0, x2: x, y2: y, t: 0, life: 0.35 }); aiNoise(d.x, d.y, 1400);   // everyone hears a gunshot
   noiseBurst(0.25, 0.4, d); if (d.player) cam.shake = Math.max(cam.shake || 0, 5);
   d.vx -= c * 160; d.vy -= s * 160;   // recoil
   for (let i = 0; i < 8; i++) parts.push({ kind: 'star', x: x0 + rand(-6, 6), y: y0 + rand(-6, 6), c: i % 2 ? '#ffffff' : '#ffe9a8', size: rand(2, 5), t: 0, life: 0.25 });
@@ -870,7 +870,7 @@ function survivorTick(d, dt, ai) {
       mul = 0.25;
       if (A.t < SHED.windup && Math.random() < dt * 25) parts.push({ kind: 'star', x: d.x + rand(-14, 14), y: d.y + rand(-14, 14), c: '#ffffff', size: rand(2, 3.5), t: 0, life: 0.3 });
       if (A.t >= SHED.windup && A.t < SHED.windup + SHED.active) {
-        if (!A.swung) { A.swung = true; swing(d, '#ffffff', 40); survSfx('shed_lunge', d); }
+        if (!A.swung) { A.swung = true; swing(d, '#ffffff', 40); survSfx('shed_lunge', d); aiNoise(d.x, d.y, 450); }
         moveCircle(d, Math.cos(d.ang) * SHED.lunge * dt, Math.sin(d.ang) * SHED.lunge * dt);
         const b = survBox(d, 28, 42, 36), hit = !A.hit && canHitNoli() && boxHits(b, noli);
         showBox(b, hit || A.hit ? '#00ff4c' : '#ff0000', 0.05);
@@ -1171,21 +1171,74 @@ function playerThink(d, dt) {
 // Chases the best target, stabs up close, charges Void Rush when there's a clear lane and
 // re-rushes off hits, throws Nova and detonates it on top of people, and uses Observant to
 // teleport to the generator nearest a survivor when nobody's around.
-const AI = { target: null, retarget: 0, reDelay: 0, chainMax: 2, obsT: 0, obsWait: 0.8, last: 'free', sprintLock: false, wander: null };
-function seen(d) { return !(d.crouch && dist(noli, d) > 150); }   // Two Time crouching
-function aimLead(d, t) { return { x: d.x + (d.svx || 0) * t, y: d.y + (d.svy || 0) * t }; }
+const AI = { target: null, mem: new Map(), noises: [], last: 'free', sprintLock: false, wander: null, obsT: 0, obsWait: 0.8,
+  reDelay: 0, search: null, bubble: null, rushT: null, idleT: 0 };
+const AIV = { view: 800, sense: 130, crouchSee: 150, forget: 10, hearRun: 320, hearRepair: 480 };
+let gameT = 0;
+// ---- perception: Noli only knows what he can see, hear or remember.
+function canSee(d) {
+  const nd = dist(noli, d);
+  if (d.crouch && nd > AIV.crouchSee) return false;
+  if (nd < AIV.sense) return true;   // right next to him: always noticed
+  return nd <= AIV.view && clearPath(noli, d, 3);
+}
+function aiNoise(x, y, r) { AI.noises.push({ x, y, r }); }   // gunshots, sword lunges, etc.
+function remember(d, x, y, seen) {
+  const m = AI.mem.get(d);
+  if (!seen && m && m.seen && m.age < 1) return;   // a fresh sighting beats a sound
+  AI.mem.set(d, { x, y, vx: seen ? d.svx || 0 : 0, vy: seen ? d.svy || 0 : 0, age: 0, seen, searched: false });
+}
+function perceive(dt) {
+  for (const m of AI.mem.values()) { m.age += dt; m.seen = m.seen && m.age < 0.05; }
+  for (const d of alive()) {
+    if (canSee(d)) { remember(d, d.x, d.y, true); continue; }
+    const nd = dist(noli, d), sp = Math.hypot(d.svx || 0, d.svy || 0);
+    if ((sp > 200 && nd < AIV.hearRun) || (d.repairing && nd < AIV.hearRepair)) remember(d, d.x + rand(-40, 40), d.y + rand(-40, 40), false);   // footsteps / generator noise
+  }
+  for (const n of AI.noises) if (dist(noli, n) < n.r) for (const d of alive()) if (dist(d, n) < 40) remember(d, n.x + rand(-30, 30), n.y + rand(-30, 30), false);
+  AI.noises.length = 0;
+  for (const [d, m] of AI.mem) if (m.age > AIV.forget || !alive().includes(d)) AI.mem.delete(d);
+}
+const known = (d) => AI.mem.get(d);
+const visibleNow = (d) => { const m = known(d); return m && m.seen; };
+// Where they'll be: seen = their real motion; remembered = drift along their last motion a little.
+function predict(d, t) {
+  const m = known(d); if (!m) return { x: d.x, y: d.y };
+  if (m.seen) return { x: d.x + (d.svx || 0) * t, y: d.y + (d.svy || 0) * t };
+  const k = Math.min(m.age, 1.2) + t;
+  return { x: m.x + m.vx * k, y: m.y + m.vy * k };
+}
+// Lead a moving target for something that travels at `speed` (intercept point).
+function intercept(d, speed, delay = 0) {
+  let p = predict(d, delay);
+  for (let i = 0; i < 4; i++) p = predict(d, delay + dist(noli, p) / speed);
+  return p;
+}
 function pickTarget() {
   let best = null, bs = Infinity;
-  for (const d of alive()) {
-    if (!seen(d)) continue;
-    const s = dist(noli, d) - d.hall * 70 - (1 - d.hp / d.maxHp) * 80 + (clearPath(noli, d, 4) ? 0 : 150);
+  for (const [d, m] of AI.mem) {
+    if (m.age > 6) continue;
+    const p = m.seen ? d : m;
+    const s = dist(noli, p) + m.age * 140 - d.hall * 70 - (1 - d.hp / d.maxHp) * 90 - (m.seen ? 120 : 0) + (d.invT > 0 ? 200 : 0);
     if (s < bs) { bs = s; best = d; }
+  }
+  // Stick with who he's on unless someone's clearly better.
+  if (AI.target && best !== AI.target && known(AI.target) && known(AI.target).age < 3) {
+    const m = known(AI.target), p = m.seen ? AI.target : m;
+    const cur = dist(noli, p) + m.age * 140 - AI.target.hall * 70 - (m.seen ? 120 : 0);
+    if (cur < bs + 150) return AI.target;
   }
   return best;
 }
+function bubble(s) { if (!AI.bubble || AI.bubble.s !== s || AI.bubble.t > 0.6) AI.bubble = { s, t: 0 }; }
+// The generator someone was most recently heard/seen working on (that he isn't standing at).
 function bestGen() {
-  let best = null, bs = Infinity;
-  for (const g of gens) { if (dist(noli, g) < 260) continue; for (const d of alive()) { const s = dist(g, d); if (s < bs) { bs = s; best = g; } } }
+  let best = null, bs = -Infinity;
+  for (const g of gens) {
+    if (dist(noli, g) < 300) continue;
+    const s = (g.workT ? 30 - Math.min(30, gameT - g.workT) : 0) * 10 + g.prog * 50 + rand(0, 20);
+    if (s > bs) { bs = s; best = g; }
+  }
   return best;
 }
 function moveToward(x, y, sprint) {
@@ -1199,50 +1252,158 @@ function moveToward(x, y, sprint) {
   if (noli.stamina < 5) AI.sprintLock = true; if (noli.stamina > 40) AI.sprintLock = false;
   NI.shift = sprint && !AI.sprintLock;
 }
+// ---- Void Rush planning
+const RUSH_SPEED = KIT.rush.speed * 1.08;   // average including the launch burst
+// Is there a clean lane to hit them (seen, in reach, nothing in the way, not blocking)?
+function rushLane(d, delay, chain) {
+  if (!d || !visibleNow(d) || d.invT > 0) return null;
+  const sp = RUSH_SPEED * (chain ? KIT.rush.reSpeed : 1), p = intercept(d, sp, delay), L = dist(noli, p);
+  if (L > sp * 1.4 || L < 40) return null;   // within ~1.4s of rushing
+  if (!clearPath(noli, p, noli.r - 4) || hitWall(p.x, p.y, 8)) return null;
+  // Turn needed vs. what he can turn during the rush.
+  const turn = Math.abs(angDiff(Math.atan2(p.y - noli.y, p.x - noli.x), noli.ang));
+  return { p, L, turn, score: L + turn * 60 - d.hall * 120 - (1 - d.hp / d.maxHp) * 60 };
+}
+// A re-rush passes through the survivor it just bounced off for its first 0.3s,
+// so they're only a real target once they're further away than that.
+const IGNORE_REACH = KIT.rush.speed * KIT.rush.reSpeed * 0.3 + 40;
+function bestRushTarget(delay, chain, prefer) {
+  let best = null;
+  for (const d of alive()) {
+    const lane = rushLane(d, delay, chain); if (!lane) continue;
+    if (d === prefer && lane.L < IGNORE_REACH) continue;
+    // Re-rushing whoever he just hit while they're hallucinating = the air slam.
+    if (d === prefer && d.hall >= 1) lane.score -= 400;
+    if (!best || lane.score < best.score) best = { d, ...lane };
+  }
+  return best;
+}
+// ---- reading survivors: back off from a Shedletsky windup, sidestep a Chance aim or Guest charge, don't hit a block
+function dangerDodge() {
+  for (const d of alive()) {
+    if (!d.kit || !d.act || !visibleNow(d)) continue;
+    const nd = dist(noli, d), aimed = Math.abs(angDiff(Math.atan2(noli.y - d.y, noli.x - d.x), d.ang)) < 0.45;
+    if (d.act.kind === 'slash' && d.act.t < SHED.windup && nd < 150 && aimed) return Math.atan2(noli.y - d.y, noli.x - d.x);   // straight back out of reach
+    if ((d.act.kind === 'aim' && nd < 720 && aimed) || (d.act.kind === 'charge' && nd < 260 && aimed)) {
+      const a = Math.atan2(noli.y - d.y, noli.x - d.x) + (AI.dodgeSide || 1) * Math.PI / 2;
+      if (hitWall(noli.x + Math.cos(a) * 40, noli.y + Math.sin(a) * 40, noli.r)) AI.dodgeSide = -(AI.dodgeSide || 1);
+      return Math.atan2(noli.y - d.y, noli.x - d.x) + (AI.dodgeSide || 1) * Math.PI / 2;
+    }
+  }
+  return null;
+}
 function noliAI(dt) {
   NI.mx = NI.my = 0; NI.shift = false;
+  perceive(dt);
+  if (AI.bubble) { AI.bubble.t += dt; if (AI.bubble.t > 1) AI.bubble = null; }
   const st = noli.state;
-  if (st === 'reWindow' && AI.last !== 'reWindow') AI.reDelay = rand(0.2, 0.6);   // human-ish reaction
-  if (st === 'rushWind' && AI.last !== 'rushWind') AI.chainMax = 1 + Math.floor(rand(0, 4));
+  if (st === 'reWindow' && AI.last !== 'reWindow') AI.reDelay = rand(0.08, 0.22);   // sharp reactions
   AI.last = st;
-  AI.retarget -= dt;
-  if (!AI.target || !alive().includes(AI.target) || !seen(AI.target) || AI.retarget <= 0) { AI.target = pickTarget(); AI.retarget = 1.2; }
-  const t = AI.target;
+  const prev = AI.target;
+  AI.target = pickTarget();
+  const t = AI.target, tm = t && known(t), sees = t && tm.seen;
+  if (t && sees && (prev !== t || !AI.hadSight)) bubble('!');
+  if (t && !sees && AI.hadSight) bubble('?');
+  AI.hadSight = !!sees;
   // Detonate a live Nova once it's on top of somebody.
   const live = novas.find((n) => !n.boom);
-  if (live && live.t >= KIT.nova.recast && alive().some((d) => Math.abs(d.x - live.x) < KIT.nova.blast * 0.38 && Math.abs(d.y - live.y) < KIT.nova.blast * 0.38)) castNova();
+  if (live && live.t >= KIT.nova.recast && alive().some((d) => Math.abs(d.x - live.x) < KIT.nova.blast * 0.4 && Math.abs(d.y - live.y) < KIT.nova.blast * 0.4)) castNova();
   if (noli.stance) {
     NI.q = false; AI.obsT += dt;
-    if (AI.obsT > AI.obsWait) { const g = bestGen(); if (g) observantPick(g); else toggleObservant(); }
+    if (AI.obsT > AI.obsWait) { const g = bestGen(); if (g) { observantPick(g); AI.search = { x: g.x, y: g.y + 60, t: 0 }; } else toggleObservant(); }
     return;
   }
   if (noli.stunT > 0 || st === 'exec' || st === 'slamHold' || st === 'tp') { NI.q = false; return; }
+
+  // --- Void Rush: charging, rushing and chaining
+  if (st === 'rushWind') {
+    NI.q = true;
+    // Aim where they'll be when the charge finishes; bail out cheaply (1.2s cd) if the lane closes.
+    const left = Math.max(0, KIT.rush.windup - noli.st), lane = t && rushLane(t, left, 0);
+    if (lane) { NI.ax = lane.p.x; NI.ay = lane.p.y; AI.laneLost = 0; }
+    else {
+      const alt = bestRushTarget(left, 0);
+      if (alt) { NI.ax = alt.p.x; NI.ay = alt.p.y; AI.laneLost = 0; }
+      else if ((AI.laneLost = (AI.laneLost || 0) + dt) > 0.25) { NI.q = false; releaseRush(); }
+    }
+    return;
+  }
+  if (st === 'rush') {
+    NI.q = true;
+    const r = noli.rush;
+    if (!AI.rushT || !alive().includes(AI.rushT) || !rushLane(AI.rushT, 0, r.chain)) { const b = bestRushTarget(0, r.chain, r.chain ? null : null); AI.rushT = b ? b.d : null; }
+    if (AI.rushT && AI.rushT !== r.ignore) { const p = intercept(AI.rushT, RUSH_SPEED * (r.chain ? KIT.rush.reSpeed : 1)); NI.ax = p.x; NI.ay = p.y; }
+    else if (AI.rushT) { NI.ax = AI.rushT.x; NI.ay = AI.rushT.y; }
+    // Boost when the turn is sharp (re-rushes only, first second).
+    NI.shift = r.chain > 0 && (Math.abs(angDiff(Math.atan2(NI.ay - noli.y, NI.ax - noli.x), noli.ang)) > 0.25 || r.t < 0.2);
+    // About to crash with nobody to hit: let go instead (same slow, but the star isn't wasted on a wall).
+    const ahead = { x: noli.x + Math.cos(noli.ang) * 45, y: noli.y + Math.sin(noli.ang) * 45 };
+    if (!AI.rushT && hitWall(ahead.x, ahead.y, noli.r) && r.t > 0.3) NI.q = false;
+    return;
+  }
+  if (st === 'reWindow') {
+    AI.reDelay -= dt; NI.q = false;
+    if (AI.reDelay > 0) return;
+    // Chain off whoever has the best lane — the survivor he just hit first if they're hallucinating.
+    const last = noli.rush.last, b = bestRushTarget(0, noli.rush.chain + 1, last);
+    // Worth waiting for the air slam: the one he hit is hallucinating and will be far enough soon.
+    const slamSoon = last && last.hall >= 1 && visibleNow(last) && !(b && b.d === last) && noli.rush.wt > 0.7;
+    if (b && b.d !== last && slamSoon && b.d.hall < 1) return;
+    if (b) { AI.rushT = b.d; NI.ax = b.p.x; NI.ay = b.p.y; NI.q = true; castRush(); }
+    return;
+  }
+  NI.q = false; AI.rushT = null;
+
+  // --- Reading the survivors
+  const dodge = dangerDodge();
+  if (dodge !== null && st === 'free') { NI.mx = Math.cos(dodge); NI.my = Math.sin(dodge); NI.shift = noli.stamina > 10; if (t) { NI.ax = t.x; NI.ay = t.y; } return; }
+
   if (!t) {
-    // Nobody in sight: Observant to a generator near someone, or patrol the generators.
-    NI.q = false;
-    if (st === 'free' && ready('obs') && gens.length > 1 && alive().length) { toggleObservant(); AI.obsT = 0; AI.obsWait = rand(0.6, 1.2); return; }
-    if (!AI.wander || dist(noli, AI.wander) < 70) { const g = gens[Math.floor(rand(0, gens.length))]; AI.wander = g ? { x: g.x, y: g.y + 60 } : { x: rand(200, MAP.w - 200), y: rand(200, MAP.h - 200) }; }
+    // Nobody known: check where he last heard something, Observant to the busiest generator, or patrol.
+    if (st === 'free' && ready('obs') && gens.length > 1 && alive().length && (AI.idleT += dt) > 1.5) { toggleObservant(); AI.obsT = 0; AI.obsWait = rand(0.5, 1); AI.idleT = 0; return; }
+    if (AI.search && dist(noli, AI.search) > 50 && (AI.search.t += dt) < 6) { NI.ax = AI.search.x; NI.ay = AI.search.y; moveToward(AI.search.x, AI.search.y, true); return; }
+    AI.search = null;
+    if (!AI.wander || dist(noli, AI.wander) < 70) { const g = bestGen(); AI.wander = g ? { x: g.x, y: g.y + 60 } : { x: rand(200, MAP.w - 200), y: rand(200, MAP.h - 200) }; }
     NI.ax = AI.wander.x; NI.ay = AI.wander.y; moveToward(AI.wander.x, AI.wander.y, false);
     return;
   }
-  const d = dist(noli, t), sight = clearPath(noli, t, 6);
-  const lead = aimLead(t, clamp(d / KIT.rush.speed, 0, 0.5));
-  NI.ax = lead.x; NI.ay = lead.y;
-  if (st === 'rushWind') { NI.q = true; return; }
-  if (st === 'rush') { NI.q = true; NI.shift = noli.rush.chain > 0; return; }
-  if (st === 'reWindow') {
-    AI.reDelay -= dt; NI.q = false;
-    const next = pickTarget();
-    if (AI.reDelay <= 0 && next && noli.rush.chain < AI.chainMax && dist(noli, next) < 650) { const p = aimLead(next, 0.25); NI.ax = p.x; NI.ay = p.y; NI.q = true; castRush(); }
+  AI.idleT = 0; AI.wander = null;
+  if (!sees) {
+    // Lost sight: go to where they were heading, then look around the nearest cover.
+    const p = predict(t, 0);
+    NI.ax = p.x; NI.ay = p.y;
+    // Flush them out from behind cover with a Nova into the wall next to them.
+    if (ready('nova') && st === 'free' && tm.age < 1.5 && dist(noli, p) < 600 && !clearPath(noli, p, 3)) { castNova(); return; }
+    if (dist(noli, p) < 50) { tm.searched = true; tm.age += dt * 3; }   // nothing here — it goes stale fast
+    moveToward(p.x, p.y, true);
     return;
   }
-  NI.q = false;
-  if (st === 'novaWind' || st === 'stab') { moveToward(t.x, t.y, false); return; }
-  if (d < 72 && ready('stab')) { NI.ax = t.x; NI.ay = t.y; stab(); }
-  else if (ready('rush') && sight && clearPath(noli, t, noli.r) && d > 170 && d < 620 && Math.random() < dt * 1.6) { NI.q = true; castRush(); return; }
-  else if (ready('nova') && sight && d > 220 && d < 650 && Math.random() < dt * 1.2) castNova();
-  else if (st === 'free' && ready('obs') && d > 850 && gens.length > 1 && Math.random() < dt * 0.5) { toggleObservant(); AI.obsT = 0; AI.obsWait = rand(0.6, 1.2); return; }
-  moveToward(t.x, t.y, d > 110);
+  const d = dist(noli, t);
+  const chase = intercept(t, noli.stamina > 5 ? KIT.speed.sprint : KIT.speed.walk);
+  NI.ax = t.x; NI.ay = t.y;
+  if (st === 'novaWind') { const p = intercept(t, KIT.nova.speed, KIT.nova.windup - noli.st); NI.ax = p.x; NI.ay = p.y; moveToward(chase.x, chase.y, false); return; }
+  if (st === 'stab') { moveToward(chase.x, chase.y, false); return; }
+  if (t.invT > 0 && d < 140) { const a = Math.atan2(noli.y - t.y, noli.x - t.x); NI.mx = Math.cos(a); NI.my = Math.sin(a); return; }   // don't swing into a Block
+  const near = predict(t, KIT.stab.windup);
+  if (dist(noli, near) < 66 && ready('stab')) { NI.ax = near.x; NI.ay = near.y; stab(); }
+  else if (ready('rush') && d > 150) {
+    const lane = rushLane(t, KIT.rush.windup, 0);
+    if (lane && lane.L > 170) { NI.ax = lane.p.x; NI.ay = lane.p.y; NI.q = true; castRush(); return; }
+  }
+  if (st === 'free' && ready('nova') && d > 200 && d < 650 && Math.random() < dt * 1.5) { const p = intercept(t, KIT.nova.speed, KIT.nova.windup); NI.ax = p.x; NI.ay = p.y; castNova(); }
+  else if (st === 'free' && ready('obs') && d > 900 && gens.length > 1 && Math.random() < dt * 0.5) { toggleObservant(); AI.obsT = 0; AI.obsWait = rand(0.5, 1); return; }
+  moveToward(chase.x, chase.y, d > 90);
+}
+// Shown over Noli: "!" when he spots someone, "?" when he loses them. With hitboxes on, his last-known marks too.
+function drawAIKnowledge() {
+  if (mode !== 'survivor') return;
+  if (AI.bubble) { const k = AI.bubble.t; ctx.globalAlpha = Math.min(1, (1 - k) * 3); label(noli.x, noli.y - 64 - Math.min(k, 0.15) * 40, AI.bubble.s, AI.bubble.s === '!' ? '#ffffff' : '#c9a8ff', '900 22px system-ui'); ctx.globalAlpha = 1; }
+  if (!showHitboxes) return;
+  for (const [d, m] of AI.mem) {
+    if (m.seen) { ctx.globalAlpha = 0.25; ctx.strokeStyle = '#ffffff'; ctx.setLineDash([2, 6]); ctx.beginPath(); ctx.moveTo(noli.x, noli.y); ctx.lineTo(d.x, d.y); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; continue; }
+    ctx.globalAlpha = Math.max(0.15, 0.7 - m.age / AIV.forget); ctx.strokeStyle = '#c9a8ff'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(m.x, m.y, 16, 0, 6.3); ctx.stroke(); ctx.setLineDash([]);
+    label(m.x, m.y + 5, '?', '#c9a8ff'); ctx.globalAlpha = 1;
+  }
 }
 
 // ------------------------------------------------------------- play-as-survivor round
@@ -1261,7 +1422,7 @@ function resetNoli() {
     stabVis: null, stabbed: false, tp: null, slamCam: null, obsStar: null, hp: noli.maxHp, stunImmT: 0, ifT: 0, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart } });
   if (hitWall(noli.x, noli.y, noli.r)) { noli.x = MAP.w / 2; noli.y = MAP.h / 2; }
   novas.length = 0; novaReturn = null; selGen = null; chargeUI.hold = 0; chargeUI.cap = '';
-  AI.target = null; AI.wander = null;
+  AI.target = null; AI.wander = null; AI.mem.clear(); AI.search = null; AI.rushT = null; AI.bubble = null;
 }
 function freeSpot(x, y) {
   for (let i = 0; i < 60 && hitWall(x, y, 20); i++) { x = rand(80, MAP.w - 80); y = rand(80, MAP.h - 80); }
@@ -1296,7 +1457,7 @@ function setPlayerKit(k) {
 function updateHelp() {
   document.getElementById('helpNoli').style.display = mode === 'noli' ? '' : 'none';
   const h = document.getElementById('helpSurv'); h.style.display = mode === 'survivor' ? '' : 'none';
-  h.innerHTML = `WASD move · Shift sprint · Mouse aim · <b>Hold F</b> at a generator to repair<br><b>${KITS[playerKit].name}:</b> ${KIT_HELP[playerKit]}<br>Survive the clock — every finished generator takes 25s off it.`;
+  h.innerHTML = `WASD move · Shift sprint · Mouse aim · <b>Hold F</b> at a generator to repair<br><b>${KITS[playerKit].name}:</b> ${KIT_HELP[playerKit]}<br>Survive the clock — every finished generator takes 25s off it.<br>Noli only knows what he sees or hears: break line of sight behind pillars, and remember that sprinting near him, repairing and gunshots make noise. <b>!</b> = he spotted someone, <b>?</b> = he lost them (Hitboxes on shows where he thinks you are).`;
 }
 
 // ------------------------------------------------------------- creative tools
@@ -1354,6 +1515,7 @@ function update(dt) {
   if (!noli.stunT && noli.dazed) { noli.dazed = false; noli.stunImmT = NOLI_PROT.stunImmune; txt(noli.x, noli.y - 44, 'STUN IMMUNE', '#5aa9ff'); }
   noli.stunImmT = Math.max(0, (noli.stunImmT || 0) - dt); noli.ifT = Math.max(0, (noli.ifT || 0) - dt);
   if (mode === 'survivor' && (!player || !dummies.includes(player))) setMode('noli');   // your survivor was erased
+  gameT += dt;
   if (mode === 'noli') readNoliInput(); else noliAI(dt);
   const w = world();
   if (noli.state !== 'rush' && noli.state !== 'exec' && !noli.dazed) noli.ang = Math.atan2(NI.ay - noli.y, NI.ax - noli.x);
@@ -2147,6 +2309,7 @@ function render() {
   }
   for (const d of dummies) drawDummy(d);
   drawSurvFx();
+  drawAIKnowledge();
   drawExec();
   if (hover && hover.kind === 'dummy') { ctx.strokeStyle = tool === 'erase' ? '#ff4d6d' : '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hover.o.x, hover.o.y, 24, 0, 6.3); ctx.stroke(); }
   drawNoli();
