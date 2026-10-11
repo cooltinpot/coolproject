@@ -1037,14 +1037,21 @@ function drawChargeUI() {
   const now = performance.now() / 1000, dt = Math.min(0.05, now - (chargeUI.last || now)); chargeUI.last = now;
   // Shown for the whole Void Rush: full while charging and rushing, drains during the re-rush window.
   const st = noli.state, on = st === 'rushWind' || st === 'rush' || st === 'reWindow';
-  if (on) chargeUI.k = st === 'reWindow' ? 1 - clamp(noli.rush.wt / KIT.rush.reRush, 0, 1) : 0;
+  // Fills while charging (empty -> full as the charge SFX plays), then tracks the time left:
+  // the rush's remaining time while rushing, the re-rush window's remaining time after a hit.
+  if (on) {
+    chargeUI.fill = st === 'rushWind';
+    chargeUI.k = st === 'rushWind' ? 1 - clamp(noli.st / KIT.rush.windup, 0, 1)
+      : st === 'rush' ? clamp(noli.rush.t / KIT.rush.dur, 0, 1)
+      : 1 - clamp(noli.rush.wt / KIT.rush.reRush, 0, 1);
+  }
   if (on) chargeUI.cap = st === 'rushWind' ? 'Charge VoidRush by holding down' : st === 'reWindow' ? 'Press Q to re-rush' : '';
   chargeUI.a = clamp(chargeUI.a + (on ? dt * 8 : -dt * 5), 0, 1);
   if (chargeUI.a <= 0) return;
   // Sits just below Noli on screen (above him if he's near the bottom edge).
-  const nsx = (noli.x - cam.x) * cam.s, nsy = (noli.y - cam.y) * cam.s;
-  const below = nsy + 100 + 80 < H - 120;
-  const cx = clamp(nsx, 160, W - 160), cy = below ? nsy + 100 : nsy - 130, R = 34, remain = 1 - chargeUI.k;
+  // Halfway between Noli and the stamina bar.
+  const nsx = (noli.x - cam.x) * cam.s, nsy = (noli.y - cam.y) * cam.s, barY = H - 110;
+  const cx = (nsx + W / 2) / 2, cy = (nsy + barY) / 2, R = 34, remain = 1 - chargeUI.k;
   ctx.save(); ctx.globalAlpha = chargeUI.a;
   // dark backing + soft white glow
   ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.beginPath(); ctx.arc(cx, cy, R + 8, 0, 6.3); ctx.fill();
@@ -1055,8 +1062,9 @@ function drawChargeUI() {
   star4(cx, cy, 13, '#ffffff', 0.9 * chargeUI.a); star4(cx, cy, 11, '#000000', chargeUI.a);
   // crumbly ring; it empties clockwise starting from the top
   const segs = 90, shown = Math.ceil(segs * remain), flick = Math.floor(now * 12);
-  for (let i = segs - shown; i < segs; i++) {
-    const n = hash1(i), gap = hash1(i * 3.7 + 1) < 0.16, edge = i < segs - shown + 3;
+  const i0 = chargeUI.fill ? 0 : segs - shown, i1 = chargeUI.fill ? shown : segs;   // fills clockwise, drains clockwise
+  for (let i = i0; i < i1; i++) {
+    const n = hash1(i), gap = hash1(i * 3.7 + 1) < 0.16, edge = chargeUI.fill ? i > i1 - 4 : i < i0 + 3;
     if (gap) continue;
     const a0 = -Math.PI / 2 + (i / segs) * Math.PI * 2, a1 = a0 + (Math.PI * 2 / segs) * (0.7 + 0.5 * hash1(i + flick * 0.01));
     const r = R + (n - 0.5) * 5, w = 3 + n * 4 * (edge ? hash1(i + flick) : 1);
