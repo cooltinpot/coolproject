@@ -1062,9 +1062,10 @@ function drawChargeUI() {
   star4(cx, cy, 13, '#ffffff', 0.9 * chargeUI.a); star4(cx, cy, 11, '#000000', chargeUI.a);
   // crumbly ring; it empties clockwise starting from the top
   const segs = 90, shown = Math.ceil(segs * remain), flick = Math.floor(now * 12);
-  const i0 = chargeUI.fill ? 0 : segs - shown, i1 = chargeUI.fill ? shown : segs;   // fills clockwise, drains clockwise
+  // Fills counter-clockwise from the top while charging; drains clockwise from the top after.
+  const i0 = segs - shown, i1 = segs;
   for (let i = i0; i < i1; i++) {
-    const n = hash1(i), gap = hash1(i * 3.7 + 1) < 0.16, edge = chargeUI.fill ? i > i1 - 4 : i < i0 + 3;
+    const n = hash1(i), gap = hash1(i * 3.7 + 1) < 0.16, edge = i < i0 + 3;
     if (gap) continue;
     const a0 = -Math.PI / 2 + (i / segs) * Math.PI * 2, a1 = a0 + (Math.PI * 2 / segs) * (0.7 + 0.5 * hash1(i + flick * 0.01));
     const r = R + (n - 0.5) * 5, w = 3 + n * 4 * (edge ? hash1(i + flick) : 1);
