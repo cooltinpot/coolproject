@@ -1123,8 +1123,7 @@ function drawStabStar() {
   ctx.restore(); ctx.globalAlpha = 1;
 }
 // ------------------------------------------------------------- dark sharp trail behind Noli
-const DARK_IMG = new Image(); DARK_IMG.src = 'img/dark_trail.png';
-const DARK_EDGE = new Image(); DARK_EDGE.src = 'img/dark_trail_edge.png';   // faint purple rim so it reads on the dark floor
+const DARK_IMG = new Image(); DARK_IMG.src = 'img/dark_trail.png';   // pure black
 const darkTrail = [];
 let trailPrev = null;
 function updateDarkTrail(dt) {
@@ -1148,8 +1147,7 @@ function drawDarkTrail() {
   for (const d of darkTrail) {
     const k = d.t / d.life, sz = d.size * (1 - 0.6 * k);
     ctx.save(); ctx.translate(d.x, d.y); ctx.rotate(d.rot);
-    if (DARK_EDGE.complete && DARK_EDGE.naturalWidth) { ctx.globalAlpha = 0.45 * (1 - k); ctx.drawImage(DARK_EDGE, -sz / 2, -sz / 2, sz, sz); }
-    ctx.globalAlpha = 0.95 * (1 - k);
+    ctx.globalAlpha = 1 - k;
     ctx.drawImage(DARK_IMG, -sz / 2, -sz / 2, sz, sz);
     ctx.restore();
   }
