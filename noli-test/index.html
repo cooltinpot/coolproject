@@ -364,6 +364,8 @@ function stunNoli(t, why, at = null) {
   tone(330, 0.35, 'triangle', 0.18, 0.4, noli); cam.shake = Math.max(cam.shake || 0, 4);
   // White flash of sparkles where the hit landed.
   const p = at || noli;
+  // He turns to face whoever stunned him (head wobbling while dazed).
+  noli.stunFace = p.dir !== undefined ? p.dir + Math.PI : noli.ang; noli.stunAge = 0; noli.turnBack = false;
   fx.push({ x: p.x, y: p.y, r: 46, t: 0, life: 0.3, flash: true }); ring(p.x, p.y, 30, '#ffffff', 0.3);
   // Sparkles shoot forward from the impact, in the direction the hit was travelling.
   const dir = p.dir ?? rand(0, 6.3);
@@ -1744,14 +1746,25 @@ function update(dt) {
     if (was > 0 && noli.cds[k] === 0 && (k === 'stab' || k === 'nova')) sfx('star');   // Stab / Nova back off cooldown
   }
   noli.stunT = Math.max(0, noli.stunT - dt);
-  if (!noli.stunT && noli.dazed) { noli.dazed = false; noli.stunImmT = NOLI_PROT.stunImmune; txt(noli.x, noli.y - 44, 'STUN IMMUNE', '#5aa9ff'); }
+  if (!noli.stunT && noli.dazed) { noli.dazed = false; noli.turnBack = true; noli.stunImmT = NOLI_PROT.stunImmune; txt(noli.x, noli.y - 44, 'STUN IMMUNE', '#5aa9ff'); }
   noli.stunImmT = Math.max(0, (noli.stunImmT || 0) - dt); noli.ifT = Math.max(0, (noli.ifT || 0) - dt);
   noli.helplessT = Math.max(0, (noli.helplessT || 0) - dt); noli.blockSlowT = Math.max(0, (noli.blockSlowT || 0) - dt); noli.slowEffT = Math.max(0, (noli.slowEffT || 0) - dt);
   if (mode === 'survivor' && (!player || !dummies.includes(player))) setMode('noli');   // your survivor was erased
   gameT += dt;
   if (mode === 'noli') readNoliInput(); else noliAI(dt);
   const w = world();
-  if (noli.state !== 'rush' && noli.state !== 'exec' && !noli.dazed) noli.ang = Math.atan2(NI.ay - noli.y, NI.ax - noli.x);
+  if (noli.dazed && noli.stunFace !== undefined) {
+    // Stunned: facing the survivor, head wobbling left and right.
+    noli.stunAge += dt;
+    const want = noli.stunFace + Math.sin(noli.stunAge * 9) * 0.32;
+    noli.ang += angDiff(want, noli.ang) * Math.min(1, dt * 18);
+  } else if (noli.state !== 'rush' && noli.state !== 'exec' && !noli.dazed) {
+    const aim = Math.atan2(NI.ay - noli.y, NI.ax - noli.x);
+    if (noli.turnBack) {   // stun over: turn smoothly back to the crosshair
+      noli.ang += angDiff(aim, noli.ang) * Math.min(1, dt * 7);
+      if (Math.abs(angDiff(aim, noli.ang)) < 0.04) noli.turnBack = false;
+    } else noli.ang = aim;
+  }
 
   if (noli.stance && mode === 'noli') {
     if (mouse.click) { const g = gens.find((g) => Math.hypot(g.x - w.x, g.y - w.y) < 70); if (g) observantPick(g); }
