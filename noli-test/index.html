@@ -182,6 +182,7 @@ const VO = {
   groups: {
     rush: { lines: ['rush_dsmn', 'rush_dejavu'], prio: 2, cd: 0 },
     nova: { lines: ['nova_throw_vo'], prio: 2, cd: 0 },   // using Nova
+    obs: { lines: ['observant_vo'], prio: 2, cd: 0 },   // teleporting to a generator with Observant
     miss: { lines: ['miss_1', 'miss_2', 'miss_3', 'miss_4', 'miss_myleg'], prio: 4, cd: 0 },   // Void Rush into a wall, or letting go mid-rush
     slam: { lines: ['slam_unintelligible', 'slam_playtime', 'slam_divine', 'slam_seconddash'], prio: 5, cd: 0 },   // slamming a survivor (knockdown or air slam)   // starting a (first) Void Rush
     stun: { lines: ['stun_1', 'stun_defeatme', 'stun_wth', 'stun_idk'], prio: 3, cd: 6 },
@@ -764,7 +765,7 @@ function observantPick(g) {
   noli.stance = false; noli.state = 'tp'; noli.st = 0; noli.tp = g;
   selGen = { g, t: 0 }; ring(g.x, g.y, 35, '#c9a8ff', 0.6);   // the chosen generator shines purple
   stopSfx('stall'); stopSfx('gen_start'); sfx('gen_end');
-  sfx('observant_tp');
+  sfx('observant_tp'); voice('obs');
   ring(noli.x, noli.y, 50, '#a26bff', 0.8);
 }
 function observantTeleport(g) {
