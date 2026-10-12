@@ -2379,7 +2379,16 @@ function drawNoli() {
   }
   if (noli.dazed && noli.stunT > 0) {   // stunned: stars circling his head
     const T = performance.now() / 1000;
-    for (let i = 0; i < 4; i++) { const a = T * 5 + i * Math.PI / 2; star4(x + Math.cos(a) * 18, y - 28 + Math.sin(a) * 5, 5, i % 2 ? '#c9a8ff' : '#ffffff'); }
+    for (let i = 0; i < 4; i++) {
+      const a = T * 5 + i * Math.PI / 2, sx = x + Math.cos(a) * 18, sy = y - 28 + Math.sin(a) * 5;
+      star4(sx, sy, 5, i % 2 ? '#c9a8ff' : '#ffffff');
+      // Tiny shimmers twinkling on each orbiting star.
+      for (let j = 0; j < 3; j++) {
+        const tw = Math.max(0, Math.sin(T * (11 + j * 3) + i * 2.1 + j * 1.7));
+        if (tw > 0.3) { const ga = j * 2.1 + T * 2 + i; star4(sx + Math.cos(ga) * 5, sy + Math.sin(ga) * 3.5, 1 + 1.8 * tw, '#ffffff', tw); }
+      }
+      if (Math.random() < 0.18) parts.push({ kind: 'star', x: sx + rand(-2, 2), y: sy + rand(-2, 2), c: Math.random() < 0.7 ? '#ffffff' : '#e9e4ff', size: rand(0.8, 1.8), t: 0, life: rand(0.2, 0.35) });   // little glints trailing off
+    }
   }
   { const bw = 56; ctx.fillStyle = '#2a0f18'; ctx.fillRect(x - bw / 2, y - 52, bw, 6); ctx.fillStyle = '#c9a8ff'; ctx.fillRect(x - bw / 2, y - 52, bw * noli.hp / noli.maxHp, 6); }
   label(x, y - 34, 'NOLI', '#c49bff');
