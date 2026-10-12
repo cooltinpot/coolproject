@@ -181,6 +181,7 @@ function survSfx(name, at, vol = 0.8) {
 const VO = {
   groups: {
     rush: { lines: ['rush_dsmn', 'rush_dejavu'], prio: 2, cd: 0 },
+    nova: { lines: ['nova_throw_vo'], prio: 2, cd: 0 },   // using Nova
     miss: { lines: ['miss_1', 'miss_2', 'miss_3', 'miss_4', 'miss_myleg'], prio: 4, cd: 0 },   // Void Rush into a wall, or letting go mid-rush
     slam: { lines: ['slam_unintelligible', 'slam_playtime', 'slam_divine', 'slam_seconddash'], prio: 5, cd: 0 },   // slamming a survivor (knockdown or air slam)   // starting a (first) Void Rush
     stun: { lines: ['stun_1', 'stun_defeatme', 'stun_wth', 'stun_idk'], prio: 3, cd: 6 },
@@ -717,7 +718,7 @@ function castNova() {
   if (busy() || noli.stance || !ready('nova') || live) return;
   // 0.5s windup (moving 30% slower), then the throw.
   noli.state = 'novaWind'; noli.st = 0; noli.cds.nova = KIT.nova.cd;
-  sfx('nova_throw');
+  sfx('nova_throw'); voice('nova');
 }
 function throwNova() {
   noli.state = 'free';
