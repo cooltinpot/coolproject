@@ -348,7 +348,7 @@ function canHitNoli() { return noli.state !== 'exec' && noli.state !== 'slamHold
 function noliKilled() { noli.ifT = Math.max(noli.ifT || 0, NOLI_PROT.killIframes); }
 // Survivors stun Noli: whatever he was doing is cut off.
 // Where a survivor's hit landed on Noli: the edge of his body facing them.
-function impactAt(d) { const a = Math.atan2(d.y - noli.y, d.x - noli.x); return { x: noli.x + Math.cos(a) * noli.r, y: noli.y + Math.sin(a) * noli.r }; }
+function impactAt(d) { const a = Math.atan2(d.y - noli.y, d.x - noli.x); return { x: noli.x + Math.cos(a) * noli.r, y: noli.y + Math.sin(a) * noli.r, dir: a + Math.PI }; }   // dir = the way the hit travelled
 let screenFlash = 0;
 function stunNoli(t, why, at = null) {
   if (!canHitNoli()) return false;
@@ -365,8 +365,10 @@ function stunNoli(t, why, at = null) {
   // White flash of sparkles where the hit landed.
   const p = at || noli;
   fx.push({ x: p.x, y: p.y, r: 46, t: 0, life: 0.3, flash: true }); ring(p.x, p.y, 30, '#ffffff', 0.3);
-  for (let i = 0; i < 28; i++) { const a = rand(0, 6.3), r = rand(0, 30); parts.push({ kind: 'star', x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r, c: i % 4 ? '#ffffff' : '#e9e4ff', size: rand(2, 7), t: rand(-0.05, 0), life: rand(0.3, 0.6) }); }
-  for (let i = 0; i < 10; i++) { const a = rand(0, 6.3), sp = rand(80, 200); parts.push({ kind: 'spark', x: p.x, y: p.y, z: 8, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.8, vz: rand(100, 220), rot: rand(0, 6.3), spin: rand(8, 16), size: rand(2.5, 4.5), c: '#ffffff', t: 0, life: rand(0.4, 0.7) }); }
+  // Sparkles shoot forward from the impact, in the direction the hit was travelling.
+  const dir = p.dir ?? rand(0, 6.3);
+  for (let i = 0; i < 30; i++) { const a = dir + rand(-0.55, 0.55), sp = rand(120, 420); parts.push({ kind: 'star', x: p.x, y: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, drag: 0.02, c: i % 4 ? '#ffffff' : '#e9e4ff', size: rand(2, 6), t: rand(-0.04, 0), life: rand(0.35, 0.65) }); }
+  for (let i = 0; i < 10; i++) { const a = dir + rand(-0.7, 0.7), sp = rand(120, 280); parts.push({ kind: 'spark', x: p.x, y: p.y, z: 8, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.8, vz: rand(100, 220), rot: rand(0, 6.3), spin: rand(8, 16), size: rand(2.5, 4.5), c: '#ffffff', t: 0, life: rand(0.4, 0.7) }); }
   // As Noli: the camera bops in on him, then eases back to your zoom.
   if (mode === 'noli') { cam.bop = { t: 0 }; screenFlash = 1; }
   return true;
@@ -989,7 +991,7 @@ function fireGun(d) {
   for (let i = 0; i < 8; i++) parts.push({ kind: 'star', x: x0 + rand(-6, 6), y: y0 + rand(-6, 6), c: i % 2 ? '#ffffff' : '#ffe9a8', size: rand(2, 5), t: 0, life: 0.25 });
   if (hit) {
     const dd = dist(d, noli), t = clamp(4 - dd / 720 * 3, 1, 4);
-    stunNoli(t, `${d.name}'s One Shot (${(dd / STUD).toFixed(0)} studs)`, { x, y });
+    stunNoli(t, `${d.name}'s One Shot (${(dd / STUD).toFixed(0)} studs)`, { x, y, dir: d.ang });
   } else txt(d.x, d.y - 44, 'missed', '#9a90bf');
 }
 // Per-frame survivor logic: cooldowns, timers, actions and movement (ai = { mx, my, sprint, face }).
@@ -1996,6 +1998,7 @@ function updateParts(dt) {
   for (const q of parts) {
     q.t += dt;
     if (q.kind === 'orbit') { q.ang += q.spin * dt; q.off += q.rise * dt; if (q.gather) { const g = q.t / q.life; q.rad = 3 + q.r0 * (1 - g) * (1 - g); } }
+    if (q.kind === 'star' && q.vx !== undefined && q.t > 0) { q.x += q.vx * dt; q.y += q.vy * dt; const k = Math.pow(q.drag ?? 0.05, dt); q.vx *= k; q.vy *= k; }   // moving sparkles
     if (q.kind === 'smoke') { q.x += q.vx * dt; q.y += q.vy * dt; q.size += dt * 10; }
     if (q.kind === 'spark') {
       q.x += q.vx * dt; q.y += q.vy * dt; q.rot += q.spin * dt;
