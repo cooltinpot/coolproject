@@ -180,22 +180,23 @@ function survSfx(name, at, vol = 0.8) {
 // only one line at a time, higher-priority moments cut off lower ones, and each pool has a cooldown.
 const VO = {
   groups: {
+    rush: { lines: ['rush_dsmn', 'rush_dejavu'], prio: 2, cd: 0 },   // starting a (first) Void Rush
     stun: { lines: ['stun_1', 'stun_defeatme', 'stun_wth', 'stun_idk'], prio: 3, cd: 6 },
     kill: { lines: ['kill_sparta', 'kill_sike', 'kill_umustdie', 'kill_carnival', 'kill_chance2', 'kill_007n7', 'kill_builderman', 'kill_twotime', 'kill_memesounds'], prio: 9, cd: 0 },   // every stab kill, any survivor
   },
-  cur: null, curPrio: 0, last: {}, ready: {},
+  cur: null, curPrio: 0, curGroup: null, last: {}, ready: {},
 };
 function voice(group) {
   const G = VO.groups[group]; if (!G || !G.lines.length) return;
   if ((VO.ready[group] || 0) > gameT) return;
   const busy = VO.cur && !VO.cur.paused && !VO.cur.ended;
-  if (busy && VO.curPrio >= G.prio) return;
+  if (busy && VO.curPrio >= G.prio && VO.curGroup !== group) return;   // a new line from the same pool replaces the old one
   if (busy) VO.cur.pause();
   const pool = G.lines.length > 1 ? G.lines.filter((n) => n !== VO.last[group]) : G.lines, name = pool[Math.floor(Math.random() * pool.length)];
   VO.last[group] = name; VO.ready[group] = gameT + G.cd;
   let vol = 1;
   if (mode === 'survivor' && player) vol *= clamp(1 - dist(noli, player) / 1600, 0.3, 1);   // as a survivor you hear him fade with distance
-  try { const a = new Audio('sfx/vo/' + name + '.mp3'); a.volume = vol; a.play().catch(() => {}); VO.cur = a; VO.curPrio = G.prio; } catch (e) { /* no audio */ }
+  try { const a = new Audio('sfx/vo/' + name + '.mp3'); a.volume = vol; a.play().catch(() => {}); VO.cur = a; VO.curPrio = G.prio; VO.curGroup = group; } catch (e) { /* no audio */ }
 }
 function ring(x, y, r, c, life = 0.4) { fx.push({ x, y, r, c, t: 0, life }); }
 
@@ -424,6 +425,7 @@ function castRush() {
   if (busy() || noli.stance || !ready('rush')) return;
   // Hold Q to charge; the charge sound stops when you let go.
   noli.state = 'rushWind'; noli.st = 0;
+  voice('rush');   // keeps playing after the rush; a new activation cuts it and starts another
   sfx('charge');
 }
 function releaseRush() {
