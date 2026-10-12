@@ -181,6 +181,7 @@ function survSfx(name, at, vol = 0.8) {
 const VO = {
   groups: {
     rush: { lines: ['rush_dsmn', 'rush_dejavu'], prio: 2, cd: 0 },
+    miss: { lines: ['miss_1', 'miss_2', 'miss_3', 'miss_4', 'miss_myleg'], prio: 4, cd: 0 },   // Void Rush into a wall, or letting go mid-rush
     slam: { lines: ['slam_unintelligible', 'slam_playtime', 'slam_divine', 'slam_seconddash'], prio: 5, cd: 0 },   // slamming a survivor (knockdown or air slam)   // starting a (first) Void Rush
     stun: { lines: ['stun_1', 'stun_defeatme', 'stun_wth', 'stun_idk'], prio: 3, cd: 6 },
     kill: { lines: ['kill_sparta', 'kill_sike', 'kill_umustdie', 'kill_carnival', 'kill_chance2', 'kill_007n7', 'kill_builderman', 'kill_twotime', 'kill_memesounds'], prio: 9, cd: 0 },   // every stab kill, any survivor
@@ -1856,10 +1857,10 @@ function update(dt) {
     const rbox = fwdBox(KIT.rush.box);
     showBox(rbox, '#ff0000', 0.05);
     const hit = pickVictim(alive().filter((d) => d !== r.ignore && boxHits(rbox, d)));
-    if (letGo) { endRush(r.chain ? `Let go of Q — re-rush ended (chain x${r.chain})` : 'Let go of Q — Void Rush ended', 'cancel'); slowNoli();
+    if (letGo) { endRush(r.chain ? `Let go of Q — re-rush ended (chain x${r.chain})` : 'Let go of Q — Void Rush ended', 'cancel'); slowNoli(); voice('miss');
       chargeUI.cap = ['Aww :I', 'Why did you stop >:(', 'ok...'][Math.floor(Math.random() * 3)]; chargeUI.err = true; chargeUI.tint = 'red'; chargeUI.hold = 0.8; }   // same look as a cancelled charge
     else if (hit) { showBox(rbox, '#00ff4c', 0.25); rushHit(hit); }
-    else if (blocked) { endRush(r.chain ? `Void Rush crashed into a wall (chain x${r.chain} lost)` : 'Void Rush crashed into a wall', 'crash'); ring(noli.x, noli.y, 50, '#ffffff', 0.4); slowNoli(); crashFx();
+    else if (blocked) { endRush(r.chain ? `Void Rush crashed into a wall (chain x${r.chain} lost)` : 'Void Rush crashed into a wall', 'crash'); ring(noli.x, noli.y, 50, '#ffffff', 0.4); slowNoli(); crashFx(); voice('miss');
       chargeUI.cap = ['OUCH', 'owwwww ;('][Math.floor(Math.random() * 2)]; chargeUI.err = true; chargeUI.tint = 'red'; chargeUI.hold = 0.8; }   // same look as a cancelled charge
     else if (r.t >= KIT.rush.dur) endRush('Void Rush ran out');
   } else if (moving) {
