@@ -347,7 +347,10 @@ const NOLI_PROT = { killIframes: 2, stunImmune: 3 };
 function canHitNoli() { return noli.state !== 'exec' && noli.state !== 'slamHold' && !(noli.ifT > 0); }
 function noliKilled() { noli.ifT = Math.max(noli.ifT || 0, NOLI_PROT.killIframes); }
 // Survivors stun Noli: whatever he was doing is cut off.
-function stunNoli(t, why) {
+// Where a survivor's hit landed on Noli: the edge of his body facing them.
+function impactAt(d) { const a = Math.atan2(d.y - noli.y, d.x - noli.x); return { x: noli.x + Math.cos(a) * noli.r, y: noli.y + Math.sin(a) * noli.r }; }
+let screenFlash = 0;
+function stunNoli(t, why, at = null) {
   if (!canHitNoli()) return false;
   if (noli.stunImmT > 0) { txt(noli.x, noli.y - 44, 'STUN IMMUNE', '#5aa9ff'); log(`Noli shrugged off ${why} (stun immune)`); return false; }
   if (noli.state === 'rushWind') { stopSfx('charge'); noli.cds.rush = KIT.rush.cdCancel; }
@@ -359,6 +362,13 @@ function stunNoli(t, why) {
   voice('stun');
   stabBurst(noli, 14, 20); ring(noli.x, noli.y, 40, '#ffffff', 0.35);
   tone(330, 0.35, 'triangle', 0.18, 0.4, noli); cam.shake = Math.max(cam.shake || 0, 4);
+  // White flash of sparkles where the hit landed.
+  const p = at || noli;
+  fx.push({ x: p.x, y: p.y, r: 46, t: 0, life: 0.3, flash: true }); ring(p.x, p.y, 30, '#ffffff', 0.3);
+  for (let i = 0; i < 28; i++) { const a = rand(0, 6.3), r = rand(0, 30); parts.push({ kind: 'star', x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r, c: i % 4 ? '#ffffff' : '#e9e4ff', size: rand(2, 7), t: rand(-0.05, 0), life: rand(0.3, 0.6) }); }
+  for (let i = 0; i < 10; i++) { const a = rand(0, 6.3), sp = rand(80, 200); parts.push({ kind: 'spark', x: p.x, y: p.y, z: 8, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.8, vz: rand(100, 220), rot: rand(0, 6.3), spin: rand(8, 16), size: rand(2.5, 4.5), c: '#ffffff', t: 0, life: rand(0.4, 0.7) }); }
+  // As Noli: the camera bops in on him, then eases back to your zoom.
+  if (mode === 'noli') { cam.bop = { t: 0 }; screenFlash = 1; }
   return true;
 }
 function busy() { return noli.state !== 'free' || noli.stunT > 0; }
@@ -887,7 +897,7 @@ function useSkill(d, k) {
       d.punch--;
       const b = survBox(d, 30, 46, 46), hit = canHitNoli() && boxHits(b, noli);
       showBox(b, hit ? '#00ff4c' : '#ff0000', hit ? 0.25 : 0.12); swing(d, '#ffffff', 30); tone(140, 0.12, 'square', 0.2, 0.5, d);
-      if (hit) { stunNoli(2, `${d.name}'s Punch`); ring(noli.x, noli.y, 30, '#ffffff', 0.25); }
+      if (hit) { stunNoli(2, `${d.name}'s Punch`, impactAt(d)); ring(noli.x, noli.y, 30, '#ffffff', 0.25); }
       break; }
     case 'guest.r':
       d.act = { kind: 'charge', t: 0, dur: CHARGE.dur }; txt(d.x, d.y - 44, 'CHARGE!', '#ffffff'); tone(90, 0.5, 'sawtooth', 0.12, 2, d); break;
@@ -950,7 +960,7 @@ function daggerHit(d, A) {
   survSfx('tt_stabhit', d);   // any landed stab (front, back or lunge)
   if (back) {
     damageNoli(TT.back.dmg, `${d.name}'s Backstab`);
-    stunNoli(A.crouched ? TT.lunge.stun : TT.back.stun, `${d.name}'s Backstab${A.crouched ? ' (lunge)' : ''}`);
+    stunNoli(A.crouched ? TT.lunge.stun : TT.back.stun, `${d.name}'s Backstab${A.crouched ? ' (lunge)' : ''}`, impactAt(d));
     txt(d.x, d.y - 44, 'BACKSTAB!', '#ffffff');
   } else {
     damageNoli(TT.front.dmg, `${d.name}'s Dagger (front)`);
@@ -979,7 +989,7 @@ function fireGun(d) {
   for (let i = 0; i < 8; i++) parts.push({ kind: 'star', x: x0 + rand(-6, 6), y: y0 + rand(-6, 6), c: i % 2 ? '#ffffff' : '#ffe9a8', size: rand(2, 5), t: 0, life: 0.25 });
   if (hit) {
     const dd = dist(d, noli), t = clamp(4 - dd / 720 * 3, 1, 4);
-    stunNoli(t, `${d.name}'s One Shot (${(dd / STUD).toFixed(0)} studs)`);
+    stunNoli(t, `${d.name}'s One Shot (${(dd / STUD).toFixed(0)} studs)`, { x, y });
   } else txt(d.x, d.y - 44, 'missed', '#9a90bf');
 }
 // Per-frame survivor logic: cooldowns, timers, actions and movement (ai = { mx, my, sprint, face }).
@@ -1037,7 +1047,7 @@ function survivorTick(d, dt, ai) {
         const b = survBox(d, 28, 42, 36), hit = !A.hit && canHitNoli() && boxHits(b, noli);
         showBox(b, hit || A.hit ? '#00ff4c' : '#ff0000', 0.05);
         if (hit) {
-          A.hit = true; stunNoli(SHED.stun, `${d.name}'s Slash`); ring(noli.x, noli.y, 40, '#ffffff', 0.3);
+          A.hit = true; stunNoli(SHED.stun, `${d.name}'s Slash`, impactAt(d)); ring(noli.x, noli.y, 40, '#ffffff', 0.3);
           survSfx('shed_hit', d); damageNoli(SHED.dmg, `${d.name}'s Slash`);
         }
       }
@@ -1916,6 +1926,10 @@ function update(dt) {
   if (ex && !ex.stomped) { zTarget = cam.zoom * EXEC.followZoom; zRate = 5; }
   else if (ex && ex.punchT < EXEC.punchTime) { zTarget = cam.zoom * EXEC.punch; zRate = 30; }
   else if (ex) { zTarget = cam.zoom; zRate = 4; }
+  if (cam.bop) {   // stunned: quick punch-in on Noli, then ease back to the normal zoom
+    cam.bop.t += dt; const b = cam.bop.t;
+    if (b < 0.09) { zTarget = cam.zoom * 1.3; zRate = 35; } else if (b < 0.8) { zTarget = cam.zoom; zRate = 6; } else cam.bop = null;
+  }
   // Air slam: lock onto the survivor and push in as they rise, punch in on impact, then back to Noli.
   const sl0 = noli.state === 'slamHold' ? noli.slamCam : null, sl = sl0 && (mode === 'noli' || sl0.d === player) ? sl0 : null;
   let slFocus = null;
@@ -2609,7 +2623,9 @@ function render() {
     label(g.x, g.y - half - 4, g.fake ? 'Generator (fake)' : 'Generator', g.fake ? '#ff9fb4' : '#9a90bf');
     drawGenFront(g);
   }
-  for (const f of fx) { const k = f.t / f.life; ctx.globalAlpha = 1 - k; if (f.trail) { ctx.fillStyle = f.c; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1 - k * 0.5), 0, 6.3); ctx.fill(); } else { ctx.strokeStyle = f.c; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (0.4 + k * 0.6), 0, 6.3); ctx.stroke(); } ctx.globalAlpha = 1; }
+  for (const f of fx) { const k = f.t / f.life; ctx.globalAlpha = 1 - k;
+    if (f.flash) { const g = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r * (0.6 + 0.6 * k)); g.addColorStop(0, 'rgba(255,255,255,0.95)'); g.addColorStop(0.4, 'rgba(255,255,255,0.45)'); g.addColorStop(1, 'rgba(255,255,255,0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (0.6 + 0.6 * k), 0, 6.3); ctx.fill(); ctx.globalAlpha = 1; continue; }
+    if (f.trail) { ctx.fillStyle = f.c; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1 - k * 0.5), 0, 6.3); ctx.fill(); } else { ctx.strokeStyle = f.c; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (0.4 + k * 0.6), 0, 6.3); ctx.stroke(); } ctx.globalAlpha = 1; }
   if (showHitboxes) for (const b of hitboxes) {
     ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.a || 0);
     // Attack hitboxes: red, 50% more see-through than before.
@@ -2662,6 +2678,7 @@ function render() {
   ctx.restore();
   if (noli.stance && mode === 'noli') { ctx.fillStyle = 'rgba(60,20,120,0.18)'; ctx.fillRect(0, 0, W, H); label(W / 2, 40, 'OBSERVANT — click a generator · R to leave', '#c49bff'); }
   else if (noli.stance) label(W / 2, 64, 'Noli is choosing a generator…', '#c49bff', '700 14px system-ui');
+  if (screenFlash > 0) { ctx.globalAlpha = 0.28 * screenFlash; ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; screenFlash = Math.max(0, screenFlash - 1 / 12); }   // brief white flash
   if (mode === 'survivor') survHud(); else hud();
 }
 // ------------------------------------------------------------- Void Rush charge UI
