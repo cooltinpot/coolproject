@@ -181,6 +181,7 @@ function survSfx(name, at, vol = 0.8) {
 const VO = {
   groups: {
     stun: { lines: ['stun_1', 'stun_defeatme', 'stun_wth', 'stun_idk'], prio: 3, cd: 6 },
+    kill: { lines: ['kill_sparta', 'kill_sike', 'kill_umustdie', 'kill_carnival', 'kill_chance2'], prio: 9, cd: 0 },   // every stab kill, any survivor
   },
   cur: null, curPrio: 0, last: {}, ready: {},
 };
@@ -2092,6 +2093,7 @@ function startExec(d, dmg, stacks) {
   const origin = { x: noli.x, y: noli.y }, walkTo = { x: noli.x + Math.cos(dir) * reach, y: noli.y + Math.sin(dir) * reach };
   noli.state = 'exec'; noli.ex = { d, t: 0, from: null, stomped: false, baseAng: noli.ang, origAng: noli.ang, origin, walkTo };
   sfx('kill', 0.9);   // plays the moment the kill starts
+  voice('kill');      // so does a kill voiceline (always; cuts off anything else he's saying)
 }
 function execSpot() {   // right beside him, on his right side (relative to where he faced when the kill started)
   const a = noli.ex.baseAng, lx = 2, ly = noli.r + 10;
