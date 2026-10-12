@@ -175,6 +175,27 @@ function survSfx(name, at, vol = 0.8) {
   if (v > 0.01) try { const a = new Audio('sfx/' + name + '.mp3'); a.volume = v; a.play().catch(() => {}); return a; } catch (e) { /* no audio */ }
   return null;
 }
+// ------------------------------------------------------------- Noli voicelines
+// Each moment has a pool of lines; one plays at random (never the same one twice in a row),
+// only one line at a time, higher-priority moments cut off lower ones, and each pool has a cooldown.
+const VO = {
+  groups: {
+    stun: { lines: ['stun_1', 'stun_defeatme', 'stun_wth', 'stun_idk'], prio: 3, cd: 6 },
+  },
+  cur: null, curPrio: 0, last: {}, ready: {},
+};
+function voice(group) {
+  const G = VO.groups[group]; if (!G || !G.lines.length) return;
+  if ((VO.ready[group] || 0) > gameT) return;
+  const busy = VO.cur && !VO.cur.paused && !VO.cur.ended;
+  if (busy && VO.curPrio >= G.prio) return;
+  if (busy) VO.cur.pause();
+  const pool = G.lines.length > 1 ? G.lines.filter((n) => n !== VO.last[group]) : G.lines, name = pool[Math.floor(Math.random() * pool.length)];
+  VO.last[group] = name; VO.ready[group] = gameT + G.cd;
+  let vol = 1;
+  if (mode === 'survivor' && player) vol *= clamp(1 - dist(noli, player) / 1600, 0.3, 1);   // as a survivor you hear him fade with distance
+  try { const a = new Audio('sfx/vo/' + name + '.mp3'); a.volume = vol; a.play().catch(() => {}); VO.cur = a; VO.curPrio = G.prio; } catch (e) { /* no audio */ }
+}
 function ring(x, y, r, c, life = 0.4) { fx.push({ x, y, r, c, t: 0, life }); }
 
 // ------------------------------------------------------------- input
@@ -335,6 +356,7 @@ function stunNoli(t, why) {
   if (noli.stance) { endObsStar(); stopSfx('stall'); stopSfx('gen_start'); noli.stance = false; noli.cds.obs = KIT.obs.cdLeave; }
   noli.state = 'free'; noli.stabbed = false; noli.stunT = Math.max(noli.stunT, t); noli.dazed = true;
   txt(noli.x, noli.y - 44, 'STUNNED ' + t.toFixed(1) + 's', '#ffffff'); log(`Noli stunned ${t.toFixed(2)}s — ${why}`);
+  voice('stun');
   stabBurst(noli, 14, 20); ring(noli.x, noli.y, 40, '#ffffff', 0.35);
   tone(330, 0.35, 'triangle', 0.18, 0.4, noli); cam.shake = Math.max(cam.shake || 0, 4);
   return true;
