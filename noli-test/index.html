@@ -1862,7 +1862,7 @@ function update(dt) {
     else if (hit) { showBox(rbox, '#00ff4c', 0.25); rushHit(hit); }
     else if (blocked) { endRush(r.chain ? `Void Rush crashed into a wall (chain x${r.chain} lost)` : 'Void Rush crashed into a wall', 'crash'); ring(noli.x, noli.y, 50, '#ffffff', 0.4); slowNoli(); crashFx(); voice('miss');
       chargeUI.cap = ['OUCH', 'owwwww ;('][Math.floor(Math.random() * 2)]; chargeUI.err = true; chargeUI.tint = 'red'; chargeUI.hold = 0.8; }   // same look as a cancelled charge
-    else if (r.t >= KIT.rush.dur) endRush('Void Rush ran out');
+    else if (r.t >= KIT.rush.dur) endRush('Void Rush ran out', 'rush_end');   // ran out of energy mid-rush
   } else if (moving) {
     const ox = noli.x, oy = noli.y;
     moveCircle(noli, mx * sp * dt, my * sp * dt);
