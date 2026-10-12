@@ -180,7 +180,8 @@ function survSfx(name, at, vol = 0.8) {
 // only one line at a time, higher-priority moments cut off lower ones, and each pool has a cooldown.
 const VO = {
   groups: {
-    rush: { lines: ['rush_dsmn', 'rush_dejavu'], prio: 2, cd: 0 },   // starting a (first) Void Rush
+    rush: { lines: ['rush_dsmn', 'rush_dejavu'], prio: 2, cd: 0 },
+    slam: { lines: ['slam_unintelligible', 'slam_playtime', 'slam_divine', 'slam_seconddash'], prio: 5, cd: 0 },   // slamming a survivor (knockdown or air slam)   // starting a (first) Void Rush
     stun: { lines: ['stun_1', 'stun_defeatme', 'stun_wth', 'stun_idk'], prio: 3, cd: 6 },
     kill: { lines: ['kill_sparta', 'kill_sike', 'kill_umustdie', 'kill_carnival', 'kill_chance2', 'kill_007n7', 'kill_builderman', 'kill_twotime', 'kill_memesounds'], prio: 9, cd: 0 },   // every stab kill, any survivor
   },
@@ -680,14 +681,14 @@ function rushHit(d) {
   if (d.hall >= 1 && r.chain >= 1) {
     // Air slam: only its own sound plays, and Noli is held still until it finishes (ends the chain).
     stopSfx('voidrush'); stopWindowSfx(); for (let i = 1; i <= 5; i++) stopSfx('hit' + i);
-    startAirSlam(d, r.chain);
+    startAirSlam(d, r.chain); voice('slam');
     chargeUI.cap = 'HELL YEAH >:))'; chargeUI.tint = 'green'; chargeUI.err = false; chargeUI.k = 0; chargeUI.hold = 1.2;   // full ring, green tint
     noli.state = 'slamHold'; noli.st = 0; noli.rush = null; noli.cds.rush = KIT.rush.cd;
     noli.slamCam = { d, hitT: null };   // cinematic camera for the air slam
     return;
   } else if (d.hall >= 1) {
     damage(d, slamDmg(r.chain), `Void Rush SLAM (chain x${r.chain})`, '#d36bff', { dash: true });
-    d.hall = 0; if (!d.dying) ragdoll(d);   // a lethal slam already launched them
+    d.hall = 0; if (!d.dying) ragdoll(d); voice('slam');   // a lethal slam already launched them
     ring(d.x, d.y, 70, '#a26bff', 0.6);
     txt(d.x, d.y - 48, 'KNOCKED DOWN', '#ffffff');
   } else {
