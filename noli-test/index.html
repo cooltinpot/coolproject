@@ -52,6 +52,7 @@
     <button id="clearAll">Empty map</button>
     <button id="resetMap">Default map</button>
     <button id="squad">Survivor squad</button>
+    <button id="lodgeMap">Lodge map</button>
   </div>
   <small>Mouse wheel = zoom</small>
 </div>
@@ -144,6 +145,50 @@ function defaultMap() {
   dummies = dummies.filter((d) => d.player); props = [];
   if (mode === 'survivor') KIT_IDS.filter((k) => k !== playerKit).slice(0, 3).forEach((k, i) => addDummy(800 + i * 200, 600, 'smart', 100, k));
   else { addDummy(1000, 500, 'stand', 100, ''); addDummy(800, 650, 'stand', 100, ''); addDummy(1200, 650, 'stand', 100, ''); }
+}
+
+// A map built only from creative-mode pieces: an abandoned lodge with a hall, a shed, a fenced yard,
+// a pillar court and a broken southwest corner, lit by lamp posts.
+function lodgeMap() {
+  const W = (x, y, w, h, kind) => ({ x, y, w, h, kind, open: 0 });
+  walls = [...BORDER,
+    // Main hall: doors north and south, a glass window (invisible wall) west, a killer-only gap east, a table inside.
+    W(760, 480, 190, 20), W(950, 480, 100, 20, 'door'), W(1050, 480, 190, 20),
+    W(760, 900, 190, 20), W(950, 900, 100, 20, 'door'), W(1050, 900, 190, 20),
+    W(760, 500, 20, 140), W(760, 640, 20, 120, 'invis'), W(760, 760, 20, 140),
+    W(1220, 500, 20, 150), W(1220, 650, 20, 100, 'killer'), W(1220, 750, 20, 150),
+    W(960, 670, 80, 40),
+    // Northwest shed with an east door.
+    W(200, 180, 300, 20), W(200, 200, 20, 220), W(200, 400, 300, 20), W(480, 200, 20, 80), W(480, 280, 20, 60, 'door'), W(480, 340, 20, 60),
+    // Northeast fenced yard: a south gate, and a killer-only gap in the west fence.
+    W(1500, 160, 400, 12), W(1500, 172, 12, 120), W(1500, 292, 12, 80, 'killer'), W(1500, 372, 12, 88),
+    W(1512, 448, 170, 12), W(1682, 448, 90, 12, 'door'), W(1772, 448, 128, 12),
+    // Southeast pillar court.
+    W(1580, 960, 60, 60), W(1800, 960, 60, 60), W(1580, 1180, 60, 60), W(1800, 1180, 60, 60),
+    // Southwest ruins: broken walls and a collapsed span you can see across but not cross.
+    W(200, 900, 300, 20), W(350, 1000, 20, 250), W(480, 1150, 250, 20), W(560, 980, 150, 20, 'invis'),
+    // A few loose pillars for cover.
+    W(620, 300, 60, 60), W(1320, 1050, 60, 60), W(1300, 300, 60, 60),
+  ];
+  gens = [{ x: 1120, y: 580, fake: false, prog: 0 }, { x: 330, y: 300, fake: false, prog: 0 }, { x: 1720, y: 300, fake: true, prog: 0 },
+    { x: 1720, y: 1100, fake: false, prog: 0 }, { x: 270, y: 1200, fake: false, prog: 0 }];
+  const C = (x, y, style, rot) => ({ kind: 'chair', x, y, style, rot });
+  props = [
+    // lamps: the south path, both hall sides, the shed door, the yard gate, the court
+    { kind: 'lamp', x: 900, y: 1030 }, { kind: 'lamp', x: 1100, y: 1030 }, { kind: 'lamp', x: 900, y: 1280 }, { kind: 'lamp', x: 1100, y: 1280 },
+    { kind: 'lamp', x: 680, y: 720 }, { kind: 'lamp', x: 1320, y: 720 }, { kind: 'lamp', x: 560, y: 250 }, { kind: 'lamp', x: 1640, y: 520 },
+    { kind: 'lamp', x: 1720, y: 1010 }, { kind: 'lamp', x: 300, y: 860 },
+    // chairs: around the hall table (some knocked over), in the shed, the yard and the ruins
+    C(935, 690, 0, Math.PI / 2), C(1065, 690, 0, -Math.PI / 2), C(1000, 645, 4, Math.PI), C(1000, 740, 1, 0.3),
+    C(850, 560, 3, 0.8), C(1150, 850, 2, -0.6), C(830, 850, 1, 2.2), C(1160, 540, 4, 1.1),
+    C(260, 240, 0, 0.4), C(420, 360, 2, 1.9), C(1600, 230, 0, -0.3), C(1830, 390, 3, 0.7),
+    C(420, 1050, 1, 2.6), C(600, 1220, 2, 0.2), C(260, 1000, 4, -1.2), C(1450, 860, 3, 2.9),
+  ];
+  dummies = dummies.filter((d) => d.player);
+  const spots = [[640, 840], [1380, 840], [1000, 380]];
+  if (mode === 'survivor') KIT_IDS.filter((k) => k !== playerKit).slice(0, 3).forEach((k, i) => addDummy(...spots[i], 'smart', 100, k));
+  else spots.forEach(([x, y]) => addDummy(x, y, 'stand', 100, ''));
+  if (hitWall(noli.x, noli.y, noli.r)) { noli.x = 1000; noli.y = 1150; }
 }
 
 // ------------------------------------------------------------- entities
@@ -3201,6 +3246,7 @@ document.getElementById('squad').onclick = () => {
   log('Survivor squad spawned (Smart AI)');
 };
 document.getElementById('resetMap').onclick = () => { defaultMap(); log('Default map loaded'); };
+document.getElementById('lodgeMap').onclick = () => { lodgeMap(); Object.assign(noli, { x: 1000, y: 1150 }); log('Lodge map loaded'); };
 document.getElementById('reset').onclick = () => { for (const k in noli.cds) noli.cds[k] = 0; log('Cooldowns reset'); };
 document.getElementById('hbx').onclick = (e) => { showHitboxes = !showHitboxes; e.target.textContent = 'Hitboxes: ' + (showHitboxes ? 'on' : 'off'); e.target.classList.toggle('on', showHitboxes); };
 document.getElementById('nocd').onclick = (e) => { noCd = !noCd; e.target.textContent = 'No cooldowns: ' + (noCd ? 'on' : 'off'); e.target.classList.toggle('on', noCd); };
