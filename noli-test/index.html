@@ -2713,6 +2713,7 @@ function render() {
   else if (noli.stance) label(W / 2, 64, 'Noli is choosing a generator…', '#c49bff', '700 14px system-ui');
   if (screenFlash > 0) { ctx.globalAlpha = 0.28 * screenFlash; ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; screenFlash = Math.max(0, screenFlash - 1 / 12); }   // brief white flash
   if (mode === 'survivor') survHud(); else hud();
+  drawRushCursor();
 }
 // ------------------------------------------------------------- Void Rush charge UI
 // Dark orb with a soft white glow and a black four-point star; a crumbly white ring drains as you charge.
@@ -2721,6 +2722,20 @@ const RUSH_PULSE = 0.5;
 // Ring colours [main, chunk]: plain white, dark-green tint (air slam), dark-red tint (cancelled charge).
 const TINTS = { none: ['#ffffff', '#9a9a9a'], green: ['#8fc79a', '#3f6b48'], red: ['#c97a7a', '#6b3434'] };   // seconds per white+purple cycle while rushing
 function hash1(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+// Void Rush cursor: two star sprites flashing very fast, placed where Noli is actually facing
+// (at the mouse's distance), replacing the normal cursor while charging and rushing.
+const RUSH_CUR = [new Image(), new Image()]; RUSH_CUR[0].src = 'img/rush_cur1.png'; RUSH_CUR[1].src = 'img/rush_cur2.png';
+const RUSH_CUR_SIZE = 30, RUSH_CUR_FLASH = 0.04;   // seconds per sprite
+function drawRushCursor() {
+  const on = mode === 'noli' && (noli.state === 'rushWind' || noli.state === 'rush');
+  cv.style.cursor = on ? 'none' : 'crosshair';
+  if (!on) return;
+  const img = RUSH_CUR[Math.floor(performance.now() / 1000 / RUSH_CUR_FLASH) % 2]; if (!img.complete || !img.naturalWidth) return;
+  const w = world(), L = Math.max(60, Math.hypot(w.x - noli.x, w.y - noli.y));
+  const fx = noli.x + Math.cos(noli.ang) * L, fy = noli.y + Math.sin(noli.ang) * L;
+  const sx = (fx - cam.x) * cam.s, sy = (fy - cam.y) * cam.s;
+  ctx.drawImage(img, sx - RUSH_CUR_SIZE / 2, sy - RUSH_CUR_SIZE / 2, RUSH_CUR_SIZE, RUSH_CUR_SIZE);
+}
 function drawChargeUI() {
   const now = performance.now() / 1000, dt = Math.min(0.05, now - (chargeUI.last || now)); chargeUI.last = now;
   // Shown for the whole Void Rush: full while charging and rushing, drains during the re-rush window.
