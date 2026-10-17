@@ -1436,7 +1436,10 @@ function aiNoise(x, y, r) { AI.noises.push({ x, y, r }); }   // gunshots, sword 
 function remember(d, x, y, seen) {
   const m = AI.mem.get(d);
   if (!seen && m && m.seen && m.age < 1) return;   // a fresh sighting beats a sound
-  AI.mem.set(d, { x, y, vx: seen ? d.svx || 0 : 0, vy: seen ? d.svy || 0 : 0, age: 0, seen, searched: false });
+  // Motion is read over ~0.35s, so a sudden change of direction takes him a moment to register.
+  let vx = 0, vy = 0;
+  if (seen) { const k = Math.min(1, (AI.dtNow || 0.016) / 0.35); vx = m ? m.vx + ((d.svx || 0) - m.vx) * k : d.svx || 0; vy = m ? m.vy + ((d.svy || 0) - m.vy) * k : d.svy || 0; }
+  AI.mem.set(d, { x, y, vx, vy, age: 0, seen, searched: false });
 }
 function perceive(dt) {
   for (const m of AI.mem.values()) { m.age += dt; m.seen = m.seen && m.age < 0.05; }
@@ -1454,7 +1457,7 @@ const visibleNow = (d) => { const m = known(d); return m && m.seen; };
 // Where they'll be: seen = their real motion; remembered = drift along their last motion a little.
 function predict(d, t) {
   const m = known(d); if (!m) return { x: d.x, y: d.y };
-  if (m.seen) return { x: d.x + (d.svx || 0) * t, y: d.y + (d.svy || 0) * t };
+  if (m.seen) return { x: d.x + m.vx * t, y: d.y + m.vy * t };
   const k = Math.min(m.age, 1.2) + t;
   return { x: m.x + m.vx * k, y: m.y + m.vy * k };
 }
@@ -1542,7 +1545,20 @@ function dangerDodge() {
   }
   return null;
 }
+function thought(s) { AI.thought = s; }
+const short = (d) => d.player ? 'you' : d.name.replace(/ \d+$/, '');
+// AI Noli = a brain that re-plans in beats + a hand on the mouse that can't snap instantly.
 function noliAI(dt) {
+  AI.dtNow = dt;
+  noliBrain(dt);
+  const want = Math.atan2(NI.ay - noli.y, NI.ax - noli.x);
+  if (AI.aimA === undefined || noli.state === 'exec' || noli.stunT > 0) AI.aimA = noli.ang;
+  const turn = noli.state === 'rush' || noli.state === 'reWindow' ? 14 : 8.5;   // rad/s, like flicking a mouse
+  AI.aimA += clamp(angDiff(want, AI.aimA), -turn * dt, turn * dt);
+  const L = Math.max(80, Math.hypot(NI.ax - noli.x, NI.ay - noli.y));
+  NI.ax = noli.x + Math.cos(AI.aimA) * L; NI.ay = noli.y + Math.sin(AI.aimA) * L;
+}
+function noliBrain(dt) {
   NI.mx = NI.my = 0; NI.shift = false;
   perceive(dt);
   if (AI.bubble) { AI.bubble.t += dt; if (AI.bubble.t > 1) AI.bubble = null; }
@@ -1563,11 +1579,15 @@ function noliAI(dt) {
     if (AI.obsT > AI.obsWait) { const g = bestGen(); if (g) { observantPick(g); AI.search = { x: g.x, y: g.y + 60, t: 0 }; } else toggleObservant(); }
     return;
   }
-  if (noli.stunT > 0 || st === 'exec' || st === 'slamHold' || st === 'tp') { NI.q = false; return; }
+  if (noli.stunT > 0 || st === 'exec' || st === 'slamHold' || st === 'tp') {
+    NI.q = false; AI.plan = null;
+    thought(noli.stunT > 0 ? 'ugh—!' : st === 'exec' ? 'gotcha.' : st === 'tp' ? 'appearing…' : 'down you go');
+    return;
+  }
 
   // --- Void Rush: charging, rushing and chaining
   if (st === 'rushWind') {
-    NI.q = true;
+    NI.q = true; thought('charging Void Rush…');
     // Aim where they'll be when the charge finishes; bail out cheaply (1.2s cd) if the lane closes.
     const left = Math.max(0, KIT.rush.windup - noli.st), lane = t && rushLane(t, left, 0);
     if (lane) { NI.ax = lane.p.x; NI.ay = lane.p.y; AI.laneLost = 0; }
@@ -1579,7 +1599,7 @@ function noliAI(dt) {
     return;
   }
   if (st === 'rush') {
-    NI.q = true;
+    NI.q = true; thought(noli.rush.chain ? 'again!' : 'RUSH');
     const r = noli.rush;
     if (!AI.rushT || !alive().includes(AI.rushT) || !rushLane(AI.rushT, 0, r.chain)) { const b = bestRushTarget(0, r.chain, r.chain ? null : null); AI.rushT = b ? b.d : null; }
     if (AI.rushT && AI.rushT !== r.ignore) { const p = intercept(AI.rushT, RUSH_SPEED * (r.chain ? KIT.rush.reSpeed : 1)); NI.ax = p.x; NI.ay = p.y; }
@@ -1592,7 +1612,7 @@ function noliAI(dt) {
     return;
   }
   if (st === 'reWindow') {
-    AI.reDelay -= dt; NI.q = false;
+    AI.reDelay -= dt; NI.q = false; thought('who\'s next…');
     if (AI.reDelay > 0) return;
     // Chain off whoever has the best lane — the survivor he just hit first if they're hallucinating.
     const last = noli.rush.last, b = bestRushTarget(0, noli.rush.chain + 1, last);
@@ -1610,8 +1630,10 @@ function noliAI(dt) {
 
   if (!t) {
     // Nobody known: check where he last heard something, Observant to the busiest generator, or patrol.
-    if (st === 'free' && ready('obs') && gens.length > 1 && alive().length && (AI.idleT += dt) > 1.5) { toggleObservant(); AI.obsT = 0; AI.obsWait = rand(0.5, 1); AI.idleT = 0; return; }
-    if (AI.search && dist(noli, AI.search) > 50 && (AI.search.t += dt) < 6) { NI.ax = AI.search.x; NI.ay = AI.search.y; moveToward(AI.search.x, AI.search.y, true); return; }
+    AI.focus = null;
+    if (st === 'free' && ready('obs') && gens.length > 1 && alive().length && (AI.idleT += dt) > 1.5) { toggleObservant(); AI.obsT = 0; AI.obsWait = rand(0.5, 1); AI.idleT = 0; thought('let me look around…'); return; }
+    if (AI.search && dist(noli, AI.search) > 50 && (AI.search.t += dt) < 6) { thought('checking over there'); NI.ax = AI.search.x; NI.ay = AI.search.y; moveToward(AI.search.x, AI.search.y, false); return; }
+    thought('patrolling the generators');
     AI.search = null;
     if (!AI.wander || dist(noli, AI.wander) < 70) { const g = bestGen(); AI.wander = g ? { x: g.x, y: g.y + 60 } : { x: rand(200, MAP.w - 200), y: rand(200, MAP.h - 200) }; }
     NI.ax = AI.wander.x; NI.ay = AI.wander.y; moveToward(AI.wander.x, AI.wander.y, false);
@@ -1621,34 +1643,72 @@ function noliAI(dt) {
   if (!sees) {
     // Lost sight: go to where they were heading, then look around the nearest cover.
     const p = predict(t, 0);
-    NI.ax = p.x; NI.ay = p.y;
+    NI.ax = p.x; NI.ay = p.y; thought(tm.age < 1 ? `where'd ${short(t)} go…` : 'they were heading this way…');
+    if (dist(noli, p) < 70) { AI.lookA = (AI.lookA ?? noli.ang) + dt * 2.6; NI.ax = noli.x + Math.cos(AI.lookA) * 200; NI.ay = noli.y + Math.sin(AI.lookA) * 200; thought('hmm…'); }   // looking around
     // Flush them out from behind cover with a Nova into the wall next to them.
     if (ready('nova') && st === 'free' && tm.age < 1.5 && dist(noli, p) < 600 && !clearPath(noli, p, 3)) { castNova(); return; }
     if (dist(noli, p) < 50) { tm.searched = true; tm.age += dt * 3; }   // nothing here — it goes stale fast
-    moveToward(p.x, p.y, true);
+    moveToward(p.x, p.y, tm.age < 1.5 && dist(noli, p) > 200 && !noli.exhausted);
     return;
   }
+  AI.lookA = undefined;
   const d = dist(noli, t);
-  const chase = intercept(t, noli.stamina > 5 ? KIT.speed.sprint : KIT.speed.walk);
-  NI.ax = t.x; NI.ay = t.y;
-  if (st === 'novaWind') { const p = intercept(t, KIT.nova.speed, KIT.nova.windup - noli.st); NI.ax = p.x; NI.ay = p.y; moveToward(chase.x, chase.y, false); return; }
-  if (st === 'stab') { moveToward(chase.x, chase.y, false); return; }
-  if (t.invT > 0 && d < 140) { const a = Math.atan2(noli.y - t.y, noli.x - t.x); NI.mx = Math.cos(a); NI.my = Math.sin(a); return; }   // don't swing into a Block
+  // --- Train of thought: a beat to register someone new, then re-plan every 0.2-0.32s and stick with it.
+  if (AI.focus !== t) { AI.focus = t; AI.noticeT = rand(0.25, 0.5); AI.awayT = 0; AI.plan = null; thought(`there you are${t.player ? '' : ', ' + short(t)}`); }
+  if (AI.noticeT > 0) { AI.noticeT -= dt; NI.ax = t.x; NI.ay = t.y; return; }
+  AI.thinkT = (AI.thinkT || 0) - dt;
+  if (AI.thinkT <= 0 || !AI.plan) { const beat = rand(0.2, 0.32); AI.thinkT = beat; planChase(t, tm, d, beat); }
+  const P = AI.plan;
+  const look = predict(t, 0.08); NI.ax = look.x; NI.ay = look.y;   // keeps his eyes on them
+  if (st === 'novaWind') { const p = intercept(t, KIT.nova.speed, KIT.nova.windup - noli.st); NI.ax = p.x; NI.ay = p.y; moveToward(P.x, P.y, false); return; }
+  if (st === 'stab') { moveToward(P.x, P.y, false); return; }
+  if (t.invT > 0 && d < 140) { thought('not into that Block'); const a = Math.atan2(noli.y - t.y, noli.x - t.x); NI.mx = Math.cos(a); NI.my = Math.sin(a); return; }
+  // Stab once they've been in reach for a human reaction time.
   const near = predict(t, KIT.stab.windup);
-  if (dist(noli, near) < 66 && ready('stab')) { NI.ax = near.x; NI.ay = near.y; stab(); }
-  else if (ready('rush') && d > 150) {
-    const lane = rushLane(t, KIT.rush.windup, 0);
-    if (lane && lane.L > 170) { NI.ax = lane.p.x; NI.ay = lane.p.y; NI.q = true; castRush(); return; }
+  if (dist(noli, near) < 66 && ready('stab')) {
+    AI.inReach = (AI.inReach || 0) + dt;
+    if (AI.inReach >= (AI.reactStab ??= rand(0.08, 0.2))) { NI.ax = near.x; NI.ay = near.y; stab(); AI.inReach = 0; AI.reactStab = rand(0.08, 0.2); }
+  } else AI.inReach = 0;
+  // Carry out what he decided on the last beat.
+  if (P.intent && st === 'free') {
+    const what = P.intent; P.intent = null;
+    if (what === 'rush') { const lane = rushLane(t, KIT.rush.windup, 0); if (lane && lane.L > 170 && ready('rush')) { NI.ax = lane.p.x; NI.ay = lane.p.y; NI.q = true; castRush(); return; } }
+    if (what === 'nova' && ready('nova')) { const p = intercept(t, KIT.nova.speed, KIT.nova.windup); NI.ax = p.x; NI.ay = p.y; castNova(); }
+    if (what === 'obs' && ready('obs')) { toggleObservant(); AI.obsT = 0; AI.obsWait = rand(0.5, 1); return; }
   }
-  if (st === 'free' && ready('nova') && d > 200 && d < 650 && Math.random() < dt * 1.5) { const p = intercept(t, KIT.nova.speed, KIT.nova.windup); NI.ax = p.x; NI.ay = p.y; castNova(); }
-  else if (st === 'free' && ready('obs') && d > 900 && gens.length > 1 && Math.random() < dt * 0.5) { toggleObservant(); AI.obsT = 0; AI.obsWait = rand(0.5, 1); return; }
-  moveToward(chase.x, chase.y, d > 90);
+  moveToward(P.x, P.y, P.sprint);
+}
+// One "beat" of thinking: read how they're moving, choose pace and route, maybe pick an ability.
+function planChase(t, m, d, beat) {
+  const ux = (t.x - noli.x) / (d || 1), uy = (t.y - noli.y) / (d || 1), away = m.vx * ux + m.vy * uy, speed = Math.hypot(m.vx, m.vy);
+  AI.awayT = away > 70 ? (AI.awayT || 0) + beat : Math.max(0, (AI.awayT || 0) - beat * 1.5);   // "they're really running"
+  const prev = AI.plan;
+  // Pace: walk up close, only sprint once they've clearly been running a while (or they're far), save some stamina.
+  let sprint;
+  if (noli.exhausted) sprint = false;
+  else if (d < 110) sprint = false;
+  else if (AI.awayT > 0.45 && noli.stamina > 18) sprint = true;
+  else if (d > 420 && noli.stamina > 45) sprint = true;
+  else sprint = !!(prev && prev.sprint && d > 160 && noli.stamina > 10);
+  // Route: aim a little ahead of where they're going (from what he's read of their motion).
+  const lead = Math.min(0.5, d / (sprint ? KIT.speed.sprint : KIT.speed.walk));
+  const x = t.x + m.vx * lead, y = t.y + m.vy * lead;
+  // Maybe an ability this beat (not every frame).
+  let intent = null;
+  if (ready('rush') && d > 170 && d < 620 && (away > 40 || d > 230) && Math.random() < 0.7) intent = 'rush';
+  else if (ready('nova') && d > 220 && d < 650 && Math.random() < 0.28) intent = 'nova';
+  else if (ready('obs') && d > 900 && gens.length > 1 && Math.random() < 0.15) intent = 'obs';
+  AI.plan = { x, y, sprint, intent };
+  thought(intent === 'rush' ? 'line up the Void Rush…' : intent === 'nova' ? 'Nova where they\'re headed' : noli.exhausted ? 'catch my breath…'
+    : d < 110 ? (t.player ? 'right behind you' : `right behind ${short(t)}`) : AI.awayT > 0.45 ? (t.player ? "you're running — cut you off" : `${short(t)}'s running — cut them off`)
+    : speed < 40 ? (t.player ? 'you stopped?' : `${short(t)} stopped?`) : `closing in on ${short(t)}`);
 }
 // Shown over Noli: "!" when he spots someone, "?" when he loses them. With hitboxes on, his last-known marks too.
 function drawAIKnowledge() {
   if (mode !== 'survivor') return;
   if (AI.bubble) { const k = AI.bubble.t; ctx.globalAlpha = Math.min(1, (1 - k) * 3); label(noli.x, noli.y - 64 - Math.min(k, 0.15) * 40, AI.bubble.s, AI.bubble.s === '!' ? '#ffffff' : '#c9a8ff', '900 22px system-ui'); ctx.globalAlpha = 1; }
   if (!showHitboxes) return;
+  if (AI.thought) label(noli.x, noli.y + 50, '“' + AI.thought + '”', '#c9a8ff', 'italic 600 11px system-ui');   // his train of thought
   for (const [d, m] of AI.mem) {
     if (m.seen) { ctx.globalAlpha = 0.25; ctx.strokeStyle = '#ffffff'; ctx.setLineDash([2, 6]); ctx.beginPath(); ctx.moveTo(noli.x, noli.y); ctx.lineTo(d.x, d.y); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; continue; }
     ctx.globalAlpha = Math.max(0.15, 0.7 - m.age / AIV.forget); ctx.strokeStyle = '#c9a8ff'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(m.x, m.y, 16, 0, 6.3); ctx.stroke(); ctx.setLineDash([]);
@@ -1672,7 +1732,7 @@ function resetNoli() {
     stabVis: null, stabbed: false, tp: null, slamCam: null, obsStar: null, hp: noli.maxHp, stunImmT: 0, ifT: 0, helplessT: 0, slowEffT: 0, kb: null, chargedAt: undefined, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart } });
   if (hitWall(noli.x, noli.y, noli.r)) { noli.x = MAP.w / 2; noli.y = MAP.h / 2; }
   novas.length = 0; novaReturn = null; selGen = null; chargeUI.hold = 0; chargeUI.cap = '';
-  AI.target = null; AI.wander = null; AI.mem.clear(); AI.search = null; AI.rushT = null; AI.bubble = null;
+  AI.target = null; AI.wander = null; AI.focus = null; AI.plan = null; AI.thought = ''; AI.aimA = undefined; AI.mem.clear(); AI.search = null; AI.rushT = null; AI.bubble = null;
 }
 function freeSpot(x, y) {
   for (let i = 0; i < 60 && hitWall(x, y, 20); i++) { x = rand(80, MAP.w - 80); y = rand(80, MAP.h - 80); }
