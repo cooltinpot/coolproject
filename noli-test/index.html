@@ -1136,7 +1136,7 @@ function survivorTick(d, dt, ai) {
   }
   const moving = ai && (ai.mx || ai.my);
   if (d.stam <= 0) d.tired = true; if (d.stam >= 35) d.tired = false;
-  const sprint = moving && ai.sprint && d.stam > 0 && !(d.tired && !d.player) && !A && !(d.noSprintT > 0);
+  const sprint = moving && ai.sprint && d.stam > 0 && !d.tired && !A && !(d.noSprintT > 0);   // run dry = exhausted (no sprint) until 35 stamina
   d.stam = clamp(d.stam + (sprint ? -SURV.drain : SURV.regen) * dt, 0, SURV.stamMax);
   if (!moving) return;
   let sp = (d.crouch ? (sprint ? CROUCH.run : CROUCH.walk) : sprint ? SURV.sprint : ai.sp && !ai.sprint ? Math.min(ai.sp, SURV.walk) : SURV.walk) * mul;
@@ -1792,7 +1792,9 @@ function update(dt) {
   // movement
   const mx = NI.mx, my = NI.my;
   const moving = mx || my;
-  const sprint = NI.shift && moving && noli.stamina > 0 && (noli.state === 'free' || noli.state === 'novaWind' || noli.state === 'rushWind' || noli.state === 'reWindow') && !noli.stance;   // no sprinting while dashing
+  // Running dry leaves him exhausted: no sprinting until stamina refills to 25%, even if Shift is held.
+  if (noli.stamina <= 0) noli.exhausted = true; else if (noli.stamina >= KIT.stamina.max * 0.25) noli.exhausted = false;
+  const sprint = NI.shift && moving && noli.stamina > 0 && !noli.exhausted && (noli.state === 'free' || noli.state === 'novaWind' || noli.state === 'rushWind' || noli.state === 'reWindow') && !noli.stance;   // no sprinting while dashing
   // Stamina is frozen only while dashing: no drain, no regen.
   const inVoidRush = noli.state === 'rush';   // charging and the re-rush window still use stamina normally
   const drain = KIT.stamina.drain * (noli.state === 'reWindow' ? 2 : 1);   // sprinting in the re-rush window burns stamina 2x faster
@@ -2851,8 +2853,9 @@ function hud() {
   });
   const bw = Math.min(320, W - 40), bx = W / 2 - bw / 2, by = y0 - 22;
   ctx.fillStyle = '#14111f'; ctx.fillRect(bx, by, bw, 12);
-  ctx.fillStyle = '#5aa9ff'; ctx.fillRect(bx, by, bw * noli.stamina / KIT.stamina.max, 12);
-  label(W / 2, by - 4, 'STAMINA ' + Math.round(noli.stamina), '#e9e4ff');
+  ctx.fillStyle = noli.exhausted ? '#5a6b85' : '#5aa9ff'; ctx.fillRect(bx, by, bw * noli.stamina / KIT.stamina.max, 12);
+  if (noli.exhausted) { ctx.fillStyle = '#e9e4ff'; ctx.fillRect(bx + bw * 0.25 - 1, by - 2, 2, 16); }   // refill mark
+  label(W / 2, by - 4, noli.exhausted ? 'EXHAUSTED ' + Math.round(noli.stamina) : 'STAMINA ' + Math.round(noli.stamina), noli.exhausted ? '#9a90bf' : '#e9e4ff');
   ctx.fillStyle = '#14111f'; ctx.fillRect(bx, by - 30, bw, 14); ctx.fillStyle = '#c9a8ff'; ctx.fillRect(bx, by - 30, bw * noli.hp / noli.maxHp, 14);
   label(W / 2, by - 34, `NOLI · ${Math.ceil(noli.hp)} / ${noli.maxHp} HP`, '#ffffff');
   if (inWindow) {
@@ -2900,10 +2903,11 @@ function survHud() {
   const y0 = slotsRow(slots);
   const bw = Math.min(320, W - 40), bx = W / 2 - bw / 2, by = y0 - 22;
   ctx.fillStyle = '#14111f'; ctx.fillRect(bx, by, bw, 12); ctx.fillRect(bx, by - 30, bw, 14);
-  ctx.fillStyle = '#5aa9ff'; ctx.fillRect(bx, by, bw * d.stam / SURV.stamMax, 12);
+  ctx.fillStyle = d.tired ? '#5a6b85' : '#5aa9ff'; ctx.fillRect(bx, by, bw * d.stam / SURV.stamMax, 12);
+  if (d.tired) { ctx.fillStyle = '#e9e4ff'; ctx.fillRect(bx + bw * 35 / SURV.stamMax - 1, by - 2, 2, 16); }
   ctx.fillStyle = d.weakT > 0 ? '#c97a7a' : '#7dffa8'; ctx.fillRect(bx, by - 30, bw * Math.max(0, d.hp) / d.maxHp, 14);
   if (d.overheal > 0) { ctx.fillStyle = '#ffffff'; ctx.fillRect(bx + bw * Math.max(0, d.hp) / d.maxHp, by - 30, bw * d.overheal / d.maxHp, 14); }
-  label(W / 2, by - 4, 'STAMINA ' + Math.round(d.stam), '#e9e4ff');
+  label(W / 2, by - 4, (d.tired ? 'EXHAUSTED ' : 'STAMINA ') + Math.round(d.stam), d.tired ? '#9a90bf' : '#e9e4ff');
   label(W / 2, by - 34, `${K.name.toUpperCase()} · ${d.inf ? '∞' : Math.max(0, Math.ceil(d.hp)) + ' / ' + d.maxHp} HP`, '#ffffff');
   const st = [];
   if (d.invT > 0) st.push(d.kit === 'guest' ? 'BLOCKING · RESISTANCE V' : 'BLOCKING'); if (d.overheal > 0) st.push(`OVERHEAL ${Math.round(d.overheal)}`); if (d.spd1T > 0) st.push('SPEED I'); if (d.strT > 0) st.push(`STRENGTH I ${Math.ceil(d.strT)}s`); if (d.res2T > 0) st.push('RESISTANCE II'); if (d.res3T > 0) st.push('RESISTANCE III'); if (d.slow2T > 0) st.push(`SLOWNESS II ${d.slow2T.toFixed(1)}s`); if (d.speedT > 0) st.push(`RUSH HOUR ${d.speedT.toFixed(1)}s`); if (d.weakT > 0) st.push(`WEAKNESS ${Math.ceil(d.weakT)}s`);
