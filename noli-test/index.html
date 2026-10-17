@@ -40,6 +40,8 @@
   <h2>CREATIVE</h2>
   <div id="toolList"></div>
   <div id="chairRow" style="display:none"><h3>Chair style</h3><div class="row" id="chairStyles"></div></div>
+  <div id="invisRow" style="display:none"><h3>Blockade look</h3><div class="row" id="invisSkins"></div></div>
+  <div id="rockRow" style="display:none"><h3>Rock size</h3><div class="row" id="rockSizes"></div></div>
   <h3>New dummies</h3>
   <div class="row" id="modes"></div>
   <div class="row" style="margin-top:5px" id="hps"></div>
@@ -126,7 +128,8 @@ const BORDER = [
 ];
 let walls = [], gens = [], dummies = [], props = [];
 const LAMP_R = 6, DOOR = { reach: 70, rushReach: 150, speed: 4 };
-let chairStyle = 'random';
+let chairStyle = 'random', invisSkin = 'none', rockSize = 'random';
+const ROCK_SIZES = { small: [12, 16], medium: [18, 24], large: [26, 36], random: [12, 34] };
 // Doors open when anyone is close and close again when they leave; a Void Rush slams them open instantly.
 function updateDoors(dt) {
   const near = (w, e, R) => { const cx = clamp(e.x, w.x, w.x + w.w), cy = clamp(e.y, w.y, w.y + w.h); return (e.x - cx) ** 2 + (e.y - cy) ** 2 < R * R; };
@@ -166,7 +169,7 @@ function lodgeMap() {
     // Southeast pillar court.
     W(1580, 960, 60, 60), W(1800, 960, 60, 60), W(1580, 1180, 60, 60), W(1800, 1180, 60, 60),
     // Southwest ruins: broken walls and a collapsed span you can see across but not cross.
-    W(200, 900, 300, 20), W(350, 1000, 20, 250), W(480, 1150, 250, 20), W(560, 980, 150, 20, 'invis'),
+    W(200, 900, 300, 20), W(350, 1000, 20, 250), W(480, 1150, 250, 20), { ...W(560, 980, 150, 20, 'invis'), skin: 'rocks' },
     // A few loose pillars for cover.
     W(620, 300, 60, 60), W(1320, 1050, 60, 60), W(1300, 300, 60, 60),
   ];
@@ -183,6 +186,9 @@ function lodgeMap() {
     C(850, 560, 3, 0.8), C(1150, 850, 2, -0.6), C(830, 850, 1, 2.2), C(1160, 540, 4, 1.1),
     C(260, 240, 0, 0.4), C(420, 360, 2, 1.9), C(1600, 230, 0, -0.3), C(1830, 390, 3, 0.7),
     C(420, 1050, 1, 2.6), C(600, 1220, 2, 0.2), C(260, 1000, 4, -1.2), C(1450, 860, 3, 2.9),
+    // rocks poking out around the ruins and the yard
+    { kind: 'rock', x: 520, y: 1290, r: 26, seed: 11 }, { kind: 'rock', x: 640, y: 1100, r: 16, seed: 23 }, { kind: 'rock', x: 230, y: 1300, r: 20, seed: 37 },
+    { kind: 'rock', x: 1420, y: 420, r: 22, seed: 41 }, { kind: 'rock', x: 1880, y: 620, r: 30, seed: 53 }, { kind: 'rock', x: 1480, y: 1290, r: 18, seed: 67 },
   ];
   dummies = dummies.filter((d) => d.player);
   const spots = [[640, 840], [1380, 840], [1000, 380]];
@@ -323,7 +329,10 @@ function hitWall(x, y, r, who, plan = false) {
     const cx = clamp(x, w.x, w.x + w.w), cy = clamp(y, w.y, w.y + w.h);
     if ((x - cx) ** 2 + (y - cy) ** 2 < r * r) return w;
   }
-  if (who !== 'see') for (const q of props) if (q.kind === 'lamp' && (x - q.x) ** 2 + (y - q.y) ** 2 < (r + LAMP_R) ** 2) return q;   // lamp posts are solid
+  if (who !== 'see') for (const q of props) {   // lamp post bases and rocks are solid (low, so they don't block sight)
+    const R = q.kind === 'lamp' ? LAMP_R : q.kind === 'rock' ? q.r * 0.88 : 0;
+    if (R && (x - q.x) ** 2 + (y - q.y) ** 2 < (r + R) ** 2) return q;
+  }
   return null;
 }
 function whoOf(e) { return e === noli || novas.includes(e) ? 'noli' : 'surv'; }
@@ -1854,12 +1863,13 @@ const TOOLS = [
   { id: 'door', key: '0', name: 'Door' },
   { id: 'lamp', key: '-', name: 'Lamp post' },
   { id: 'chair', key: '=', name: 'Chair' },
+  { id: 'rock', key: 'k', name: 'Rock' },
 ];
 const WALL_TOOLS = { wall: null, kwall: 'killer', iwall: 'invis', door: 'door' };
 function pick(p) {
   const d = dummies.slice().reverse().find((d) => dist(d, p) < d.r + 8); if (d) return { kind: 'dummy', o: d };
   const g = gens.find((g) => Math.abs(g.x - p.x) < GEN_SIZE / 2 && Math.abs(g.y - p.y) < GEN_SIZE / 2); if (g) return { kind: 'gen', o: g };
-  const q = props.slice().reverse().find((q) => { if (q.kind !== 'lamp') return dist(q, p) < 18; const r = lampRect(q); return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h + 4; }); if (q) return { kind: 'prop', o: q };
+  const q = props.slice().reverse().find((q) => { if (q.kind === 'rock') return dist(q, p) < q.r; if (q.kind !== 'lamp') return dist(q, p) < 18; const r = lampRect(q); return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h + 4; }); if (q) return { kind: 'prop', o: q };
   const w = walls.slice().reverse().find((w) => !w.fixed && p.x >= w.x && p.x <= w.x + w.w && p.y >= w.y && p.y <= w.y + w.h); if (w) return { kind: 'wall', o: w };
   return null;
 }
@@ -1870,6 +1880,7 @@ function creativeInput() {
     else if (tool === 'gen' || tool === 'fake') { gens.push({ x: p.x, y: p.y, fake: tool === 'fake', prog: 0 }); ring(p.x, p.y, 30, '#a26bff'); }
     else if (tool in WALL_TOOLS) mouse.drag = { kind: 'newWall', x0: p.x, y0: p.y, wk: WALL_TOOLS[tool] };
     else if (tool === 'lamp') { if (!hitWall(p.x, p.y, LAMP_R + 4)) { props.push({ kind: 'lamp', x: p.x, y: p.y }); ring(p.x, p.y, 30, '#fff2c4', 0.4); } }
+    else if (tool === 'rock') { const [a, b2] = ROCK_SIZES[rockSize]; const r = rand(a, b2); if (!hitWall(p.x, p.y, r)) { props.push({ kind: 'rock', x: p.x, y: p.y, r, seed: Math.random() * 1000 }); stabBurst(p, 6, r); } }
     else if (tool === 'chair') { props.push({ kind: 'chair', x: p.x, y: p.y, style: chairStyle === 'random' ? Math.floor(rand(0, 5)) : +chairStyle, rot: rand(0, 6.283) }); ring(p.x, p.y, 22, '#c9a8ff', 0.3); }
     else if (tool === 'move') { const h = pick(p); if (h) mouse.drag = { ...h, ox: p.x - (h.o.x), oy: p.y - (h.o.y) }; }
     else if (tool === 'erase') {
@@ -1886,9 +1897,10 @@ function creativeInput() {
     if (dr && dr.kind === 'newWall') {
       const x = Math.min(dr.x0, p.x), y = Math.min(dr.y0, p.y), w = Math.abs(p.x - dr.x0), h = Math.abs(p.y - dr.y0);
       const kind = dr.wk;
-      if (w > 8 && h > 8) walls.push({ x, y, w, h, kind, open: 0 });
+      const skin = kind === 'invis' && invisSkin !== 'none' ? invisSkin : undefined;
+      if (w > 8 && h > 8) walls.push({ x, y, w, h, kind, open: 0, skin });
       else if (kind === 'door') walls.push({ x: dr.x0 - 45, y: dr.y0 - 7, w: 90, h: 14, kind, open: 0 });   // click = a standard door
-      else walls.push({ x: dr.x0 - 35, y: dr.y0 - 35, w: 70, h: 70, kind });   // click = a pillar
+      else walls.push({ x: dr.x0 - 35, y: dr.y0 - 35, w: 70, h: 70, kind, skin: kind === 'invis' && invisSkin !== 'none' ? invisSkin : undefined });   // click = a pillar
     }
     mouse.drag = null;
   }
@@ -2783,6 +2795,7 @@ function drawSurvFx() {
 function drawWall(w, hot) {
   const editing = tool !== 'play' || showHitboxes;
   if (w.kind === 'invis') {   // invisible: only a faint outline while building / with hitboxes on
+    if (w.skin) drawBlockade(w, hot);   // dressed up as a blockade (still see-through, still solid)
     if (!editing && !hot) return;
     ctx.save(); ctx.globalAlpha = hot ? 0.8 : 0.35; ctx.strokeStyle = hot && tool === 'erase' ? '#ff4d6d' : '#9a90bf'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]);
     ctx.strokeRect(w.x + 1, w.y + 1, w.w - 2, w.h - 2); ctx.restore(); return;
@@ -2814,6 +2827,63 @@ function drawWall(w, hot) {
     return;
   }
   ctx.fillStyle = hot ? (tool === 'erase' ? '#6b2a3c' : '#4a3d70') : '#2a2340'; ctx.fillRect(w.x, w.y, w.w, w.h);
+}
+// Rocks: irregular shaded stones poking out of the ground (deterministic shape from their seed).
+function rockShape(x, y, r, seed) {
+  const n = 9, pts = [];
+  for (let i = 0; i < n; i++) { const a = i / n * 6.283 + hash1(seed + i) * 0.35, rr = r * (0.72 + 0.34 * hash1(seed * 1.7 + i * 3.1)); pts.push([x + Math.cos(a) * rr, y + Math.sin(a) * rr * 0.85]); }
+  return pts;
+}
+function drawRock(x, y, r, seed, hot) {
+  const pts = rockShape(x, y, r, seed), path = (pp) => { ctx.beginPath(); pp.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py))); ctx.closePath(); };
+  ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(x + r * 0.25, y + r * 0.3, r * 1.05, r * 0.7, 0, 0, 6.3); ctx.fill();   // shadow
+  path(pts); ctx.fillStyle = hot ? (tool === 'erase' ? '#6b2a3c' : '#5e5672') : '#45404f'; ctx.fill(); ctx.strokeStyle = '#25212c'; ctx.lineWidth = 1.5; ctx.stroke();
+  // lit top facet (up-left), smaller and lifted, so it reads as sticking up out of the ground
+  path(pts.map(([px, py]) => [x + (px - x) * 0.62 - r * 0.12, y + (py - y) * 0.58 - r * 0.2])); ctx.fillStyle = '#625b70'; ctx.fill();
+  ctx.strokeStyle = 'rgba(233,228,255,0.25)'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.strokeStyle = '#2c2833'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x - r * 0.1, y - r * 0.15); ctx.lineTo(x + r * 0.2, y + r * 0.2); ctx.lineTo(x + r * 0.15, y + r * 0.45); ctx.stroke();   // crack
+}
+function drawRocks(hover) { for (const q of props) if (q.kind === 'rock') drawRock(q.x, q.y, q.r, q.seed, hover && hover.o === q); }
+// Blockade skins for invisible walls: boards, rocks or wire.
+function drawBlockade(w, hot) {
+  const horiz = w.w >= w.h, L = horiz ? w.w : w.h, T = horiz ? w.h : w.w, seed = w.x * 0.37 + w.y * 0.71;
+  ctx.save(); ctx.translate(w.x + w.w / 2, w.y + w.h / 2); if (!horiz) ctx.rotate(Math.PI / 2);
+  if (hot) ctx.globalAlpha = 0.6;
+  if (w.skin === 'boards') {   // a barricade of nailed planks
+    const n = Math.max(2, Math.round(L / 34));
+    for (let i = 0; i < n; i++) {   // uprights
+      const px = -L / 2 + (i + 0.5) * L / n; ctx.fillStyle = '#4a3324'; ctx.fillRect(px - 3, -T / 2 - 6, 6, T + 12);
+    }
+    for (let i = 0; i < 3; i++) {   // planks across, slightly crooked
+      const py = -T / 2 + (i + 0.5) * T / 3, tilt = (hash1(seed + i) - 0.5) * 0.12;
+      ctx.save(); ctx.translate(0, py); ctx.rotate(tilt);
+      ctx.fillStyle = i % 2 ? '#7a5638' : '#6b4a30'; ctx.fillRect(-L / 2 - 4, -5, L + 8, 10); ctx.strokeStyle = '#3a2618'; ctx.lineWidth = 1; ctx.strokeRect(-L / 2 - 4, -5, L + 8, 10);
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.moveTo(-L / 2, -1); ctx.lineTo(L / 2, 1); ctx.stroke();   // grain
+      ctx.fillStyle = '#c9c4d6'; for (let k = 0; k < n; k++) { const px = -L / 2 + (k + 0.5) * L / n; ctx.fillRect(px - 1, -1, 2, 2); }   // nails
+      ctx.restore();
+    }
+    // one board nailed on diagonally
+    ctx.save(); ctx.rotate(Math.atan2(T, L) * 0.8); ctx.fillStyle = '#5e4129'; ctx.fillRect(-L / 2, -4, L, 8); ctx.strokeStyle = '#3a2618'; ctx.strokeRect(-L / 2, -4, L, 8); ctx.restore();
+  } else if (w.skin === 'rocks') {   // a pile of rubble along it
+    const n = Math.max(2, Math.round(L / 22));
+    for (let i = 0; i < n; i++) {
+      const px = -L / 2 + (i + 0.5) * L / n + (hash1(seed + i * 2) - 0.5) * 8, py = (hash1(seed + i * 5) - 0.5) * T * 0.6, r = Math.max(9, Math.min(T * 0.75, 16)) * (0.8 + 0.5 * hash1(seed + i * 7));
+      drawRock(px, py, r, seed + i * 13, false);
+    }
+  } else if (w.skin === 'wire') {   // posts with sagging barbed wire
+    const n = Math.max(2, Math.round(L / 60) + 1);
+    const posts = Array.from({ length: n }, (_, i) => -L / 2 + i * L / (n - 1));
+    for (let row = 0; row < 3; row++) {
+      const yy = -T / 2 + (row + 0.5) * T / 3;
+      ctx.strokeStyle = '#9a96a6'; ctx.lineWidth = 1.2; ctx.beginPath();
+      for (let i = 0; i < n - 1; i++) { const a = posts[i], b = posts[i + 1]; ctx.moveTo(a, yy); ctx.quadraticCurveTo((a + b) / 2, yy + 4, b, yy); }
+      ctx.stroke();
+      ctx.strokeStyle = '#c9c4d6'; ctx.lineWidth = 1;   // barbs
+      for (let x = -L / 2 + 8; x < L / 2; x += 12) { const sag = 4 * Math.sin(((x + L / 2) % (L / (n - 1))) / (L / (n - 1)) * Math.PI) * 0.5; ctx.beginPath(); ctx.moveTo(x - 2.5, yy + sag - 2.5); ctx.lineTo(x + 2.5, yy + sag + 2.5); ctx.moveTo(x + 2.5, yy + sag - 2.5); ctx.lineTo(x - 2.5, yy + sag + 2.5); ctx.stroke(); }
+    }
+    for (const px of posts) { ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(px - 2, -T / 2 - 2, 7, T + 6); ctx.fillStyle = '#4a3324'; ctx.fillRect(px - 3, -T / 2 - 5, 6, T + 10); ctx.strokeStyle = '#2a1c12'; ctx.strokeRect(px - 3, -T / 2 - 5, 6, T + 10); }
+  }
+  ctx.restore(); ctx.globalAlpha = 1;
 }
 function drawLampGlow() {
   const T = performance.now() / 1000;
@@ -2899,6 +2969,7 @@ function render() {
   drawLampGlow();
   for (const w of walls) drawWall(w, hover && hover.o === w);
   drawChairs(hover);
+  drawRocks(hover);
   drawCracks();
   drawDarkTrail();   // under everyone
   for (const g of gens) {
@@ -2975,6 +3046,8 @@ function render() {
       else if (tool === 'door') ctx.fillRect(p.x - 45, p.y - 7, 90, 14); else ctx.fillRect(p.x - 35, p.y - 35, 70, 70);
     }
     if (tool === 'lamp') { const r = lampRect(p); if (LAMP_IMG.complete && LAMP_IMG.naturalWidth) ctx.drawImage(LAMP_IMG, r.x, r.y, r.w, r.h); }   // the base goes where you click
+    if (tool === 'rock') { const [a, b2] = ROCK_SIZES[rockSize]; drawRock(p.x, p.y, (a + b2) / 2, 7, false); }
+    if (tool === 'iwall' && invisSkin !== 'none') { const dr = mouse.drag; const g = dr && dr.kind === 'newWall' ? { x: Math.min(dr.x0, p.x), y: Math.min(dr.y0, p.y), w: Math.abs(p.x - dr.x0), h: Math.abs(p.y - dr.y0), skin: invisSkin } : { x: p.x - 35, y: p.y - 35, w: 70, h: 70, skin: invisSkin }; if (g.w > 4 && g.h > 4) drawBlockade(g, false); }
     if (tool === 'chair') { ctx.save(); ctx.translate(p.x, p.y); drawChair(chairStyle === 'random' ? 0 : +chairStyle, false); ctx.restore(); }
     ctx.globalAlpha = 1;
   }
@@ -3207,7 +3280,7 @@ function survHud() {
 
 // ------------------------------------------------------------- UI
 const toolList = document.getElementById('toolList');
-function setTool(id) { tool = id; mouse.drag = null; for (const b of toolList.children) b.classList.toggle('on', b.dataset.t === id); const cr = document.getElementById('chairRow'); if (cr) cr.style.display = id === 'chair' ? '' : 'none'; }
+function setTool(id) { tool = id; mouse.drag = null; for (const b of toolList.children) b.classList.toggle('on', b.dataset.t === id); for (const [row, t] of [['chairRow', 'chair'], ['invisRow', 'iwall'], ['rockRow', 'rock']]) { const el = document.getElementById(row); if (el) el.style.display = id === t ? '' : 'none'; } }
 for (const t of TOOLS) {
   const b = document.createElement('button'); b.className = 'tool'; b.dataset.t = t.id;
   b.innerHTML = `<span>${t.name}</span><kbd>${t.key}</kbd>`; b.onclick = () => setTool(t.id);
@@ -3223,6 +3296,8 @@ function segment(el, items, get, set) {
 }
 segment(document.getElementById('modes'), [['stand', 'Stand'], ['wander', 'Wander'], ['flee', 'Flee'], ['repair', 'Repair'], ['smart', 'Smart AI']], () => newMode, (v) => (newMode = v));
 segment(document.getElementById('chairStyles'), [['random', 'Random'], ...CHAIR_STYLES.map((n, i) => [String(i), n])], () => chairStyle, (v) => (chairStyle = v));
+segment(document.getElementById('invisSkins'), [['none', 'None'], ['boards', 'Boards'], ['rocks', 'Rocks'], ['wire', 'Wire']], () => invisSkin, (v) => (invisSkin = v));
+segment(document.getElementById('rockSizes'), [['random', 'Random'], ['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']], () => rockSize, (v) => (rockSize = v));
 segment(document.getElementById('kits'), [['', 'Dummy'], ...KIT_IDS.map((k) => [k, KITS[k].name])], () => newKit, (v) => (newKit = v));
 for (const [m, name] of [['noli', 'Noli'], ['survivor', 'Survivor (vs AI Noli)']]) {
   const b = document.createElement('button'); b.textContent = name; b.dataset.m = m; b.onclick = () => setMode(m);
