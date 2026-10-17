@@ -3084,9 +3084,27 @@ function curSparkFx() {
     star4(q.x, q.y, q.size * tw, '#ffffff', Math.max(0, 1 - fall) * (q.t < 0.08 ? q.t / 0.08 : 1));
   }
 }
+// Creative cursor: switching to a building tool plays the bass hit; the arrow appears a little away
+// from the mouse, glides onto it and turns a quarter turn (180° -> 90°, i.e. into its normal pose).
+const CC_IMG = new Image(); CC_IMG.src = 'img/creative_cursor.png';
+const CC = { size: 40, tipX: 31, tipY: 31, src: 60, glide: 0.35, startOff: 46 };
+let ccAnim = null, wasCreative = false;
+function drawCreativeCursor(creative) {
+  if (creative && !wasCreative) { sfx('creative_bass', 0.8); ccAnim = { t0: performance.now() / 1000, ox: rand(-1, 1) > 0 ? CC.startOff : -CC.startOff, oy: CC.startOff }; }
+  wasCreative = creative;
+  if (!creative || !CC_IMG.complete || !CC_IMG.naturalWidth) return;
+  const t = ccAnim ? performance.now() / 1000 - ccAnim.t0 : 99, k = Math.min(1, t / CC.glide), e = 1 - Math.pow(1 - k, 3);
+  const x = mouse.x + (ccAnim ? ccAnim.ox * (1 - e) : 0), y = mouse.y + (ccAnim ? ccAnim.oy * (1 - e) : 0);
+  const rot = (Math.PI / 2) * (1 - e), sc = CC.size / CC.src;   // starts a quarter turn round, settles into its normal pose
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.globalAlpha = Math.min(1, t / 0.08);
+  ctx.drawImage(CC_IMG, -CC.tipX * sc, -CC.tipY * sc, CC.size, CC.size);   // the arrow's tip sits on the mouse
+  ctx.restore(); ctx.globalAlpha = 1;
+}
 function drawRushCursor() {
   const on = mode === 'noli' && (noli.state === 'rushWind' || noli.state === 'rush');
-  cv.style.cursor = on ? 'none' : 'crosshair';
+  const creative = !on && tool !== 'play';
+  cv.style.cursor = on || creative ? 'none' : 'crosshair';
+  drawCreativeCursor(creative);
   if (!on && curLast) {
     for (let i = 0; i < 18; i++) { const a = rand(0, 6.3), r = rand(4, 26); curSparks.push({ cx: curLast.x, cy: curLast.y, x: curLast.x + Math.cos(a) * r, y: curLast.y + Math.sin(a) * r, a, r, spin: rand(2, 5) * (Math.random() < 0.5 ? -1 : 1), vx: rand(-25, 25), vy: rand(-60, 0), size: rand(2, 4.5), seed: rand(0, 9), t: 0, hover: rand(0.25, 0.45), life: rand(0.9, 1.3) }); }
     curLast = null;
