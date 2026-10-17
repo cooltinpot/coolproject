@@ -2793,10 +2793,9 @@ function drawSurvFx() {
 }
 // ------------------------------------------------------------- map pieces: killer walls, invisible walls, doors, lamps, chairs
 function drawWall(w, hot) {
-  const editing = tool !== 'play' || showHitboxes;
-  if (w.kind === 'invis') {   // invisible: only a faint outline while building / with hitboxes on
+  if (w.kind === 'invis') {   // invisible: its outline only shows with hitboxes on (or while hovering it with Move/Erase)
     if (w.skin) drawBlockade(w, hot);   // dressed up as a blockade (still see-through, still solid)
-    if (!editing && !hot) return;
+    if (!showHitboxes && !hot) return;
     ctx.save(); ctx.globalAlpha = hot ? 0.8 : 0.35; ctx.strokeStyle = hot && tool === 'erase' ? '#ff4d6d' : '#9a90bf'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]);
     ctx.strokeRect(w.x + 1, w.y + 1, w.w - 2, w.h - 2); ctx.restore(); return;
   }
