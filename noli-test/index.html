@@ -39,6 +39,7 @@
 <div id="tools" class="panel">
   <h2>CREATIVE</h2>
   <div id="toolList"></div>
+  <div id="chairRow" style="display:none"><h3>Chair style</h3><div class="row" id="chairStyles"></div></div>
   <h3>New dummies</h3>
   <div class="row" id="modes"></div>
   <div class="row" style="margin-top:5px" id="hps"></div>
@@ -122,11 +123,25 @@ const BORDER = [
   { x: 0, y: 0, w: MAP.w, h: 30, fixed: true }, { x: 0, y: MAP.h - 30, w: MAP.w, h: 30, fixed: true },
   { x: 0, y: 0, w: 30, h: MAP.h, fixed: true }, { x: MAP.w - 30, y: 0, w: 30, h: MAP.h, fixed: true },
 ];
-let walls = [], gens = [], dummies = [];
+let walls = [], gens = [], dummies = [], props = [];
+const LAMP_R = 7, DOOR = { reach: 70, rushReach: 150, speed: 4 };
+let chairStyle = 'random';
+// Doors open when anyone is close and close again when they leave; a Void Rush slams them open instantly.
+function updateDoors(dt) {
+  const near = (w, e, R) => { const cx = clamp(e.x, w.x, w.x + w.w), cy = clamp(e.y, w.y, w.y + w.h); return (e.x - cx) ** 2 + (e.y - cy) ** 2 < R * R; };
+  for (const w of walls) {
+    if (w.kind !== 'door') continue;
+    w.open = w.open || 0;
+    if (noli.state === 'rush' && near(w, noli, DOOR.rushReach)) { if (w.open < 1) { w.open = 1; w.bang = 0.3; } continue; }
+    const want = near(w, noli, DOOR.reach) || dummies.some((d) => !d.dead && near(w, d, DOOR.reach)) ? 1 : 0;
+    w.open = clamp(w.open + Math.sign(want - w.open) * DOOR.speed * dt, 0, 1);
+    if (w.bang) w.bang = Math.max(0, w.bang - dt);
+  }
+}
 function defaultMap() {
   walls = [...BORDER, { x: 620, y: 380, w: 70, h: 70 }, { x: 1310, y: 380, w: 70, h: 70 }, { x: 620, y: 950, w: 70, h: 70 }, { x: 1310, y: 950, w: 70, h: 70 }];
   gens = [{ x: 260, y: 240, fake: false, prog: 0 }, { x: 1740, y: 240, fake: false, prog: 0 }, { x: 260, y: 1160, fake: false, prog: 0 }, { x: 1740, y: 1160, fake: true, prog: 0 }];
-  dummies = dummies.filter((d) => d.player);
+  dummies = dummies.filter((d) => d.player); props = [];
   if (mode === 'survivor') KIT_IDS.filter((k) => k !== playerKit).slice(0, 3).forEach((k, i) => addDummy(800 + i * 200, 600, 'smart', 100, k));
   else { addDummy(1000, 500, 'stand', 100, ''); addDummy(800, 650, 'stand', 100, ''); addDummy(1200, 650, 'stand', 100, ''); }
 }
@@ -252,17 +267,25 @@ function press(k) {
 }
 
 // ------------------------------------------------------------- collisions
-function hitWall(x, y, r) {
+// who: 'noli' (and his Nova), 'surv' (survivors and their stuff), 'see' (sight lines / rays), or none (solid for all).
+// Killer walls only stop survivors; invisible walls stop bodies but not sight; doors stop everything until open;
+// plan = route planning, which treats doors as open (they open as you walk up).
+function hitWall(x, y, r, who, plan = false) {
   for (const w of walls) {
+    if (w.kind === 'killer' && (who === 'noli' || who === 'see')) continue;
+    if (w.kind === 'invis' && who === 'see') continue;
+    if (w.kind === 'door' && (w.open > 0.75 || (plan && who !== 'see'))) continue;
     const cx = clamp(x, w.x, w.x + w.w), cy = clamp(y, w.y, w.y + w.h);
     if ((x - cx) ** 2 + (y - cy) ** 2 < r * r) return w;
   }
+  if (who !== 'see') for (const q of props) if (q.kind === 'lamp' && (x - q.x) ** 2 + (y - q.y) ** 2 < (r + LAMP_R) ** 2) return q;   // lamp posts are solid
   return null;
 }
+function whoOf(e) { return e === noli || novas.includes(e) ? 'noli' : 'surv'; }
 function moveCircle(e, dx, dy) {
-  let bx = false, by = false;
-  if (!hitWall(e.x + dx, e.y, e.r)) e.x += dx; else bx = true;
-  if (!hitWall(e.x, e.y + dy, e.r)) e.y += dy; else by = true;
+  let bx = false, by = false; const who = whoOf(e);
+  if (!hitWall(e.x + dx, e.y, e.r, who)) e.x += dx; else bx = true;
+  if (!hitWall(e.x, e.y + dy, e.r, who)) e.y += dy; else by = true;
   return { bx, by };
 }
 
@@ -1171,8 +1194,10 @@ function updatePizzas(dt) {
 
 // ------------------------------------------------------------- pathing helpers
 function clearPath(a, b, r) {
+  // Thin checks (r <= 6) are sight lines; thicker ones are routes for whoever is at a.
+  const who = r <= 6 ? 'see' : whoOf(a), plan = who !== 'see';
   const L = Math.hypot(b.x - a.x, b.y - a.y), n = Math.max(1, Math.ceil(L / 15));
-  for (let i = 1; i <= n; i++) if (hitWall(a.x + (b.x - a.x) * i / n, a.y + (b.y - a.y) * i / n, r)) return false;
+  for (let i = 1; i <= n; i++) if (hitWall(a.x + (b.x - a.x) * i / n, a.y + (b.y - a.y) * i / n, r, who, plan)) return false;
   return true;
 }
 // Heads straight for the target when the way is clear, otherwise picks the open direction that gets closest.
@@ -1779,10 +1804,17 @@ const TOOLS = [
   { id: 'fake', key: '5', name: 'Fake generator' },
   { id: 'move', key: '6', name: 'Move' },
   { id: 'erase', key: '7', name: 'Erase' },
+  { id: 'kwall', key: '8', name: 'Killer wall' },
+  { id: 'iwall', key: '9', name: 'Invisible wall' },
+  { id: 'door', key: '0', name: 'Door' },
+  { id: 'lamp', key: '-', name: 'Lamp post' },
+  { id: 'chair', key: '=', name: 'Chair' },
 ];
+const WALL_TOOLS = { wall: null, kwall: 'killer', iwall: 'invis', door: 'door' };
 function pick(p) {
   const d = dummies.slice().reverse().find((d) => dist(d, p) < d.r + 8); if (d) return { kind: 'dummy', o: d };
   const g = gens.find((g) => Math.abs(g.x - p.x) < GEN_SIZE / 2 && Math.abs(g.y - p.y) < GEN_SIZE / 2); if (g) return { kind: 'gen', o: g };
+  const q = props.slice().reverse().find((q) => dist(q, p) < (q.kind === 'lamp' ? 16 : 18)); if (q) return { kind: 'prop', o: q };
   const w = walls.slice().reverse().find((w) => !w.fixed && p.x >= w.x && p.x <= w.x + w.w && p.y >= w.y && p.y <= w.y + w.h); if (w) return { kind: 'wall', o: w };
   return null;
 }
@@ -1791,11 +1823,13 @@ function creativeInput() {
   if (mouse.click) {
     if (tool === 'dummy') { if (!hitWall(p.x, p.y, 16)) { const d = addDummy(p.x, p.y); ring(p.x, p.y, 30, '#7dffa8'); log(`Placed ${d.name} (${d.mode}, ${d.inf ? '∞' : d.maxHp} HP)`); } }
     else if (tool === 'gen' || tool === 'fake') { gens.push({ x: p.x, y: p.y, fake: tool === 'fake', prog: 0 }); ring(p.x, p.y, 30, '#a26bff'); }
-    else if (tool === 'wall') mouse.drag = { kind: 'newWall', x0: p.x, y0: p.y };
+    else if (tool in WALL_TOOLS) mouse.drag = { kind: 'newWall', x0: p.x, y0: p.y, wk: WALL_TOOLS[tool] };
+    else if (tool === 'lamp') { if (!hitWall(p.x, p.y, LAMP_R + 4)) { props.push({ kind: 'lamp', x: p.x, y: p.y }); ring(p.x, p.y, 30, '#fff2c4', 0.4); } }
+    else if (tool === 'chair') { props.push({ kind: 'chair', x: p.x, y: p.y, style: chairStyle === 'random' ? Math.floor(rand(0, 5)) : +chairStyle, rot: rand(0, 6.283) }); ring(p.x, p.y, 22, '#c9a8ff', 0.3); }
     else if (tool === 'move') { const h = pick(p); if (h) mouse.drag = { ...h, ox: p.x - (h.o.x), oy: p.y - (h.o.y) }; }
     else if (tool === 'erase') {
       const h = pick(p);
-      if (h) { const arr = h.kind === 'dummy' ? dummies : h.kind === 'gen' ? gens : walls; arr.splice(arr.indexOf(h.o), 1); ring(p.x, p.y, 26, '#ff4d6d', 0.3); }
+      if (h) { const arr = h.kind === 'dummy' ? dummies : h.kind === 'gen' ? gens : h.kind === 'prop' ? props : walls; arr.splice(arr.indexOf(h.o), 1); ring(p.x, p.y, 26, '#ff4d6d', 0.3); }
     }
   }
   const dr = mouse.drag;
@@ -1806,8 +1840,10 @@ function creativeInput() {
   if (mouse.up) {
     if (dr && dr.kind === 'newWall') {
       const x = Math.min(dr.x0, p.x), y = Math.min(dr.y0, p.y), w = Math.abs(p.x - dr.x0), h = Math.abs(p.y - dr.y0);
-      if (w > 8 && h > 8) walls.push({ x, y, w, h });
-      else walls.push({ x: dr.x0 - 35, y: dr.y0 - 35, w: 70, h: 70 });   // click = a pillar
+      const kind = dr.wk;
+      if (w > 8 && h > 8) walls.push({ x, y, w, h, kind, open: 0 });
+      else if (kind === 'door') walls.push({ x: dr.x0 - 45, y: dr.y0 - 7, w: 90, h: 14, kind, open: 0 });   // click = a standard door
+      else walls.push({ x: dr.x0 - 35, y: dr.y0 - 35, w: 70, h: 70, kind });   // click = a pillar
     }
     mouse.drag = null;
   }
@@ -1991,6 +2027,7 @@ function update(dt) {
     if (dt > 0) { d.svx = (d.x - px) / dt; d.svy = (d.y - py) / dt; }   // for Noli's AI to lead his aim
   }
   updatePizzas(dt);
+  updateDoors(dt);
   if (round) {
     round.t -= dt;
     if (round.t <= 0) { banner = { s: player && !player.dead && !player.dying && !player.exec ? 'YOU SURVIVED!' : 'ROUND OVER', sub: `${round.gens} generator${round.gens === 1 ? '' : 's'} done · next round starting`, t: 0, life: 3 }; round = { t: ROUND_LEN, gens: 0 }; }
@@ -2697,6 +2734,92 @@ function drawSurvFx() {
     ctx.beginPath(); ctx.arc(s.x, s.y, s.r, s.a - 1 + k * 0.6, s.a + 1 + k * 0.6); ctx.stroke(); ctx.globalAlpha = 1;
   }
 }
+// ------------------------------------------------------------- map pieces: killer walls, invisible walls, doors, lamps, chairs
+function drawWall(w, hot) {
+  const editing = tool !== 'play' || showHitboxes;
+  if (w.kind === 'invis') {   // invisible: only a faint outline while building / with hitboxes on
+    if (!editing && !hot) return;
+    ctx.save(); ctx.globalAlpha = hot ? 0.8 : 0.35; ctx.strokeStyle = hot && tool === 'erase' ? '#ff4d6d' : '#9a90bf'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 5]);
+    ctx.strokeRect(w.x + 1, w.y + 1, w.w - 2, w.h - 2); ctx.restore(); return;
+  }
+  if (w.kind === 'killer') {   // killer-only: a dark see-through grate with purple bars
+    ctx.save(); ctx.globalAlpha = 0.5; ctx.fillStyle = hot ? (tool === 'erase' ? '#6b2a3c' : '#4a3d70') : '#1a1028'; ctx.fillRect(w.x, w.y, w.w, w.h);
+    ctx.beginPath(); ctx.rect(w.x, w.y, w.w, w.h); ctx.clip(); ctx.globalAlpha = 0.8; ctx.strokeStyle = '#7a3cff'; ctx.lineWidth = 2;
+    for (let i = -w.h; i < w.w; i += 12) { ctx.beginPath(); ctx.moveTo(w.x + i, w.y + w.h); ctx.lineTo(w.x + i + w.h, w.y); ctx.stroke(); }
+    ctx.restore(); ctx.strokeStyle = '#a26bff'; ctx.lineWidth = 1.5; ctx.strokeRect(w.x, w.y, w.w, w.h); return;
+  }
+  if (w.kind === 'door') {   // two leaves sliding apart along the door's long side
+    const horiz = w.w >= w.h, k = w.open || 0, e = k * k * (3 - 2 * k);
+    ctx.fillStyle = '#17121f'; ctx.fillRect(w.x, w.y, w.w, w.h);   // the opening
+    ctx.fillStyle = hot ? (tool === 'erase' ? '#6b2a3c' : '#6b5a86') : '#4a3a5e'; ctx.strokeStyle = '#9a90bf'; ctx.lineWidth = 1;
+    if (horiz) { const half = w.w / 2, lw = half * (1 - e * 0.92); ctx.fillRect(w.x, w.y, lw, w.h); ctx.strokeRect(w.x, w.y, lw, w.h); ctx.fillRect(w.x + w.w - lw, w.y, lw, w.h); ctx.strokeRect(w.x + w.w - lw, w.y, lw, w.h); }
+    else { const half = w.h / 2, lh = half * (1 - e * 0.92); ctx.fillRect(w.x, w.y, w.w, lh); ctx.strokeRect(w.x, w.y, w.w, lh); ctx.fillRect(w.x, w.y + w.h - lh, w.w, lh); ctx.strokeRect(w.x, w.y + w.h - lh, w.w, lh); }
+    ctx.fillStyle = '#2a2340'; if (horiz) { ctx.fillRect(w.x - 4, w.y - 3, 4, w.h + 6); ctx.fillRect(w.x + w.w, w.y - 3, 4, w.h + 6); } else { ctx.fillRect(w.x - 3, w.y - 4, w.w + 6, 4); ctx.fillRect(w.x - 3, w.y + w.h, w.w + 6, 4); }   // frame
+    if (w.bang) { ctx.globalAlpha = w.bang / 0.3; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.strokeRect(w.x - 3, w.y - 3, w.w + 6, w.h + 6); ctx.globalAlpha = 1; }   // slammed open by a Void Rush
+    return;
+  }
+  ctx.fillStyle = hot ? (tool === 'erase' ? '#6b2a3c' : '#4a3d70') : '#2a2340'; ctx.fillRect(w.x, w.y, w.w, w.h);
+}
+function drawLampGlow() {
+  const T = performance.now() / 1000;
+  for (const q of props) {
+    if (q.kind !== 'lamp') continue;
+    const fl = 0.92 + 0.08 * Math.sin(T * 7 + q.x) * Math.sin(T * 3.1 + q.y), R = 150;
+    const g = ctx.createRadialGradient(q.x, q.y, 4, q.x, q.y, R);
+    g.addColorStop(0, `rgba(255,242,196,${0.28 * fl})`); g.addColorStop(0.45, `rgba(255,242,196,${0.1 * fl})`); g.addColorStop(1, 'rgba(255,242,196,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.x, q.y, R, 0, 6.3); ctx.fill();
+  }
+}
+function drawLampPosts(hover) {
+  for (const q of props) {
+    if (q.kind !== 'lamp') continue;
+    const hot = hover && hover.o === q;
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(q.x + 4, q.y + 3, 9, 5, 0, 0, 6.3); ctx.fill();
+    ctx.fillStyle = hot ? (tool === 'erase' ? '#6b2a3c' : '#6b5a86') : '#2c2638'; ctx.beginPath(); ctx.arc(q.x, q.y, LAMP_R, 0, 6.3); ctx.fill();   // post
+    ctx.strokeStyle = '#4a3f5c'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = '#fff2c4'; ctx.beginPath(); ctx.arc(q.x, q.y, 3.5, 0, 6.3); ctx.fill();   // the bulb seen from above
+  }
+}
+// Five ways a chair can be sitting on the floor (top-down): upright, fallen back, on its side, upside down, tilted.
+const CHAIR_STYLES = ['Upright', 'Fallen back', 'On its side', 'Upside down', 'Tilted'];
+function drawChair(style, hot) {
+  const wood = hot ? (tool === 'erase' ? '#6b2a3c' : '#8a6a4a') : '#6b4a32', dark = '#3e2a1c', edge = '#2a1c12';
+  ctx.lineWidth = 1; ctx.strokeStyle = edge;
+  const leg = (x, y) => { ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(x, y, 1.8, 0, 6.3); ctx.fill(); };
+  if (style === 0) {   // upright: seat with the backrest along one side
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(-8, -7, 18, 18);
+    ctx.fillStyle = wood; ctx.fillRect(-9, -9, 18, 18); ctx.strokeRect(-9, -9, 18, 18);
+    ctx.fillStyle = dark; ctx.fillRect(-9, -12, 18, 5); ctx.strokeRect(-9, -12, 18, 5);
+  } else if (style === 1) {   // fallen back: seat plus the backrest lying flat beyond it, front legs sticking up
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(-8, -16, 18, 30);
+    ctx.fillStyle = dark; ctx.fillRect(-9, -20, 18, 12); ctx.strokeRect(-9, -20, 18, 12);
+    for (let i = -6; i <= 6; i += 4) { ctx.fillStyle = edge; ctx.fillRect(i - 0.5, -19, 1, 10); }   // back slats
+    ctx.fillStyle = wood; ctx.fillRect(-9, -8, 18, 6); ctx.strokeRect(-9, -8, 18, 6);   // seat edge-on
+    ctx.fillStyle = dark; ctx.fillRect(-8, -2, 3, 12); ctx.fillRect(5, -2, 3, 12);   // legs in the air
+  } else if (style === 2) {   // on its side: an L of seat and backrest, legs pointing out
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(-9, -7, 20, 16);
+    ctx.fillStyle = wood; ctx.fillRect(-10, 2, 20, 5); ctx.strokeRect(-10, 2, 20, 5);
+    ctx.fillStyle = dark; ctx.fillRect(-10, -12, 5, 14); ctx.strokeRect(-10, -12, 5, 14);
+    ctx.fillStyle = dark; ctx.fillRect(-4, 7, 2, 7); ctx.fillRect(7, 7, 2, 7);
+  } else if (style === 3) {   // upside down: underside of the seat with four legs pointing up
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(-8, -7, 18, 18);
+    ctx.fillStyle = dark; ctx.fillRect(-9, -9, 18, 18); ctx.strokeRect(-9, -9, 18, 18);
+    ctx.strokeStyle = '#2a1c12'; ctx.beginPath(); ctx.moveTo(-9, -9); ctx.lineTo(9, 9); ctx.moveTo(9, -9); ctx.lineTo(-9, 9); ctx.stroke();   // braces
+    for (const [x, y] of [[-7, -7], [7, -7], [-7, 7], [7, 7]]) { ctx.fillStyle = wood; ctx.beginPath(); ctx.arc(x, y, 2.6, 0, 6.3); ctx.fill(); ctx.stroke(); }
+  } else {   // tilted: leaning on two legs, drawn skewed with a stretched shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(6, 4, 14, 8, 0.3, 0, 6.3); ctx.fill();
+    ctx.save(); ctx.transform(1, 0.18, -0.25, 1, 0, 0);
+    ctx.fillStyle = wood; ctx.fillRect(-9, -9, 18, 18); ctx.strokeRect(-9, -9, 18, 18);
+    ctx.fillStyle = dark; ctx.fillRect(-9, -13, 18, 5); ctx.strokeRect(-9, -13, 18, 5);
+    ctx.restore(); leg(-8, 9); leg(8, 11);
+  }
+}
+function drawChairs(hover) {
+  for (const q of props) {
+    if (q.kind !== 'chair') continue;
+    ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.rot || 0); drawChair(q.style, hover && hover.o === q); ctx.restore();
+  }
+}
 function render() {
   ctx.fillStyle = '#07060c'; ctx.fillRect(0, 0, W, H);
   const shx = cam.shake ? rand(-cam.shake, cam.shake) : 0, shy = cam.shake ? rand(-cam.shake, cam.shake) : 0;   // screen shake (visual only)
@@ -2707,7 +2830,9 @@ function render() {
   for (let y = 0; y <= MAP.h; y += 100) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(MAP.w, y); ctx.stroke(); }
   const p = world();
   const hover = tool === 'move' || tool === 'erase' ? pick(p) : null;
-  for (const w of walls) { ctx.fillStyle = hover && hover.o === w ? (tool === 'erase' ? '#6b2a3c' : '#4a3d70') : '#2a2340'; ctx.fillRect(w.x, w.y, w.w, w.h); }
+  drawLampGlow();
+  for (const w of walls) drawWall(w, hover && hover.o === w);
+  drawChairs(hover);
   drawCracks();
   drawDarkTrail();   // under everyone
   for (const g of gens) {
@@ -2767,6 +2892,7 @@ function render() {
   drawNoli();
   drawCrown();
   drawStabStar();
+  drawLampPosts(hover);
   drawRushStar();
   drawNovaReturn();
   drawObsStar();
@@ -2776,7 +2902,13 @@ function render() {
     ctx.globalAlpha = 0.45;
     if (tool === 'dummy') { ctx.fillStyle = '#2a63c9'; ctx.fillRect(p.x - 14, p.y - 8, 28, 16); ctx.fillStyle = '#f5cd30'; ctx.beginPath(); ctx.arc(p.x, p.y - 2, 9, 0, 6.3); ctx.fill(); }
     if (tool === 'gen' || tool === 'fake') { ctx.fillStyle = tool === 'fake' ? '#ff9fb4' : '#a26bff'; ctx.fillRect(p.x - 24, p.y - 18, 48, 36); }
-    if (tool === 'wall') { const dr = mouse.drag; ctx.fillStyle = '#4a3d70'; if (dr && dr.kind === 'newWall') ctx.fillRect(Math.min(dr.x0, p.x), Math.min(dr.y0, p.y), Math.abs(p.x - dr.x0), Math.abs(p.y - dr.y0)); else ctx.fillRect(p.x - 35, p.y - 35, 70, 70); }
+    if (tool in WALL_TOOLS) {
+      const dr = mouse.drag; ctx.fillStyle = { wall: '#4a3d70', kwall: '#7a3cff', iwall: '#9a90bf', door: '#6b5a86' }[tool];
+      if (dr && dr.kind === 'newWall') ctx.fillRect(Math.min(dr.x0, p.x), Math.min(dr.y0, p.y), Math.abs(p.x - dr.x0), Math.abs(p.y - dr.y0));
+      else if (tool === 'door') ctx.fillRect(p.x - 45, p.y - 7, 90, 14); else ctx.fillRect(p.x - 35, p.y - 35, 70, 70);
+    }
+    if (tool === 'lamp') { ctx.fillStyle = '#fff2c4'; ctx.beginPath(); ctx.arc(p.x, p.y, LAMP_R, 0, 6.3); ctx.fill(); }
+    if (tool === 'chair') { ctx.save(); ctx.translate(p.x, p.y); drawChair(chairStyle === 'random' ? 0 : +chairStyle, false); ctx.restore(); }
     ctx.globalAlpha = 1;
   }
   for (const t of texts) { ctx.globalAlpha = 1 - t.t / 1.4; label(t.x, t.y, t.s, t.c); ctx.globalAlpha = 1; }
@@ -3008,7 +3140,7 @@ function survHud() {
 
 // ------------------------------------------------------------- UI
 const toolList = document.getElementById('toolList');
-function setTool(id) { tool = id; mouse.drag = null; for (const b of toolList.children) b.classList.toggle('on', b.dataset.t === id); }
+function setTool(id) { tool = id; mouse.drag = null; for (const b of toolList.children) b.classList.toggle('on', b.dataset.t === id); const cr = document.getElementById('chairRow'); if (cr) cr.style.display = id === 'chair' ? '' : 'none'; }
 for (const t of TOOLS) {
   const b = document.createElement('button'); b.className = 'tool'; b.dataset.t = t.id;
   b.innerHTML = `<span>${t.name}</span><kbd>${t.key}</kbd>`; b.onclick = () => setTool(t.id);
@@ -3023,6 +3155,7 @@ function segment(el, items, get, set) {
   }
 }
 segment(document.getElementById('modes'), [['stand', 'Stand'], ['wander', 'Wander'], ['flee', 'Flee'], ['repair', 'Repair'], ['smart', 'Smart AI']], () => newMode, (v) => (newMode = v));
+segment(document.getElementById('chairStyles'), [['random', 'Random'], ...CHAIR_STYLES.map((n, i) => [String(i), n])], () => chairStyle, (v) => (chairStyle = v));
 segment(document.getElementById('kits'), [['', 'Dummy'], ...KIT_IDS.map((k) => [k, KITS[k].name])], () => newKit, (v) => (newKit = v));
 for (const [m, name] of [['noli', 'Noli'], ['survivor', 'Survivor (vs AI Noli)']]) {
   const b = document.createElement('button'); b.textContent = name; b.dataset.m = m; b.onclick = () => setMode(m);
@@ -3037,7 +3170,7 @@ segment(document.getElementById('hps'), [[100, '100 HP'], [250, '250 HP'], [Infi
 document.getElementById('applyAll').onclick = () => { for (const d of dummies) { if (d.player) continue; d.mode = newMode; d.goal = null; d.repair = null; d.inf = newHp === Infinity; d.maxHp = d.inf ? 100 : newHp; d.hp = d.maxHp; applyKit(d, newKit); } log(`All dummies → ${newMode}, ${newHp === Infinity ? '∞' : newHp} HP`); };
 document.getElementById('respawn').onclick = () => { for (const d of dummies) respawnDummy(d); log('Dummies respawned'); };
 document.getElementById('clearD').onclick = () => { dummies = dummies.filter((d) => d.player); log('Dummies cleared'); };
-document.getElementById('clearAll').onclick = () => { walls = [...BORDER]; gens = []; dummies = dummies.filter((d) => d.player); log('Map emptied'); };
+document.getElementById('clearAll').onclick = () => { walls = [...BORDER]; gens = []; props = []; dummies = dummies.filter((d) => d.player); log('Map emptied'); };
 document.getElementById('squad').onclick = () => {
   // Every survivor (except yours) as a Smart AI.
   dummies = dummies.filter((d) => d.player);
@@ -3071,7 +3204,7 @@ defaultMap();
 log('Noli spawned. Void Rush ready in 10s, Observant in 25s (round-start cooldowns).');
 let last = performance.now();
 function loop(now) { const dt = clamp((now - last) / 1000, 0, 0.05); last = now; update(dt); render(); requestAnimationFrame(loop); }
-window.__t = { noli, get dummies() { return dummies; }, cam, setTool, setMode, setPlayerKit, get player() { return player; }, get mode() { return mode; }, AI, NI, stunNoli, useSkill, addDummy, get round() { return round; }, hitSurvivor: (d, n) => damage(d, n, 'test hit') };
+window.__t = { noli, get dummies() { return dummies; }, cam, setTool, setMode, setPlayerKit, get player() { return player; }, get mode() { return mode; }, AI, NI, stunNoli, useSkill, addDummy, get round() { return round; }, hitSurvivor: (d, n) => damage(d, n, 'test hit'), get walls() { return walls; }, get props() { return props; } };
 requestAnimationFrame(loop);
 })();
 </script>
