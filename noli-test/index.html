@@ -2725,7 +2725,7 @@ function hash1(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x
 // Void Rush cursor: two star sprites flashing very fast, placed where Noli is actually facing
 // (at the mouse's distance), replacing the normal cursor while charging and rushing.
 const RUSH_CUR = [new Image(), new Image()]; RUSH_CUR[0].src = 'img/rush_cur1.png'; RUSH_CUR[1].src = 'img/rush_cur2.png';
-const RUSH_CUR_SIZE = 71, RUSH_CUR_FLASH = 0.04, RUSH_CUR_DIST = 0.7;   // 40% bigger; sits 30% closer to Noli than the mouse
+const RUSH_CUR_SIZE = 50, RUSH_CUR_FLASH = 0.04, RUSH_CUR_DIST = 0.7;   // 40% bigger; sits 30% closer to Noli than the mouse
 // When the star goes away it breaks into white sparkles that shimmer in place, then fall and fade.
 const curSparks = []; let curLast = null, curPrevT = 0;
 function curSparkFx() {
