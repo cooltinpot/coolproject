@@ -3087,7 +3087,7 @@ function curSparkFx() {
 // Creative cursor: switching to a building tool plays the bass hit; the arrow appears a little away
 // from the mouse, glides onto it and turns a quarter turn (180° -> 90°, i.e. into its normal pose).
 const CC_IMG = new Image(); CC_IMG.src = 'img/creative_cursor.png';
-const CC = { size: 40, tipX: 31, tipY: 31, src: 60, glide: 0.35, startOff: 46 };
+const CC = { size: 52, tipX: 31, tipY: 31, src: 60, glide: 0.35, startOff: 46 };
 let ccAnim = null, wasCreative = false;
 function drawCreativeCursor(creative) {
   if (creative && !wasCreative) { sfx('creative_bass', 0.8); ccAnim = { t0: performance.now() / 1000, ox: rand(-1, 1) > 0 ? CC.startOff : -CC.startOff, oy: CC.startOff }; }
@@ -3297,7 +3297,9 @@ function survHud() {
 
 // ------------------------------------------------------------- UI
 const toolList = document.getElementById('toolList');
-function setTool(id) { tool = id; mouse.drag = null; for (const b of toolList.children) b.classList.toggle('on', b.dataset.t === id); for (const [row, t] of [['chairRow', 'chair'], ['invisRow', 'iwall'], ['rockRow', 'rock']]) { const el = document.getElementById(row); if (el) el.style.display = id === t ? '' : 'none'; } }
+function setTool(id) {
+  if (id !== tool && id !== 'play' && typeof sfx === 'function' && toolList.children.length) sfx('creative_button', 0.8);   // picking a building tool clicks
+  tool = id; mouse.drag = null; for (const b of toolList.children) b.classList.toggle('on', b.dataset.t === id); for (const [row, t] of [['chairRow', 'chair'], ['invisRow', 'iwall'], ['rockRow', 'rock']]) { const el = document.getElementById(row); if (el) el.style.display = id === t ? '' : 'none'; } }
 for (const t of TOOLS) {
   const b = document.createElement('button'); b.className = 'tool'; b.dataset.t = t.id;
   b.innerHTML = `<span>${t.name}</span><kbd>${t.key}</kbd>`; b.onclick = () => setTool(t.id);
