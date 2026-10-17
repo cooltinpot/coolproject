@@ -22,12 +22,20 @@
   .panel small { color:var(--dim); display:block; margin-top:6px; }
   #log { margin-top:6px; max-height:160px; overflow:auto; font:12px ui-monospace,monospace; color:var(--dim); }
   #log div:first-child { color:var(--ink); }
-  #toggleUi { position:fixed; bottom:12px; left:12px; }
+  #toggleUi { position:fixed; bottom:12px; left:12px; background:rgba(20,17,31,.85); color:var(--dim); border:1px solid var(--line); border-radius:6px; padding:4px 8px; font-size:12px; cursor:pointer; z-index:5; }
+  #toggleUi:hover { color:var(--ink); }
+  .panel h2 { cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; }
+  .panel h2::after { content:'−'; color:var(--dim); font-size:16px; line-height:1; }
+  .panel.collapsed h2::after { content:'+'; }
+  .panel.collapsed h2 { margin:0; }
+  .panel.collapsed > :not(h2) { display:none !important; }
+  body.noui .panel { display:none; }
   @media (max-width:760px){ #side{ top:auto; bottom:12px; left:12px; width:auto; } #log{max-height:60px} #tools{ width:170px; } }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<button id="toggleUi" title="Show/hide the side panels">Hide panels (H)</button>
 <div id="tools" class="panel">
   <h2>CREATIVE</h2>
   <div id="toolList"></div>
@@ -238,6 +246,7 @@ function press(k) {
     if (k === 'e') castNova();
     if (k === 'r') toggleObservant();
   }
+  if (k === 'h') toggleUi();
   const t = TOOLS.find((t) => t.key === k);
   if (t) setTool(t.id);
 }
@@ -2977,6 +2986,22 @@ document.getElementById('reset').onclick = () => { for (const k in noli.cds) nol
 document.getElementById('hbx').onclick = (e) => { showHitboxes = !showHitboxes; e.target.textContent = 'Hitboxes: ' + (showHitboxes ? 'on' : 'off'); e.target.classList.toggle('on', showHitboxes); };
 document.getElementById('nocd').onclick = (e) => { noCd = !noCd; e.target.textContent = 'No cooldowns: ' + (noCd ? 'on' : 'off'); e.target.classList.toggle('on', noCd); };
 for (const b of document.querySelectorAll('.panel')) b.addEventListener('mousedown', (e) => e.stopPropagation());
+// Side panels: click a panel's title to collapse it to just the title; H (or the button) hides both.
+const uiPref = (() => { try { return JSON.parse(localStorage.getItem('noliUi') || '{}'); } catch (e) { return {}; } })();
+function saveUi() { try { localStorage.setItem('noliUi', JSON.stringify({ hidden: document.body.classList.contains('noui'), collapsed: [...document.querySelectorAll('.panel.collapsed')].map((p) => p.id) })); } catch (e) { /* no storage */ } }
+function toggleUi(force) {
+  const hide = force ?? !document.body.classList.contains('noui');
+  document.body.classList.toggle('noui', hide);
+  document.getElementById('toggleUi').textContent = hide ? 'Show panels (H)' : 'Hide panels (H)';
+  saveUi();
+}
+for (const p of document.querySelectorAll('.panel')) {
+  p.querySelector('h2').addEventListener('click', () => { p.classList.toggle('collapsed'); saveUi(); });
+  if ((uiPref.collapsed || []).includes(p.id)) p.classList.add('collapsed');
+}
+document.getElementById('toggleUi').addEventListener('mousedown', (e) => e.stopPropagation());
+document.getElementById('toggleUi').onclick = () => toggleUi();
+if (uiPref.hidden) toggleUi(true);
 
 defaultMap();
 log('Noli spawned. Void Rush ready in 10s, Observant in 25s (round-start cooldowns).');
