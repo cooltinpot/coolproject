@@ -2726,15 +2726,36 @@ function hash1(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x
 // (at the mouse's distance), replacing the normal cursor while charging and rushing.
 const RUSH_CUR = [new Image(), new Image()]; RUSH_CUR[0].src = 'img/rush_cur1.png'; RUSH_CUR[1].src = 'img/rush_cur2.png';
 const RUSH_CUR_SIZE = 71, RUSH_CUR_FLASH = 0.04, RUSH_CUR_DIST = 0.7;   // 40% bigger; sits 30% closer to Noli than the mouse
+// When the star goes away it breaks into white sparkles that shimmer in place, then fall and fade.
+const curSparks = []; let curLast = null, curPrevT = 0;
+function curSparkFx() {
+  const now = performance.now() / 1000, dt = Math.min(0.05, now - (curPrevT || now)); curPrevT = now;
+  for (const q of curSparks) {
+    q.t += dt;
+    if (q.t < q.hover) { q.a += q.spin * dt; q.x = q.cx + Math.cos(q.a) * q.r; q.y = q.cy + Math.sin(q.a) * q.r * 0.8; }   // shimmering around
+    else { q.vy += 520 * dt; q.x += q.vx * dt; q.y += q.vy * dt; }   // then falling
+  }
+  for (let i = curSparks.length - 1; i >= 0; i--) if (curSparks[i].t > curSparks[i].life) curSparks.splice(i, 1);
+  for (const q of curSparks) {
+    const fall = Math.max(0, q.t - q.hover) / (q.life - q.hover), tw = 0.6 + 0.4 * Math.sin(q.t * 38 + q.seed);
+    star4(q.x, q.y, q.size * tw, '#ffffff', Math.max(0, 1 - fall) * (q.t < 0.08 ? q.t / 0.08 : 1));
+  }
+}
 function drawRushCursor() {
   const on = mode === 'noli' && (noli.state === 'rushWind' || noli.state === 'rush');
   cv.style.cursor = on ? 'none' : 'crosshair';
+  if (!on && curLast) {
+    for (let i = 0; i < 18; i++) { const a = rand(0, 6.3), r = rand(4, 26); curSparks.push({ cx: curLast.x, cy: curLast.y, x: curLast.x + Math.cos(a) * r, y: curLast.y + Math.sin(a) * r, a, r, spin: rand(2, 5) * (Math.random() < 0.5 ? -1 : 1), vx: rand(-25, 25), vy: rand(-60, 0), size: rand(2, 4.5), seed: rand(0, 9), t: 0, hover: rand(0.25, 0.45), life: rand(0.9, 1.3) }); }
+    curLast = null;
+  }
+  curSparkFx();
   if (!on) return;
   const img = RUSH_CUR[Math.floor(performance.now() / 1000 / RUSH_CUR_FLASH) % 2]; if (!img.complete || !img.naturalWidth) return;
   const w = world(), L = Math.max(42, Math.hypot(w.x - noli.x, w.y - noli.y) * RUSH_CUR_DIST);
   const fx = noli.x + Math.cos(noli.ang) * L, fy = noli.y + Math.sin(noli.ang) * L;
   const sx = (fx - cam.x) * cam.s, sy = (fy - cam.y) * cam.s;
   ctx.drawImage(img, sx - RUSH_CUR_SIZE / 2, sy - RUSH_CUR_SIZE / 2, RUSH_CUR_SIZE, RUSH_CUR_SIZE);
+  curLast = { x: sx, y: sy };
 }
 function drawChargeUI() {
   const now = performance.now() / 1000, dt = Math.min(0.05, now - (chargeUI.last || now)); chargeUI.last = now;
