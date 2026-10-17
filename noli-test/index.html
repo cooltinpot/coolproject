@@ -1875,9 +1875,10 @@ function pick(p) {
 }
 function creativeInput() {
   const p = world();
+  if (mouse.click && BUILD_TOOLS.includes(tool) && buildSpotOk(p)) hammerHitT = 0.16;   // hammer swing
   if (mouse.click) {
     if (tool === 'dummy') { if (!hitWall(p.x, p.y, 16)) { const d = addDummy(p.x, p.y); ring(p.x, p.y, 30, '#7dffa8'); log(`Placed ${d.name} (${d.mode}, ${d.inf ? '∞' : d.maxHp} HP)`); } }
-    else if (tool === 'gen' || tool === 'fake') { gens.push({ x: p.x, y: p.y, fake: tool === 'fake', prog: 0 }); ring(p.x, p.y, 30, '#a26bff'); }
+    else if (tool === 'gen' || tool === 'fake') { if (!hitWall(p.x, p.y, 20)) { gens.push({ x: p.x, y: p.y, fake: tool === 'fake', prog: 0 }); ring(p.x, p.y, 30, '#a26bff'); } }
     else if (tool in WALL_TOOLS) mouse.drag = { kind: 'newWall', x0: p.x, y0: p.y, wk: WALL_TOOLS[tool] };
     else if (tool === 'lamp') { if (!hitWall(p.x, p.y, LAMP_R + 4)) { props.push({ kind: 'lamp', x: p.x, y: p.y }); ring(p.x, p.y, 30, '#fff2c4', 0.4); } }
     else if (tool === 'rock') { const [a, b2] = ROCK_SIZES[rockSize]; const r = rand(a, b2); if (!hitWall(p.x, p.y, r)) { props.push({ kind: 'rock', x: p.x, y: p.y, r, seed: Math.random() * 1000 }); stabBurst(p, 6, r); } }
@@ -3089,12 +3090,29 @@ function curSparkFx() {
 const CC_IMG = new Image(); CC_IMG.src = 'img/creative_cursor.png';
 const HAND_IMG = new Image(); HAND_IMG.src = 'img/move_cursor.png';   // Move tool: grabbing hand, hotspot on the pinch
 const HAND = { tipX: 35, tipY: 28 };
+// Building tools: hammer cursor (normal / red circle = can't build here / swing when you place something).
+const HAMMER = [0, 1, 2].map((i) => { const im = new Image(); im.src = `img/build_cursor_${i}.png`; return im; });
+const HAMMER_TIP = [[28, 28], [28, 28], [29, 30]], BUILD_TOOLS = ['wall', 'gen', 'fake', 'kwall', 'iwall', 'lamp', 'door', 'rock', 'chair'];
+let hammerHitT = 0;
+// Would a click here actually place something?
+function buildSpotOk(p) {
+  if (tool === 'gen' || tool === 'fake') return !hitWall(p.x, p.y, 20);
+  if (tool === 'lamp') return !hitWall(p.x, p.y, LAMP_R + 4);
+  if (tool === 'rock') return !hitWall(p.x, p.y, ROCK_SIZES[rockSize][0]);
+  return true;
+}
 const CC = { size: 52, tipX: 31, tipY: 31, src: 60, glide: 0.35, startOff: 46 };
 let ccAnim = null, wasCreative = false;
 function drawCreativeCursor(creative) {
   if (creative && !wasCreative) { sfx('creative_bass', 0.8); ccAnim = { t0: performance.now() / 1000, ox: rand(-1, 1) > 0 ? CC.startOff : -CC.startOff, oy: CC.startOff }; }
   wasCreative = creative;
-  const hand = tool === 'move', img = hand ? HAND_IMG : CC_IMG, tx = hand ? HAND.tipX : CC.tipX, ty = hand ? HAND.tipY : CC.tipY;
+  const hand = tool === 'move', build = BUILD_TOOLS.includes(tool);
+  let img = hand ? HAND_IMG : CC_IMG, tx = hand ? HAND.tipX : CC.tipX, ty = hand ? HAND.tipY : CC.tipY;
+  if (build) {
+    hammerHitT = Math.max(0, hammerHitT - 1 / 60);
+    const f = hammerHitT > 0 ? 2 : buildSpotOk(world()) ? 0 : 1;
+    img = HAMMER[f]; [tx, ty] = HAMMER_TIP[f];
+  }
   if (!creative || !img.complete || !img.naturalWidth) return;
   const t = ccAnim ? performance.now() / 1000 - ccAnim.t0 : 99, k = Math.min(1, t / CC.glide), e = 1 - Math.pow(1 - k, 3);
   const x = mouse.x + (ccAnim ? ccAnim.ox * (1 - e) : 0), y = mouse.y + (ccAnim ? ccAnim.oy * (1 - e) : 0);
