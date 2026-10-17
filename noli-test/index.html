@@ -124,7 +124,7 @@ const BORDER = [
   { x: 0, y: 0, w: 30, h: MAP.h, fixed: true }, { x: MAP.w - 30, y: 0, w: 30, h: MAP.h, fixed: true },
 ];
 let walls = [], gens = [], dummies = [], props = [];
-const LAMP_R = 7, DOOR = { reach: 70, rushReach: 150, speed: 4 };
+const LAMP_R = 6, DOOR = { reach: 70, rushReach: 150, speed: 4 };
 let chairStyle = 'random';
 // Doors open when anyone is close and close again when they leave; a Void Rush slams them open instantly.
 function updateDoors(dt) {
@@ -1814,7 +1814,7 @@ const WALL_TOOLS = { wall: null, kwall: 'killer', iwall: 'invis', door: 'door' }
 function pick(p) {
   const d = dummies.slice().reverse().find((d) => dist(d, p) < d.r + 8); if (d) return { kind: 'dummy', o: d };
   const g = gens.find((g) => Math.abs(g.x - p.x) < GEN_SIZE / 2 && Math.abs(g.y - p.y) < GEN_SIZE / 2); if (g) return { kind: 'gen', o: g };
-  const q = props.slice().reverse().find((q) => dist(q, p) < (q.kind === 'lamp' ? 16 : 18)); if (q) return { kind: 'prop', o: q };
+  const q = props.slice().reverse().find((q) => { if (q.kind !== 'lamp') return dist(q, p) < 18; const r = lampRect(q); return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h + 4; }); if (q) return { kind: 'prop', o: q };
   const w = walls.slice().reverse().find((w) => !w.fixed && p.x >= w.x && p.x <= w.x + w.w && p.y >= w.y && p.y <= w.y + w.h); if (w) return { kind: 'wall', o: w };
   return null;
 }
@@ -2774,21 +2774,32 @@ function drawLampGlow() {
   const T = performance.now() / 1000;
   for (const q of props) {
     if (q.kind !== 'lamp') continue;
-    const fl = 0.92 + 0.08 * Math.sin(T * 7 + q.x) * Math.sin(T * 3.1 + q.y), R = 150;
-    const g = ctx.createRadialGradient(q.x, q.y, 4, q.x, q.y, R);
+    const fl = 0.92 + 0.08 * Math.sin(T * 7 + q.x) * Math.sin(T * 3.1 + q.y), R = 150, cy = q.y - 20;   // light pool under the lamp head
+    const g = ctx.createRadialGradient(q.x, cy, 4, q.x, cy, R);
     g.addColorStop(0, `rgba(255,242,196,${0.28 * fl})`); g.addColorStop(0.45, `rgba(255,242,196,${0.1 * fl})`); g.addColorStop(1, 'rgba(255,242,196,0)');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.x, q.y, R, 0, 6.3); ctx.fill();
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.x, cy, R, 0, 6.3); ctx.fill();
   }
 }
-function drawLampPosts(hover) {
-  for (const q of props) {
-    if (q.kind !== 'lamp') continue;
-    const hot = hover && hover.o === q;
-    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(q.x + 4, q.y + 3, 9, 5, 0, 0, 6.3); ctx.fill();
-    ctx.fillStyle = hot ? (tool === 'erase' ? '#6b2a3c' : '#6b5a86') : '#2c2638'; ctx.beginPath(); ctx.arc(q.x, q.y, LAMP_R, 0, 6.3); ctx.fill();   // post
-    ctx.strokeStyle = '#4a3f5c'; ctx.lineWidth = 1.5; ctx.stroke();
-    ctx.fillStyle = '#fff2c4'; ctx.beginPath(); ctx.arc(q.x, q.y, 3.5, 0, 6.3); ctx.fill();   // the bulb seen from above
-  }
+// Lamp post sprite (side view), anchored at its base; only the base touching the ground is solid,
+// and it's depth-sorted with characters so you can walk behind the post.
+const LAMP_IMG = new Image(); LAMP_IMG.src = 'img/lamp.png';
+const LAMP_SPR = { w: 37, h: 82, ax: 18, ay: 80, scale: 1.05 };
+function lampRect(q) { const s = LAMP_SPR.scale; return { x: q.x - LAMP_SPR.ax * s, y: q.y - LAMP_SPR.ay * s, w: LAMP_SPR.w * s, h: LAMP_SPR.h * s }; }
+function drawLampPost(q, hover) {
+  const hot = hover && hover.o === q, r = lampRect(q), T = performance.now() / 1000;
+  // See-through while someone is standing behind it, so they don't vanish.
+  const behind = [noli, ...dummies.filter((d) => !d.dead)].some((e) => e.y < q.y - 4 && e.x > r.x - 10 && e.x < r.x + r.w + 10 && e.y > r.y - 10);
+  ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(q.x + 3, q.y + 1, 14, 4, 0, 0, 6.3); ctx.fill();   // contact shadow
+  ctx.globalAlpha = behind ? 0.55 : 1;
+  if (LAMP_IMG.complete && LAMP_IMG.naturalWidth) ctx.drawImage(LAMP_IMG, r.x, r.y, r.w, r.h);
+  else { ctx.fillStyle = '#2c2638'; ctx.fillRect(q.x - 3, r.y + 8, 6, r.h - 10); }
+  if (hot) { ctx.globalAlpha = 0.5; ctx.fillStyle = tool === 'erase' ? '#ff4d6d' : '#c9a8ff'; ctx.fillRect(r.x, r.y, r.w, r.h); }
+  ctx.globalAlpha = 1;
+  // Soft halo around the lamp head.
+  const hx = q.x, hy = r.y + 9 * LAMP_SPR.scale, fl = 0.9 + 0.1 * Math.sin(T * 7 + q.x);
+  const g = ctx.createRadialGradient(hx, hy, 1, hx, hy, 26); g.addColorStop(0, `rgba(255,242,196,${0.45 * fl})`); g.addColorStop(1, 'rgba(255,242,196,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(hx, hy, 26, 0, 6.3); ctx.fill();
+  if (showHitboxes && tool !== 'play') { ctx.strokeStyle = '#ff0000'; ctx.globalAlpha = 0.6; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(q.x, q.y, LAMP_R, 0, 6.3); ctx.stroke(); ctx.globalAlpha = 1; }   // the solid part
 }
 // Five ways a chair can be sitting on the floor (top-down): upright, fallen back, on its side, upside down, tilted.
 const CHAIR_STYLES = ['Upright', 'Fallen back', 'On its side', 'Upside down', 'Tilted'];
@@ -2894,15 +2905,16 @@ function render() {
     }
   }
   drawRituals();
-  for (const d of dummies) drawDummy(d);
+  // Characters and lamp posts drawn back-to-front by their ground position, so you can walk behind a post.
+  const layers = dummies.map((d) => ({ y: d.dead ? d.home.y : d.y, f: () => drawDummy(d) }));
+  for (const q of props) if (q.kind === 'lamp') layers.push({ y: q.y, f: () => drawLampPost(q, hover) });
+  layers.push({ y: noli.y, f: () => { drawNoli(); drawCrown(); } });
+  layers.sort((a, b) => a.y - b.y).forEach((l) => l.f());
   drawSurvFx();
   drawAIKnowledge();
   drawExec();
   if (hover && hover.kind === 'dummy') { ctx.strokeStyle = tool === 'erase' ? '#ff4d6d' : '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hover.o.x, hover.o.y, 24, 0, 6.3); ctx.stroke(); }
-  drawNoli();
-  drawCrown();
   drawStabStar();
-  drawLampPosts(hover);
   drawRushStar();
   drawNovaReturn();
   drawObsStar();
@@ -2917,7 +2929,7 @@ function render() {
       if (dr && dr.kind === 'newWall') ctx.fillRect(Math.min(dr.x0, p.x), Math.min(dr.y0, p.y), Math.abs(p.x - dr.x0), Math.abs(p.y - dr.y0));
       else if (tool === 'door') ctx.fillRect(p.x - 45, p.y - 7, 90, 14); else ctx.fillRect(p.x - 35, p.y - 35, 70, 70);
     }
-    if (tool === 'lamp') { ctx.fillStyle = '#fff2c4'; ctx.beginPath(); ctx.arc(p.x, p.y, LAMP_R, 0, 6.3); ctx.fill(); }
+    if (tool === 'lamp') { const r = lampRect(p); if (LAMP_IMG.complete && LAMP_IMG.naturalWidth) ctx.drawImage(LAMP_IMG, r.x, r.y, r.w, r.h); }   // the base goes where you click
     if (tool === 'chair') { ctx.save(); ctx.translate(p.x, p.y); drawChair(chairStyle === 'random' ? 0 : +chairStyle, false); ctx.restore(); }
     ctx.globalAlpha = 1;
   }
