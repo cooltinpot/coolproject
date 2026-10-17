@@ -1786,7 +1786,8 @@ function update(dt) {
   const sprint = NI.shift && moving && noli.stamina > 0 && (noli.state === 'free' || noli.state === 'novaWind' || noli.state === 'rushWind' || noli.state === 'reWindow') && !noli.stance;   // no sprinting while dashing
   // Stamina is frozen only while dashing: no drain, no regen.
   const inVoidRush = noli.state === 'rush';   // charging and the re-rush window still use stamina normally
-  if (!inVoidRush) noli.stamina = clamp(noli.stamina + (sprint ? -KIT.stamina.drain : KIT.stamina.regen) * dt, 0, KIT.stamina.max);
+  const drain = KIT.stamina.drain * (noli.state === 'reWindow' ? 2 : 1);   // sprinting in the re-rush window burns stamina 2x faster
+  if (!inVoidRush) noli.stamina = clamp(noli.stamina + (sprint ? -drain : KIT.stamina.regen) * dt, 0, KIT.stamina.max);
   let sp = sprint ? KIT.speed.sprint : KIT.speed.walk;
   if (noli.stance || noli.state === 'exec' || noli.state === 'slamHold' || noli.stunT > 0) sp = 0;
   if (noli.state === 'rushWind') sp *= KIT.rush.windowMove;   // 70% slower while charging (sprint barely helps)
