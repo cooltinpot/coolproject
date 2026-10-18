@@ -2141,6 +2141,9 @@ function placeStairs(p) {
   }
   ring(p.x, p.y, 40, '#c9a8ff', 0.4);
 }
+// Grid mode: a quiet click every time something snaps to a new spot (rate-limited so fast drags don't machine-gun).
+let gridClickT = 0;
+function gridClick() { const now = performance.now(); if (now - gridClickT < 35) return; gridClickT = now; sfx('grid_click', 0.25); }
 function creativeInput() {
   const raw = world(), p = buildPoint(), L = editLv;
   if (mouse.click && BUILD_TOOLS.includes(tool) && buildSpotOk(p)) hammerHitT = 0.16;   // hammer swing
@@ -2162,9 +2165,13 @@ function creativeInput() {
   const dr = mouse.drag;
   if (dr && dr.kind !== 'newWall' && dr.kind !== 'newFloor' && mouse.down) {
     let nx = raw.x - dr.ox, ny = raw.y - dr.oy;
-    if (gridOn) { nx = snap(nx); ny = snap(ny); }
+    if (gridOn) { nx = snap(nx); ny = snap(ny); if (nx !== dr.o.x || ny !== dr.o.y) gridClick(); }   // clicks into the next grid cell
     dr.o.x = nx; dr.o.y = ny;
     if (dr.kind === 'dummy') { dr.o.home = { x: nx, y: ny, lv: L }; dr.o.vx = dr.o.vy = 0; }
+  }
+  if (gridOn && dr && (dr.kind === 'newWall' || dr.kind === 'newFloor') && mouse.down) {   // a wall / floor being drawn snaps out cell by cell
+    if (dr.px !== undefined && (dr.px !== p.x || dr.py !== p.y)) gridClick();
+    dr.px = p.x; dr.py = p.y;
   }
   if (mouse.up) {
     if (dr && dr.kind === 'newWall') {
