@@ -12,6 +12,7 @@
   .panel { position:fixed; background:rgba(20,17,31,.94); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
   #side { top:12px; right:12px; width:270px; max-width:calc(100vw - 24px); }
   #tools { top:12px; left:12px; width:200px; }
+  #deco { top:12px; left:222px; width:170px; }
   .panel h2 { margin:0 0 6px; font-size:14px; color:var(--void); letter-spacing:.5px; }
   .panel h3 { margin:8px 0 4px; font-size:12px; color:var(--dim); font-weight:600; text-transform:uppercase; letter-spacing:.6px; }
   .row { display:flex; flex-wrap:wrap; gap:5px; }
@@ -30,7 +31,7 @@
   .panel.collapsed h2 { margin:0; }
   .panel.collapsed > :not(h2) { display:none !important; }
   body.noui .panel { display:none; }
-  @media (max-width:760px){ #side{ top:auto; bottom:12px; left:12px; width:auto; } #log{max-height:60px} #tools{ width:170px; } }
+  @media (max-width:760px){ #side{ top:auto; bottom:12px; left:12px; width:auto; } #log{max-height:60px} #tools{ width:170px; } #deco{ left:190px; width:150px; } }
 </style>
 </head>
 <body>
@@ -39,10 +40,7 @@
 <div id="tools" class="panel">
   <h2>CREATIVE</h2>
   <div id="toolList"></div>
-  <div id="chairRow" style="display:none"><h3>Chair style</h3><div class="row" id="chairStyles"></div></div>
   <div id="invisRow" style="display:none"><h3>Blockade look</h3><div class="row" id="invisSkins"></div></div>
-  <div id="rockRow" style="display:none"><h3>Rock size</h3><div class="row" id="rockSizes"></div></div>
-  <div id="stairRow" style="display:none"><h3>Stairs go up toward</h3><div class="row" id="stairDirs"></div></div>
   <h3>Build</h3>
   <div class="row">
     <button id="gridBtn" class="on">Grid snap: on (G)</button>
@@ -66,6 +64,13 @@
     <button id="cityMap">City map</button>
   </div>
   <small>Mouse wheel = zoom</small>
+</div>
+<div id="deco" class="panel">
+  <h2>DECORATIVE</h2>
+  <div id="decoList"></div>
+  <div id="chairRow" style="display:none"><h3>Chair style</h3><div class="row" id="chairStyles"></div></div>
+  <div id="rockRow" style="display:none"><h3>Rock size</h3><div class="row" id="rockSizes"></div></div>
+  <div id="stairRow" style="display:none"><h3>Stairs go up toward</h3><div class="row" id="stairDirs"></div></div>
 </div>
 <div id="side" class="panel">
   <h2>PLAY AS</h2>
@@ -2102,12 +2107,12 @@ const TOOLS = [
   { id: 'erase', key: '7', name: 'Erase' },
   { id: 'kwall', key: '8', name: 'Killer wall' },
   { id: 'iwall', key: '9', name: 'Invisible wall' },
-  { id: 'door', key: '0', name: 'Door' },
-  { id: 'lamp', key: '-', name: 'Lamp post' },
-  { id: 'chair', key: '=', name: 'Chair' },
-  { id: 'rock', key: 'k', name: 'Rock' },
-  { id: 'floor', key: 'o', name: 'Floor' },
-  { id: 'stairs', key: 'u', name: 'Stairs (up)' },
+  { id: 'door', key: '0', name: 'Door', deco: true },
+  { id: 'lamp', key: '-', name: 'Lamp post', deco: true },
+  { id: 'chair', key: '=', name: 'Chair', deco: true },
+  { id: 'rock', key: 'k', name: 'Rock', deco: true },
+  { id: 'floor', key: 'o', name: 'Floor', deco: true },
+  { id: 'stairs', key: 'u', name: 'Stairs (up)', deco: true },
 ];
 const WALL_TOOLS = { wall: null, kwall: 'killer', iwall: 'invis', door: 'door' };
 function pick(p) {
@@ -3183,15 +3188,72 @@ function drawBlockade(w, hot) {
   }
   ctx.restore(); ctx.globalAlpha = 1;
 }
+// ---- lamp light: cast from the lamp head and stopped by walls, closed doors and rocks (they throw shadows),
+// with a warm rim on the wall faces it lands on. Recomputed only when the map or a door changes.
+const LIGHT_R = 150;
+const blocksLight = (w) => w.kind === undefined || w.kind === 'killer' || (w.kind === 'door' && !(w.open > 0.75)) || (w.kind === 'invis' && w.skin === 'boards');
+function lightPoly(q, key) {
+  if (q.lightKey === key) return q.light;
+  const R = LIGHT_R, ox = q.x, oy = q.y - 20, L = lvOf(q), rects = [], circs = [], angs = [];
+  for (const w of walls) {
+    if (lvOf(w) !== L || !blocksLight(w) || inRect(w, ox, oy)) continue;
+    if (w.x > ox + R || w.x + w.w < ox - R || w.y > oy + R || w.y + w.h < oy - R) continue;
+    rects.push(w);
+    for (const [cx, cy] of [[w.x, w.y], [w.x + w.w, w.y], [w.x, w.y + w.h], [w.x + w.w, w.y + w.h]]) { const a = Math.atan2(cy - oy, cx - ox); angs.push(a - 1e-4, a, a + 1e-4); }   // rays just past each corner
+  }
+  for (const c of props) {
+    if (c.kind !== 'rock' || lvOf(c) !== L) continue;
+    const d = Math.hypot(c.x - ox, c.y - oy), rc = c.r * 0.88; if (d > R + rc || d <= rc) continue;
+    const a = Math.atan2(c.y - oy, c.x - ox), sp = Math.asin(Math.min(1, rc / d)); circs.push(c); angs.push(a - sp - 2e-3, a, a + sp + 2e-3);
+  }
+  for (let i = 0; i < 72; i++) angs.push(-Math.PI + i / 72 * Math.PI * 2);
+  const norm = angs.map((a) => Math.atan2(Math.sin(a), Math.cos(a))).sort((a, b) => a - b);
+  const pts = norm.map((a) => {
+    const dx = Math.cos(a), dy = Math.sin(a); let t = R, hit = false;
+    for (const w of rects) {   // ray vs box (slabs)
+      let t0 = -Infinity, t1 = Infinity;
+      if (Math.abs(dx) > 1e-9) { let u = (w.x - ox) / dx, v = (w.x + w.w - ox) / dx; if (u > v) [u, v] = [v, u]; t0 = Math.max(t0, u); t1 = Math.min(t1, v); } else if (ox < w.x || ox > w.x + w.w) continue;
+      if (Math.abs(dy) > 1e-9) { let u = (w.y - oy) / dy, v = (w.y + w.h - oy) / dy; if (u > v) [u, v] = [v, u]; t0 = Math.max(t0, u); t1 = Math.min(t1, v); } else if (oy < w.y || oy > w.y + w.h) continue;
+      if (t1 >= t0 && t0 > 0 && t0 < t) { t = t0; hit = true; }
+    }
+    for (const c of circs) {   // ray vs rock
+      const fx = ox - c.x, fy = oy - c.y, rc = c.r * 0.88, b = fx * dx + fy * dy, disc = b * b - (fx * fx + fy * fy - rc * rc);
+      if (disc >= 0) { const tt = -b - Math.sqrt(disc); if (tt > 0 && tt < t) { t = tt; hit = true; } }
+    }
+    return { x: ox + dx * t, y: oy + dy * t, hit, t };
+  });
+  q.lightKey = key; q.light = { ox, oy, pts }; return q.light;
+}
+function lightKey(L) { let k = NAV.sig + ':'; for (const w of walls) if (w.kind === 'door' && lvOf(w) === L) k += w.open > 0.75 ? 1 : 0; return k; }
+const lampFlicker = (q, T) => 0.92 + 0.08 * Math.sin(T * 7 + q.x) * Math.sin(T * 3.1 + q.y);
 function drawLampGlow(L = viewLv) {
-  const T = performance.now() / 1000;
+  const T = performance.now() / 1000, key = lightKey(L);
   for (const q of props) {
     if (q.kind !== 'lamp' || lvOf(q) !== L) continue;
-    const fl = 0.92 + 0.08 * Math.sin(T * 7 + q.x) * Math.sin(T * 3.1 + q.y), R = 150, cy = q.y - 20;   // light pool under the lamp head
-    const g = ctx.createRadialGradient(q.x, cy, 4, q.x, cy, R);
-    g.addColorStop(0, `rgba(255,242,196,${0.28 * fl})`); g.addColorStop(0.45, `rgba(255,242,196,${0.1 * fl})`); g.addColorStop(1, 'rgba(255,242,196,0)');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.x, cy, R, 0, 6.3); ctx.fill();
+    const fl = lampFlicker(q, T), { ox, oy, pts } = lightPoly(q, key);   // light pool under the lamp head
+    const g = ctx.createRadialGradient(ox, oy, 4, ox, oy, LIGHT_R);
+    g.addColorStop(0, `rgba(255,242,196,${0.3 * fl})`); g.addColorStop(0.45, `rgba(255,242,196,${0.11 * fl})`); g.addColorStop(1, 'rgba(255,242,196,0)');
+    ctx.save(); ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.closePath(); ctx.clip();
+    ctx.fillStyle = g; ctx.fillRect(ox - LIGHT_R, oy - LIGHT_R, LIGHT_R * 2, LIGHT_R * 2);
+    ctx.restore();
   }
+}
+// Where the light lands on a wall or rock: a soft warm rim, brighter the closer it is to the lamp.
+function drawLampHits(L = viewLv) {
+  const T = performance.now() / 1000, key = lightKey(L);
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'butt';
+  for (const q of props) {
+    if (q.kind !== 'lamp' || lvOf(q) !== L) continue;
+    const fl = lampFlicker(q, T), { pts } = lightPoly(q, key);
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      if (!a.hit || !b.hit || Math.hypot(a.x - b.x, a.y - b.y) > 30) continue;
+      const k = 1 - (a.t + b.t) / 2 / LIGHT_R;
+      ctx.strokeStyle = `rgba(255,232,170,${0.55 * k * k * fl})`; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+  }
+  ctx.restore();
 }
 // Lamp post sprite (side view), anchored at its base; only the base touching the ground is solid,
 // and it's depth-sorted with characters so you can walk behind the post.
@@ -3380,6 +3442,7 @@ function render() {
   for (const w of walls) if (onV(w)) drawWall(w, hover && hover.o === w);
   drawChairs(hover);
   drawRocks(hover);
+  drawLampHits();
   drawCracks();
   if (onV(noli)) drawDarkTrail();   // under everyone
   for (const g of gens) {
@@ -3734,7 +3797,7 @@ function survHud() {
 }
 
 // ------------------------------------------------------------- UI
-const toolList = document.getElementById('toolList');
+const toolList = document.getElementById('toolList'), decoList = document.getElementById('decoList');   // building tools / decorative pieces
 function toggleGrid() { gridOn = !gridOn; const b = document.getElementById('gridBtn'); b.textContent = `Grid snap: ${gridOn ? 'on' : 'off'} (G)`; b.classList.toggle('on', gridOn); }
 function updateLvLabel() { const el = document.getElementById('lvLabel'); if (el) el.textContent = LV_NAMES[tool === 'play' ? viewLv : editLv]; }
 // Pick the level to build on (switches you out of Play so you can look at it).
@@ -3745,11 +3808,11 @@ function setEditLv(n) {
 }
 function setTool(id) {
   if (id !== tool && id !== 'play' && typeof sfx === 'function' && toolList.children.length) sfx('creative_button', 0.8);   // picking a building tool clicks
-  tool = id; mouse.drag = null; for (const b of toolList.children) b.classList.toggle('on', b.dataset.t === id); for (const [row, t] of [['chairRow', 'chair'], ['invisRow', 'iwall'], ['rockRow', 'rock'], ['stairRow', 'stairs']]) { const el = document.getElementById(row); if (el) el.style.display = id === t ? '' : 'none'; } }
+  tool = id; mouse.drag = null; for (const b of [...toolList.children, ...decoList.children]) b.classList.toggle('on', b.dataset.t === id); for (const [row, t] of [['chairRow', 'chair'], ['invisRow', 'iwall'], ['rockRow', 'rock'], ['stairRow', 'stairs']]) { const el = document.getElementById(row); if (el) el.style.display = id === t ? '' : 'none'; } }
 for (const t of TOOLS) {
   const b = document.createElement('button'); b.className = 'tool'; b.dataset.t = t.id;
   b.innerHTML = `<span>${t.name}</span><kbd>${t.key}</kbd>`; b.onclick = () => setTool(t.id);
-  toolList.appendChild(b); toolList.appendChild(document.createElement('div')).style.height = '4px';
+  const list = t.deco ? decoList : toolList; list.appendChild(b); list.appendChild(document.createElement('div')).style.height = '4px';
 }
 setTool('play');
 function segment(el, items, get, set) {
