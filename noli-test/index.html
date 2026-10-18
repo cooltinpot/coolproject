@@ -71,6 +71,7 @@
   <div id="chairRow" style="display:none"><h3>Chair style</h3><div class="row" id="chairStyles"></div></div>
   <div id="rockRow" style="display:none"><h3>Rock size</h3><div class="row" id="rockSizes"></div></div>
   <div id="stairRow" style="display:none"><h3>Stairs go up toward</h3><div class="row" id="stairDirs"></div></div>
+  <small><b>R</b> = rotate (with Move: what you point at). Lamps don't rotate.</small>
 </div>
 <div id="side" class="panel">
   <h2>PLAY AS</h2>
@@ -477,6 +478,7 @@ function readNoliInput() {
 }
 
 function press(k) {
+  if (k === 'r' && tool !== 'play') { rotateKey(); return; }   // in creative, R rotates
   if (mode === 'survivor') { if (player && (k === 'q' || k === 'e' || k === 'r')) useSkill(player, k); }
   else {
     if (k === 'q') castRush();
@@ -2131,8 +2133,34 @@ const dragRect = (dr, p) => ({ x: Math.min(dr.x0, p.x), y: Math.min(dr.y0, p.y),
 // What a plain click builds: a pillar, a standard door, a 20x20-stud floor.
 function clickRect(t, p) {
   if (t === 'floor') return { x: p.x - 100, y: p.y - 100, w: 200, h: 200 };
-  if (t === 'door') return gridOn ? { x: p.x - 40, y: p.y - 20, w: 80, h: 20 } : { x: p.x - 45, y: p.y - 7, w: 90, h: 14 };
+  if (t === 'door') {
+    const d = gridOn ? { x: p.x - 40, y: p.y - 20, w: 80, h: 20 } : { x: p.x - 45, y: p.y - 7, w: 90, h: 14 };
+    return quarter() % 2 ? { x: p.x - (p.y - d.y), y: p.y - (p.x - d.x), w: d.h, h: d.w } : d;   // turned: an up-down door
+  }
   return gridOn ? { x: p.x - 40, y: p.y - 40, w: 80, h: 80 } : { x: p.x - 35, y: p.y - 35, w: 70, h: 70 };
+}
+// Rotating decorative pieces (not lamps): R turns what you're about to place, or with Move, what you point at.
+// Chairs and rocks turn in 45° steps; doors, floors and stairs a quarter turn (they stay lined up with the grid).
+const decoRot = { door: 0, chair: 0, rock: 0, floor: 0 };   // each tool keeps its own turn
+const ROT_TOOLS = ['door', 'chair', 'rock', 'floor', 'stairs'];
+const quarter = () => Math.round(decoRot.door / (Math.PI / 2)) % 4;
+function turnBox(o) {   // a quarter turn about its centre
+  const cx = o.x + o.w / 2, cy = o.y + o.h / 2; [o.w, o.h] = [o.h, o.w]; o.x = cx - o.w / 2; o.y = cy - o.h / 2;
+}
+function rotateKey() {
+  if (tool === 'move') {
+    const h = mouse.drag && mouse.drag.o ? mouse.drag : pick(world()); if (!h) return;
+    const o = h.o;
+    if (h.kind === 'prop' && (o.kind === 'chair' || o.kind === 'rock')) o.rot = ((o.rot || 0) + Math.PI / 4) % (Math.PI * 2);
+    else if (h.kind === 'stair') o.dir = (o.dir + 1) % 4;
+    else if (h.kind === 'floor' || (h.kind === 'wall' && o.kind === 'door')) { turnBox(o); if (mouse.drag) { mouse.drag.ox = world().x - o.x; mouse.drag.oy = world().y - o.y; } }
+    else return;   // lamps, walls, generators and dummies don't turn
+    gridClick(); return;
+  }
+  if (!ROT_TOOLS.includes(tool)) return;
+  if (tool === 'stairs') { stairDir = (stairDir + 1) % 4; for (const [i, b] of [...document.getElementById('stairDirs').children].entries()) b.classList.toggle('on', i === stairDir); }
+  else decoRot[tool] = (decoRot[tool] + (tool === 'chair' || tool === 'rock' ? Math.PI / 4 : Math.PI / 2)) % (Math.PI * 2);
+  gridClick();
 }
 function placeStairs(p) {
   if (editLv >= MAX_LV) { log('Already on the top level'); return; }
@@ -2163,8 +2191,8 @@ function creativeInput() {
     else if (tool === 'floor') mouse.drag = { kind: 'newFloor', x0: p.x, y0: p.y };
     else if (tool === 'stairs') placeStairs(p);
     else if (tool === 'lamp') { if (!hitWall(p.x, p.y, LAMP_R + 4)) { props.push({ kind: 'lamp', x: p.x, y: p.y, lv: L }); placeSfx(); ring(p.x, p.y, 30, '#fff2c4', 0.4); } }
-    else if (tool === 'rock') { const [a, b2] = ROCK_SIZES[rockSize]; const r = rand(a, b2); if (!hitWall(p.x, p.y, r)) { props.push({ kind: 'rock', x: p.x, y: p.y, r, seed: Math.random() * 1000, lv: L }); placeSfx(); stabBurst(p, 6, r); } }
-    else if (tool === 'chair') { props.push({ kind: 'chair', x: p.x, y: p.y, lv: L, style: chairStyle === 'random' ? Math.floor(rand(0, 5)) : +chairStyle, rot: rand(0, 6.283) }); placeSfx(); ring(p.x, p.y, 22, '#c9a8ff', 0.3); }
+    else if (tool === 'rock') { const [a, b2] = ROCK_SIZES[rockSize]; const r = rand(a, b2); if (!hitWall(p.x, p.y, r)) { props.push({ kind: 'rock', x: p.x, y: p.y, r, seed: Math.random() * 1000, rot: decoRot.rock, lv: L }); placeSfx(); stabBurst(p, 6, r); } }
+    else if (tool === 'chair') { props.push({ kind: 'chair', x: p.x, y: p.y, lv: L, style: chairStyle === 'random' ? Math.floor(rand(0, 5)) : +chairStyle, rot: decoRot.chair }); placeSfx(); ring(p.x, p.y, 22, '#c9a8ff', 0.3); }
     else if (tool === 'move') { const h = pick(raw); if (h) mouse.drag = { ...h, ox: raw.x - h.o.x, oy: raw.y - h.o.y }; }
     else if (tool === 'erase') {
       const h = pick(raw);
@@ -3132,13 +3160,13 @@ function drawWall(w, hot) {
   ctx.fillStyle = hot ? (tool === 'erase' ? '#6b2a3c' : '#4a3d70') : '#2a2340'; ctx.fillRect(w.x, w.y, w.w, w.h);
 }
 // Rocks: irregular shaded stones poking out of the ground (deterministic shape from their seed).
-function rockShape(x, y, r, seed) {
+function rockShape(x, y, r, seed, rot = 0) {
   const n = 9, pts = [];
-  for (let i = 0; i < n; i++) { const a = i / n * 6.283 + hash1(seed + i) * 0.35, rr = r * (0.72 + 0.34 * hash1(seed * 1.7 + i * 3.1)); pts.push([x + Math.cos(a) * rr, y + Math.sin(a) * rr * 0.85]); }
+  for (let i = 0; i < n; i++) { const a = i / n * 6.283 + hash1(seed + i) * 0.35 + rot, rr = r * (0.72 + 0.34 * hash1(seed * 1.7 + i * 3.1)); pts.push([x + Math.cos(a) * rr, y + Math.sin(a) * rr * 0.85]); }
   return pts;
 }
-function drawRock(x, y, r, seed, hot) {
-  const pts = rockShape(x, y, r, seed), path = (pp) => { ctx.beginPath(); pp.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py))); ctx.closePath(); };
+function drawRock(x, y, r, seed, hot, rot = 0) {
+  const pts = rockShape(x, y, r, seed, rot), path = (pp) => { ctx.beginPath(); pp.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py))); ctx.closePath(); };
   ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(x + r * 0.25, y + r * 0.3, r * 1.05, r * 0.7, 0, 0, 6.3); ctx.fill();   // shadow
   path(pts); ctx.fillStyle = hot ? (tool === 'erase' ? '#6b2a3c' : '#5e5672') : '#45404f'; ctx.fill(); ctx.strokeStyle = '#25212c'; ctx.lineWidth = 1.5; ctx.stroke();
   // lit top facet (up-left), smaller and lifted, so it reads as sticking up out of the ground
@@ -3146,7 +3174,7 @@ function drawRock(x, y, r, seed, hot) {
   ctx.strokeStyle = 'rgba(233,228,255,0.25)'; ctx.lineWidth = 1; ctx.stroke();
   ctx.strokeStyle = '#2c2833'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x - r * 0.1, y - r * 0.15); ctx.lineTo(x + r * 0.2, y + r * 0.2); ctx.lineTo(x + r * 0.15, y + r * 0.45); ctx.stroke();   // crack
 }
-function drawRocks(hover, L = viewLv) { for (const q of props) if (q.kind === 'rock' && lvOf(q) === L) drawRock(q.x, q.y, q.r, q.seed, hover && hover.o === q); }
+function drawRocks(hover, L = viewLv) { for (const q of props) if (q.kind === 'rock' && lvOf(q) === L) drawRock(q.x, q.y, q.r, q.seed, hover && hover.o === q, q.rot || 0); }
 // Blockade skins for invisible walls: boards, rocks or wire.
 function drawBlockade(w, hot) {
   const horiz = w.w >= w.h, L = horiz ? w.w : w.h, T = horiz ? w.h : w.w, seed = w.x * 0.37 + w.y * 0.71;
@@ -3338,7 +3366,22 @@ function drawStair(s, L, hot, ghost) {
   const r = stairRect(s), [dx] = STAIR_DIRS[s.dir], n = 8, fromTop = s.lv === L - 1;
   if (!ghost) { ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 14; ctx.fillStyle = '#1a1524'; ctx.fillRect(r.x, r.y, r.w, r.h); ctx.restore(); }
   const band = (u0, u1) => { const a = stairAt(s, u0), b = stairAt(s, u1); return dx ? [Math.min(a.x, b.x), r.y, Math.abs(b.x - a.x), r.h] : [r.x, Math.min(a.y, b.y), r.w, Math.abs(b.y - a.y)]; };
-  for (let i = 0; i < n; i++) {   // steps, lighter toward the top
+  if (dx) {   // facing sideways: drawn as a 2D side view, a staircase profile climbing toward the top end
+    ctx.fillStyle = '#0d0a14'; ctx.fillRect(r.x, r.y, r.w, r.h);
+    const sw = r.w / n, X = (i) => (dx > 0 ? r.x + i * sw : r.x + r.w - (i + 1) * sw);
+    for (let i = 0; i < n; i++) {
+      const k = (i + 0.5) / n, c = Math.round(50 + 70 * k), sh = r.h * (i + 1) / n, x = X(i), y = r.y + r.h - sh;
+      ctx.fillStyle = `rgb(${c},${c - 14},${c + 34})`; ctx.fillRect(x, y, sw, sh);   // the step block
+      ctx.fillStyle = '#d8c8ff'; ctx.fillRect(x, y, sw, 2);   // lit tread
+      ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(dx > 0 ? x : x + sw - 2, y, 2, sh);   // riser shadow
+    }
+    // handrail with posts, following the slope
+    const x0 = dx > 0 ? r.x + sw * 0.5 : r.x + r.w - sw * 0.5, x1 = dx > 0 ? r.x + r.w - sw * 0.5 : r.x + sw * 0.5;
+    const y0 = r.y + r.h - r.h / n - 12, y1 = r.y - 12 + r.h / n;
+    ctx.strokeStyle = '#9a88c4'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
+    for (let i = 0; i < n; i += 2) { const k = i / (n - 1), px = x0 + (x1 - x0) * k, py = y0 + (y1 - y0) * k; ctx.moveTo(px, py); ctx.lineTo(px, py + 12); }
+    ctx.stroke();
+  } else for (let i = 0; i < n; i++) {   // steps seen from above, lighter toward the top
     const k = (i + 0.5) / n, c = Math.round(38 + 80 * k);
     ctx.fillStyle = `rgb(${c},${c - 14},${c + 34})`;
     const [x, y, w, h] = band(i / n + 0.012, (i + 1) / n - 0.012); ctx.fillRect(x, y, w, h);
@@ -3346,7 +3389,7 @@ function drawStair(s, L, hot, ghost) {
   if (fromTop) { ctx.fillStyle = 'rgba(4,3,9,0.5)'; const [x, y, w, h] = band(0, 0.5); ctx.fillRect(x, y, w, h); }   // the lower half is below you
   ctx.fillStyle = hot ? (tool === 'erase' ? '#ff4d6d' : '#ffffff') : '#9a88c4';
   for (const w of stairRails(s, ghost ? s.lv : L)) ctx.fillRect(w.x, w.y, w.w, w.h);
-  if (tool !== 'play' || showHitboxes) label(s.x, s.y + 4, fromTop ? '▼ down' : '▲ up', '#ffffff', '700 11px system-ui');
+  if (tool !== 'play' || showHitboxes) label(dx ? s.x - dx * r.w * 0.24 : s.x, dx ? r.y + 20 : s.y + 4, fromTop ? '▼ down' : '▲ up', '#ffffff', '700 11px system-ui');   // side view: in the open air above the low steps
 }
 function drawStairs(L, hover) { for (const s of stairs) if (s.lv === L || s.lv === L - 1) drawStair(s, L, hover && hover.o === s); }
 // The level under the one you're on: its floor plan and the people on it, drawn first and dimmed.
@@ -3520,11 +3563,11 @@ function render() {
       else { const c = clickRect(tool === 'door' ? 'door' : 'wall', p); ctx.fillRect(c.x, c.y, c.w, c.h); }
     }
     if (tool === 'lamp') { const r = lampRect(p); if (LAMP_IMG.complete && LAMP_IMG.naturalWidth) ctx.drawImage(LAMP_IMG, r.x, r.y, r.w, r.h); }   // the base goes where you click
-    if (tool === 'rock') { const [a, b2] = ROCK_SIZES[rockSize]; drawRock(p.x, p.y, (a + b2) / 2, 7, false); }
+    if (tool === 'rock') { const [a, b2] = ROCK_SIZES[rockSize]; drawRock(p.x, p.y, (a + b2) / 2, 7, false, decoRot.rock); }
     if (tool === 'iwall' && invisSkin !== 'none') { const dr = mouse.drag; const g = dr && dr.kind === 'newWall' ? { x: Math.min(dr.x0, p.x), y: Math.min(dr.y0, p.y), w: Math.abs(p.x - dr.x0), h: Math.abs(p.y - dr.y0), skin: invisSkin } : { ...clickRect('wall', p), skin: invisSkin }; if (g.w > 4 && g.h > 4) drawBlockade(g, false); }
     if (tool === 'floor') { const dr = mouse.drag, c = dr && dr.kind === 'newFloor' ? dragRect(dr, p) : clickRect('floor', p); ctx.fillStyle = '#8a78b0'; ctx.fillRect(c.x, c.y, c.w, c.h); }
     if (tool === 'stairs' && viewLv < MAX_LV) drawStair({ x: p.x, y: p.y, dir: stairDir, lv: viewLv }, viewLv, false, true);
-    if (tool === 'chair') { ctx.save(); ctx.translate(p.x, p.y); drawChair(chairStyle === 'random' ? 0 : +chairStyle, false); ctx.restore(); }
+    if (tool === 'chair') { ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(decoRot.chair); drawChair(chairStyle === 'random' ? 0 : +chairStyle, false); ctx.restore(); }
     ctx.globalAlpha = 1;
   }
   for (const t of texts) { ctx.globalAlpha = 1 - t.t / 1.4; label(t.x, t.y, t.s, t.c); ctx.globalAlpha = 1; }
