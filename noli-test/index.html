@@ -55,6 +55,7 @@
     <button id="resetMap">Default map</button>
     <button id="squad">Survivor squad</button>
     <button id="lodgeMap">Lodge map</button>
+    <button id="quarryMap">Quarry map</button>
   </div>
   <small>Mouse wheel = zoom</small>
 </div>
@@ -195,6 +196,55 @@ function lodgeMap() {
   if (mode === 'survivor') KIT_IDS.filter((k) => k !== playerKit).slice(0, 3).forEach((k, i) => addDummy(...spots[i], 'smart', 100, k));
   else spots.forEach(([x, y]) => addDummy(x, y, 'stand', 100, ''));
   if (hitWall(noli.x, noli.y, noli.r)) { noli.x = 1000; noli.y = 1150; }
+}
+
+// Quarry: a rocky dig site — a ring of boulders around the central pit, a boarded-up mine with a
+// killer-only crawlspace, two worker huts, a wire-fenced storage yard, a rubble line to the south, lamps on the road.
+function quarryMap() {
+  const W = (x, y, w, h, kind, skin) => ({ x, y, w, h, kind, open: 0, skin });
+  walls = [...BORDER,
+    // Mine (north centre): rock walls, the entrance boarded up, a killer-only crawlspace on the side.
+    W(850, 30, 40, 230), W(1110, 30, 40, 230), W(890, 30, 220, 120),
+    W(890, 230, 220, 24, 'invis', 'boards'), W(1110, 260, 40, 60, 'killer'),
+    // Worker hut (north-west): south door, chairs inside, a generator.
+    W(140, 150, 290, 20), W(140, 170, 20, 220), W(410, 170, 20, 220), W(140, 390, 105, 20), W(245, 390, 80, 20, 'door'), W(325, 390, 105, 20),
+    // Worker hut (south-west): north door.
+    W(140, 950, 105, 20), W(245, 950, 80, 20, 'door'), W(325, 950, 105, 20), W(140, 970, 20, 230), W(410, 970, 20, 230), W(140, 1200, 290, 20),
+    // Storage yard (east): wire fence with a gate, and a killer-only rift in the north side.
+    W(1500, 250, 160, 16, 'invis', 'wire'), W(1660, 250, 80, 16, 'killer'), W(1740, 250, 180, 16, 'invis', 'wire'),
+    W(1500, 266, 16, 434, 'invis', 'wire'), W(1904, 266, 16, 434, 'invis', 'wire'),
+    W(1500, 700, 160, 16, 'invis', 'wire'), W(1660, 700, 90, 16, 'door'), W(1750, 700, 170, 16, 'invis', 'wire'),
+    // South rubble line with gaps to slip through.
+    W(560, 1040, 220, 26, 'invis', 'rocks'), W(880, 1040, 240, 26, 'invis', 'rocks'), W(1220, 1040, 220, 26, 'invis', 'rocks'),
+    // A broken boarded fence west of the pit.
+    W(560, 560, 24, 120, 'invis', 'boards'), W(560, 760, 24, 100, 'invis', 'boards'),
+    // Crates / cover pillars.
+    W(1300, 900, 60, 60), W(640, 300, 70, 50), W(1700, 1000, 60, 60),
+  ];
+  gens = [{ x: 1000, y: 700, fake: false, prog: 0 }, { x: 285, y: 270, fake: false, prog: 0 }, { x: 1710, y: 470, fake: true, prog: 0 },
+    { x: 1600, y: 1200, fake: false, prog: 0 }, { x: 285, y: 1090, fake: false, prog: 0 }];
+  props = [];
+  // Boulder ring around the pit, with four openings (N, E, S, W-ish), sizes and shapes varied.
+  for (let i = 0; i < 26; i++) {
+    const a = i / 26 * Math.PI * 2, gap = [0.0, 1.6, 3.2, 4.75].some((g) => Math.abs(Math.atan2(Math.sin(a - g), Math.cos(a - g))) < 0.28);
+    if (gap) continue;
+    const r = 230 + hash1(i * 3.1) * 40;
+    props.push({ kind: 'rock', x: 1000 + Math.cos(a) * r, y: 700 + Math.sin(a) * r * 0.85, r: 18 + hash1(i * 7.7) * 16, seed: i * 17 + 3 });
+  }
+  // Loose rocks scattered around the site.
+  for (const [x, y, r] of [[520, 470, 22], [760, 420, 16], [1240, 430, 20], [1380, 620, 26], [700, 960, 18], [1420, 1180, 24], [1840, 860, 30], [480, 1280, 20], [1180, 1300, 16], [1880, 1310, 22], [90, 600, 26], [1960, 120, 20], [780, 130, 18], [1260, 160, 22]])
+    props.push({ kind: 'rock', x, y, r, seed: x * 0.7 + y });
+  // Lamps along the haul road (west huts -> pit -> yard), the mine mouth and the south dig.
+  for (const [x, y] of [[480, 700], [700, 700], [1300, 700], [1460, 780], [1000, 330], [820, 300], [1180, 300], [300, 470], [300, 880], [1600, 1080], [800, 1160], [1200, 1160]])
+    props.push({ kind: 'lamp', x, y });
+  // Chairs: inside the huts, knocked about by the pit, one in the yard.
+  const C = (x, y, style, rot) => props.push({ kind: 'chair', x, y, style, rot });
+  C(200, 230, 0, 0.3); C(360, 330, 2, 2.1); C(200, 340, 4, -0.8); C(220, 1150, 1, 1.4); C(370, 1030, 3, 0.5);
+  C(940, 640, 1, 2.8); C(1070, 770, 2, -1.1); C(1560, 330, 0, 1.0); C(1850, 640, 3, -0.4); C(640, 820, 4, 0.9);
+  dummies = dummies.filter((d) => d.player);
+  const spots = [[620, 500], [1400, 500], [1000, 420]];
+  if (mode === 'survivor') KIT_IDS.filter((k) => k !== playerKit).slice(0, 3).forEach((k, i) => addDummy(...spots[i], 'smart', 100, k));
+  else spots.forEach(([x, y]) => addDummy(x, y, 'stand', 100, ''));
 }
 
 // ------------------------------------------------------------- entities
@@ -3361,6 +3411,7 @@ document.getElementById('squad').onclick = () => {
   log('Survivor squad spawned (Smart AI)');
 };
 document.getElementById('resetMap').onclick = () => { defaultMap(); log('Default map loaded'); };
+document.getElementById('quarryMap').onclick = () => { quarryMap(); Object.assign(noli, { x: 1000, y: 1150 }); log('Quarry map loaded'); };
 document.getElementById('lodgeMap').onclick = () => { lodgeMap(); Object.assign(noli, { x: 1000, y: 1150 }); log('Lodge map loaded'); };
 document.getElementById('reset').onclick = () => { for (const k in noli.cds) noli.cds[k] = 0; log('Cooldowns reset'); };
 document.getElementById('hbx').onclick = (e) => { showHitboxes = !showHitboxes; e.target.textContent = 'Hitboxes: ' + (showHitboxes ? 'on' : 'off'); e.target.classList.toggle('on', showHitboxes); };
