@@ -3290,32 +3290,38 @@ function castPoly(ox, oy, R, rects, circs, angs, n, push) {
     return { x: ox + dx * t, y: oy + dy * t, hit, t };
   });
 }
-// ---- fog of war: you only see what's in your line of sight; walls and closed doors hide what's behind them
-// (inside a building, the outside only shows through doorways and gaps). Off while building in creative.
+// ---- looking down from an upper floor: the level below shows through a drifting fog — but only where you can
+// actually see out (the walls of the floor you're on block the view); everything else stays dark.
+// While building in creative (or with Fog off) the whole level below is shown in fog / plain grey.
 let fogOn = true;
 const blocksSight = (w) => w.kind === undefined || (w.kind === 'door' && !(w.open > 0.75));
-function drawFog(me) {
-  const vx0 = cam.x - 40, vy0 = cam.y - 40, vx1 = cam.x + W / cam.s + 40, vy1 = cam.y + H / cam.s + 40;
-  const ox = me.x, oy = me.y, L = lvOf(me), R = Math.hypot(vx1 - vx0, vy1 - vy0), rects = [], angs = [];
+function sightPoly(me, L, box) {
+  const ox = me.x, oy = me.y, R = Math.hypot(box.x1 - box.x0, box.y1 - box.y0), rects = [], angs = [];
   for (const w of walls) {
     if (lvOf(w) !== L || !blocksSight(w) || inRect(w, ox, oy)) continue;
-    if (w.x > vx1 || w.x + w.w < vx0 || w.y > vy1 || w.y + w.h < vy0) continue;
+    if (w.x > box.x1 || w.x + w.w < box.x0 || w.y > box.y1 || w.y + w.h < box.y0) continue;
     rects.push(w);
     for (const [cx, cy] of [[w.x, w.y], [w.x + w.w, w.y], [w.x, w.y + w.h], [w.x + w.w, w.y + w.h]]) { const a = Math.atan2(cy - oy, cx - ox); angs.push(a - 1e-4, a, a + 1e-4); }
   }
-  const pts = castPoly(ox, oy, R, rects, [], angs, 90, 14);
-  const T = performance.now() / 1000, cut = () => { ctx.beginPath(); ctx.rect(vx0, vy0, vx1 - vx0, vy1 - vy0); pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.closePath(); };
+  return castPoly(ox, oy, R, rects, [], angs, 90, 0);
+}
+function drawBelowFog(V) {
+  const box = { x0: Math.min(-200, cam.x - 40), y0: Math.min(-200, cam.y - 40), x1: Math.max(MAP.w + 200, cam.x + W / cam.s + 40), y1: Math.max(MAP.h + 200, cam.y + H / cam.s + 40) };
+  const full = () => { ctx.beginPath(); ctx.rect(box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0); };
+  if (!fogOn) { full(); ctx.fillStyle = 'rgba(4,3,9,0.66)'; ctx.fill(); return; }
+  const me = listener(), los = tool === 'play' && lvOf(me) === V, pts = los ? sightPoly(me, V, box) : null;
+  const poly = () => pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+  if (pts) { full(); poly(); ctx.closePath(); ctx.fillStyle = 'rgba(4,3,9,0.7)'; ctx.fill('evenodd'); }   // can't see out there
   ctx.save();
-  cut(); ctx.fillStyle = 'rgba(8,6,14,0.84)'; ctx.fill('evenodd');
-  cut(); ctx.clip('evenodd');   // drifting haze inside the fog
-  for (let i = 0; i < 7; i++) {
-    const x = vx0 + ((hash1(i) * (vx1 - vx0) + T * (12 + i * 4)) % (vx1 - vx0)), y = vy0 + (hash1(i + 9) * (vy1 - vy0) + Math.sin(T * 0.3 + i) * 40), r = 180 + hash1(i + 3) * 220;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, 'rgba(154,144,191,0.07)'); g.addColorStop(1, 'rgba(154,144,191,0)');
+  if (pts) { ctx.beginPath(); poly(); ctx.closePath(); ctx.clip(); }
+  full(); ctx.fillStyle = 'rgba(16,13,28,0.34)'; ctx.fill();   // the drop: a little darker, a lot hazier
+  const T = performance.now() / 1000, vw = W / cam.s, vh = H / cam.s;
+  for (let i = 0; i < 9; i++) {   // drifting fog banks
+    const x = cam.x - 200 + ((hash1(i) * (vw + 400) + T * (14 + i * 5)) % (vw + 400)), y = cam.y + hash1(i + 9) * vh + Math.sin(T * 0.35 + i * 1.7) * 50, r = 160 + hash1(i + 3) * 240;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, 'rgba(214,206,240,0.13)'); g.addColorStop(0.6, 'rgba(201,190,235,0.05)'); g.addColorStop(1, 'rgba(201,190,235,0)');
     ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
   }
   ctx.restore();
-  // a soft fringe along the edge of what you can see
-  ctx.save(); ctx.strokeStyle = 'rgba(8,6,14,0.45)'; ctx.lineWidth = 10; ctx.lineJoin = 'round'; ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.closePath(); ctx.stroke(); ctx.restore();
 }
 function lightKey(L) { let k = NAV.sig + ':'; for (const w of walls) if (w.kind === 'door' && lvOf(w) === L) k += w.open > 0.75 ? 1 : 0; return k; }
 const lampFlicker = (q, T) => 0.92 + 0.08 * Math.sin(T * 7 + q.x) * Math.sin(T * 3.1 + q.y);
@@ -3542,7 +3548,7 @@ function render() {
   const hover = tool === 'move' || tool === 'erase' ? pick(world()) : null;
   if (V > 0) {   // upstairs: the level below shows through, dimmed, everywhere there's no floor
     drawLevel(V - 1);
-    ctx.fillStyle = 'rgba(4,3,9,0.66)'; ctx.fillRect(-200, -200, MAP.w + 400, MAP.h + 400);
+    drawBelowFog(V);
   }
   drawFloors(V, hover);
   drawStairs(V, hover);
@@ -3616,7 +3622,6 @@ function render() {
   if (hover && hover.kind === 'dummy') { ctx.strokeStyle = tool === 'erase' ? '#ff4d6d' : '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hover.o.x, hover.o.y, 24, 0, 6.3); ctx.stroke(); }
   if (onV(noli)) { drawStabStar(); drawRushStar(); drawNovaReturn(); drawObsStar(); }
   drawParts();
-  { const me = listener(); if (fogOn && tool === 'play' && lvOf(me) === viewLv) drawFog(me); }
   if (tool !== 'play' && gridOn) drawGrid();
   // placement ghost
   if (!noli.stance && tool !== 'play') {
