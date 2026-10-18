@@ -345,7 +345,7 @@ function cityMap() {
     F2(200, 200, 700, 20), F2(200, 780, 700, 20), F2(200, 200, 20, 600), F2(880, 200, 20, 260), F2(880, 540, 20, 260),
     F2(560, 220, 20, 240), F2(560, 460, 20, 80, 'door'), F2(560, 540, 20, 240),
     // the bridge's railings
-    F2(900, 460, 350, 10, 'invis', wire), F2(900, 530, 350, 10, 'invis', wire),
+    F2(900, 460, 350, 10, 'invis', wire), F2(900, 530, 120, 10, 'invis', wire), F2(1150, 530, 100, 10, 'invis', wire),   // a broken stretch you can drop from
     // Building B, Floor 2: opening west onto the bridge, a room divider
     F2(1250, 300, 550, 20), F2(1250, 880, 550, 20), F2(1780, 300, 20, 600), F2(1250, 300, 20, 160), F2(1250, 540, 20, 360),
     F2(1500, 320, 20, 200), F2(1500, 600, 20, 100),
@@ -509,7 +509,8 @@ function hitWall(x, y, r, who, plan = false) {
   }
   if (who !== 'see') {
     for (const s of stairs) if (s.lv === CL || s.lv === CL - 1) for (const w of stairRails(s, CL)) { const cx = clamp(x, w.x, w.x + w.w), cy = clamp(y, w.y, w.y + w.h); if ((x - cx) ** 2 + (y - cy) ** 2 < r * r) return w; }
-    if (CL > 0 && !onFloor(x, y, CL)) { EDGE.x = x; EDGE.y = y; return EDGE; }
+    // Off the edge of a floor: route planning and placing things treat it as a wall; walking off it drops you (moveCircle).
+    if (CL > 0 && (plan || !who) && !onFloor(x, y, CL)) { EDGE.x = x; EDGE.y = y; return EDGE; }
   }
   if (who !== 'see') for (const q of props) {   // lamp post bases and rocks are solid (low, so they don't block sight)
     if ((q.lv || 0) !== CL) continue;
@@ -518,11 +519,36 @@ function hitWall(x, y, r, who, plan = false) {
   }
   return null;
 }
+// ---- dropping off a floor edge: a short fall (drawn coming down from above), a thud, and 0.8s of slowness.
+const DROP = { time: 0.3, slow: 0.8, mult: 0.6 };
+function dropTo(e, L) {
+  const h = lvOf(e) - L; e.lv = L; e.onStair = null; e.dropT = DROP.time; e.dropH = h; e.fallSlowT = DROP.slow;
+  if (e.r < 12) return;   // a Nova just carries on below
+  setTimeout(() => {   // landing
+    ring(e.x, e.y, 26, '#9a90bf', 0.35);
+    for (let i = 0; i < 10; i++) { const a = rand(0, 6.3); parts.push({ kind: 'star', x: e.x + Math.cos(a) * 14, y: e.y + Math.sin(a) * 10, c: i % 2 ? '#9a90bf' : '#ffffff', size: rand(2, 4), t: 0, life: rand(0.25, 0.45) }); }
+    noiseBurst(0.12, 0.22, e); tone(80, 0.16, 'sine', 0.18, -30, e);
+  }, DROP.time * 1000);
+}
+// Falling: bigger and higher while coming down, with a shadow growing under them.
+function withDrop(e, f) {
+  if (!(e.dropT > 0)) { f(); return; }
+  const k = e.dropT / DROP.time, h = Math.min(2, e.dropH || 1);
+  ctx.save(); ctx.globalAlpha = 0.35 * (1 - k * 0.6); ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(e.x, e.y + 4, e.r * (1.2 - 0.5 * k), e.r * (0.6 - 0.25 * k), 0, 0, 6.3); ctx.fill(); ctx.restore();
+  ctx.save(); ctx.translate(e.x, e.y - 34 * k * h); ctx.scale(1 + 0.35 * k * h, 1 + 0.35 * k * h); ctx.translate(-e.x, -e.y); f(); ctx.restore();
+}
 function whoOf(e) { return e === noli || novas.includes(e) ? 'noli' : 'surv'; }
 function moveCircle(e, dx, dy) {
   let bx = false, by = false; const who = whoOf(e), pl = CL; CL = lvOf(e);
+  const sx = e.x, sy = e.y;
   if (!hitWall(e.x + dx, e.y, e.r, who)) e.x += dx; else bx = true;
   if (!hitWall(e.x, e.y + dy, e.r, who)) e.y += dy; else by = true;
+  if (CL > 0 && !onFloor(e.x, e.y, CL)) {
+    // Walked off an open edge: fall to whatever floor is underneath (or the ground) — unless you'd land inside something.
+    let L = CL - 1; while (L > 0 && !onFloor(e.x, e.y, L)) L--;
+    CL = L; const blocked = hitWall(e.x, e.y, e.r, who); CL = lvOf(e);
+    if (blocked) { e.x = sx; e.y = sy; bx = by = true; } else dropTo(e, L);
+  }
   if (stairs.length) stairStep(e);
   CL = pl;
   return { bx, by };
@@ -1406,6 +1432,7 @@ function survivorTick(d, dt, ai) {
   if (d.crouch) sp *= 1 + CROUCH.ambush * (d.ambushT / CROUCH.ambushTime);
   if (d.speedT > 0) { sp *= 1.35; if (Math.random() < dt * 20) parts.push({ kind: 'trail', x: d.x + rand(-10, 10), y: d.y + rand(-10, 10), c: Math.random() < 0.5 ? '#ffffff' : '#c9a8ff', size: rand(1.5, 3), t: 0, life: 0.4 }); }
   if (d.slowT > 0) sp *= 0.5;
+  if (d.fallSlowT > 0) sp *= DROP.mult;   // landed from a drop
   if (d.spdT > 0) sp *= 1 + OBL.speed;   // Speed II
   if (d.spd1T > 0) sp *= 1 + BLOCK.speed1;   // Speed I
   if (d.blockSlowT > 0) sp *= 1 - BLOCK.slow;   // bracing
@@ -2230,6 +2257,7 @@ function creativeInput() {
 function update(dt) {
   const npx = noli.x, npy = noli.y;
   for (const a of [gens, props, walls]) for (const o of a) o.lv ??= 0;
+  for (const e of [noli, ...dummies]) { e.dropT = Math.max(0, (e.dropT || 0) - dt); e.fallSlowT = Math.max(0, (e.fallSlowT || 0) - dt); }
   const sg = mapSig(); if (sg !== NAV.sig) { NAV.sig = sg; NAV.cache.clear(); }
   CL = lvOf(noli);
   for (const k in noli.cds) {
@@ -2282,6 +2310,7 @@ function update(dt) {
   if (noli.state === 'reWindow') sp *= KIT.rush.windowMove;   // walk/sprint at 70% less speed while the re-rush window is open
   if (noli.state === 'novaWind') sp *= KIT.nova.windMove;   // 30% slower during the Nova windup
   if (noli.slowT > 0) { noli.slowT -= dt; sp *= KIT.rush.endSlow.mult; }
+  if (noli.fallSlowT > 0) sp *= DROP.mult;   // landed from a drop
   if (noli.slowEffT > 0) sp *= 1 - TT.front.slow;   // Slowness II
   if (noli.blockSlowT > 0) sp *= 1 - BLOCK.noliSlow;   // a Guest blocked his stab   // slowed after cancelling a rush / missing the window
 
@@ -3540,9 +3569,9 @@ function render() {
   }
   drawRituals();
   // Characters and lamp posts drawn back-to-front by their ground position, so you can walk behind a post.
-  const layers = dummies.filter(onV).map((d) => ({ y: d.dead ? d.home.y : d.y, f: () => drawDummy(d) }));
+  const layers = dummies.filter(onV).map((d) => ({ y: d.dead ? d.home.y : d.y, f: () => withDrop(d, () => drawDummy(d)) }));
   for (const q of props) if (q.kind === 'lamp' && onV(q)) layers.push({ y: q.y, f: () => drawLampPost(q, hover) });
-  if (onV(noli)) layers.push({ y: noli.y, f: () => { drawNoli(); drawCrown(); } });
+  if (onV(noli)) layers.push({ y: noli.y, f: () => withDrop(noli, () => { drawNoli(); drawCrown(); }) });
   layers.sort((a, b) => a.y - b.y).forEach((l) => l.f());
   drawSurvFx();
   drawAIKnowledge();
