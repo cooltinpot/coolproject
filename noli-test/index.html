@@ -2139,23 +2139,27 @@ function placeStairs(p) {
     floors.push(dx ? { x: dx > 0 ? r.x + r.w : r.x - D, y: r.y - 20, w: D, h: r.h + 40, lv: editLv + 1 } : { x: r.x - 20, y: dy > 0 ? r.y + r.h : r.y - D, w: r.w + 40, h: D, lv: editLv + 1 });
     log(`Stairs up to ${LV_NAMES[editLv + 1]} (landing added — ▲ to build up there)`);
   }
-  ring(p.x, p.y, 40, '#c9a8ff', 0.4);
+  ring(p.x, p.y, 40, '#c9a8ff', 0.4); placeSfx();
 }
 // Grid mode: a quiet click every time something snaps to a new spot (rate-limited so fast drags don't machine-gun).
 let gridClickT = 0;
 function gridClick() { const now = performance.now(); if (now - gridClickT < 35) return; gridClickT = now; sfx('grid_click', 0.25); }
+// Placing something: a splat, pitched a little up or down at random each time.
+function placeSfx() {
+  try { const a = new Audio('sfx/place_splat.mp3'); a.volume = 0.6; a.preservesPitch = false; a.playbackRate = rand(0.85, 1.15); a.play().catch(() => {}); } catch (e) { /* no audio */ }
+}
 function creativeInput() {
   const raw = world(), p = buildPoint(), L = editLv;
   if (mouse.click && BUILD_TOOLS.includes(tool) && buildSpotOk(p)) hammerHitT = 0.16;   // hammer swing
   if (mouse.click) {
-    if (tool === 'dummy') { if (!hitWall(p.x, p.y, 16)) { const d = addDummy(p.x, p.y); ring(p.x, p.y, 30, '#7dffa8'); log(`Placed ${d.name} (${d.mode}, ${d.inf ? '∞' : d.maxHp} HP)`); } }
-    else if (tool === 'gen' || tool === 'fake') { if (!hitWall(p.x, p.y, 20)) { gens.push({ x: p.x, y: p.y, lv: L, fake: tool === 'fake', prog: 0 }); ring(p.x, p.y, 30, '#a26bff'); } }
+    if (tool === 'dummy') { if (!hitWall(p.x, p.y, 16)) { const d = addDummy(p.x, p.y); placeSfx(); ring(p.x, p.y, 30, '#7dffa8'); log(`Placed ${d.name} (${d.mode}, ${d.inf ? '∞' : d.maxHp} HP)`); } }
+    else if (tool === 'gen' || tool === 'fake') { if (!hitWall(p.x, p.y, 20)) { gens.push({ x: p.x, y: p.y, lv: L, fake: tool === 'fake', prog: 0 }); placeSfx(); ring(p.x, p.y, 30, '#a26bff'); } }
     else if (tool in WALL_TOOLS) mouse.drag = { kind: 'newWall', x0: p.x, y0: p.y, wk: WALL_TOOLS[tool] };
     else if (tool === 'floor') mouse.drag = { kind: 'newFloor', x0: p.x, y0: p.y };
     else if (tool === 'stairs') placeStairs(p);
-    else if (tool === 'lamp') { if (!hitWall(p.x, p.y, LAMP_R + 4)) { props.push({ kind: 'lamp', x: p.x, y: p.y, lv: L }); ring(p.x, p.y, 30, '#fff2c4', 0.4); } }
-    else if (tool === 'rock') { const [a, b2] = ROCK_SIZES[rockSize]; const r = rand(a, b2); if (!hitWall(p.x, p.y, r)) { props.push({ kind: 'rock', x: p.x, y: p.y, r, seed: Math.random() * 1000, lv: L }); stabBurst(p, 6, r); } }
-    else if (tool === 'chair') { props.push({ kind: 'chair', x: p.x, y: p.y, lv: L, style: chairStyle === 'random' ? Math.floor(rand(0, 5)) : +chairStyle, rot: rand(0, 6.283) }); ring(p.x, p.y, 22, '#c9a8ff', 0.3); }
+    else if (tool === 'lamp') { if (!hitWall(p.x, p.y, LAMP_R + 4)) { props.push({ kind: 'lamp', x: p.x, y: p.y, lv: L }); placeSfx(); ring(p.x, p.y, 30, '#fff2c4', 0.4); } }
+    else if (tool === 'rock') { const [a, b2] = ROCK_SIZES[rockSize]; const r = rand(a, b2); if (!hitWall(p.x, p.y, r)) { props.push({ kind: 'rock', x: p.x, y: p.y, r, seed: Math.random() * 1000, lv: L }); placeSfx(); stabBurst(p, 6, r); } }
+    else if (tool === 'chair') { props.push({ kind: 'chair', x: p.x, y: p.y, lv: L, style: chairStyle === 'random' ? Math.floor(rand(0, 5)) : +chairStyle, rot: rand(0, 6.283) }); placeSfx(); ring(p.x, p.y, 22, '#c9a8ff', 0.3); }
     else if (tool === 'move') { const h = pick(raw); if (h) mouse.drag = { ...h, ox: raw.x - h.o.x, oy: raw.y - h.o.y }; }
     else if (tool === 'erase') {
       const h = pick(raw);
@@ -2179,10 +2183,11 @@ function creativeInput() {
       const skin = kind === 'invis' && invisSkin !== 'none' ? invisSkin : undefined;
       if (r.w > 8 && r.h > 8) walls.push({ ...r, kind, open: 0, skin, lv: L });
       else walls.push({ ...clickRect(kind === 'door' ? 'door' : 'wall', { x: dr.x0, y: dr.y0 }), kind, open: 0, skin, lv: L });   // click = a standard door / a pillar
+      placeSfx();
     }
     if (dr && dr.kind === 'newFloor') {
       const r = dragRect(dr, p);
-      floors.push({ ...(r.w > 8 && r.h > 8 ? r : clickRect('floor', { x: dr.x0, y: dr.y0 })), lv: L });
+      floors.push({ ...(r.w > 8 && r.h > 8 ? r : clickRect('floor', { x: dr.x0, y: dr.y0 })), lv: L }); placeSfx();
     }
     mouse.drag = null;
   }
