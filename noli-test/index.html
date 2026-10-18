@@ -42,6 +42,13 @@
   <div id="chairRow" style="display:none"><h3>Chair style</h3><div class="row" id="chairStyles"></div></div>
   <div id="invisRow" style="display:none"><h3>Blockade look</h3><div class="row" id="invisSkins"></div></div>
   <div id="rockRow" style="display:none"><h3>Rock size</h3><div class="row" id="rockSizes"></div></div>
+  <div id="stairRow" style="display:none"><h3>Stairs go up toward</h3><div class="row" id="stairDirs"></div></div>
+  <h3>Build</h3>
+  <div class="row">
+    <button id="gridBtn" class="on">Grid snap: on (G)</button>
+    <button id="lvDown">▼</button><button id="lvLabel" disabled>Ground floor</button><button id="lvUp">▲</button>
+  </div>
+  <small>PgUp / PgDn = edit the level above / below</small>
   <h3>New dummies</h3>
   <div class="row" id="modes"></div>
   <div class="row" style="margin-top:5px" id="hps"></div>
@@ -56,6 +63,7 @@
     <button id="squad">Survivor squad</button>
     <button id="lodgeMap">Lodge map</button>
     <button id="quarryMap">Quarry map</button>
+    <button id="cityMap">City map</button>
   </div>
   <small>Mouse wheel = zoom</small>
 </div>
@@ -92,10 +100,12 @@ function genFrame(t) { let ms = (t * 1000) % GEN_LOOP; for (let i = 0; i < GEN_F
 const MAP = { w: 2000, h: 1400 };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const rand = (a, b) => a + Math.random() * (b - a);
-const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+// Things on different levels (floors of a building) count as far apart; plain points (no lv) don't.
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) + (a.lv !== undefined && b.lv !== undefined && a.lv !== b.lv ? 4000 : 0);
 const angDiff = (a, b) => ((a - b + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
 // Square hitboxes: { x, y, w, h, a } centred boxes rotated by a, tested against a survivor's body.
 function boxHits(b, d) {
+  if ((b.lv ?? noli.lv ?? 0) !== (d.lv || 0)) return false;   // a box only reaches its own level (Noli's by default)
   const c = Math.cos(-b.a || 0), s = Math.sin(-b.a || 0), dx = d.x - b.x, dy = d.y - b.y;
   const lx = dx * c - dy * s, ly = dx * s + dy * c;
   const cx = clamp(lx, -b.w / 2, b.w / 2), cy = clamp(ly, -b.h / 2, b.h / 2);
@@ -127,13 +137,72 @@ const BORDER = [
   { x: 0, y: 0, w: MAP.w, h: 30, fixed: true }, { x: 0, y: MAP.h - 30, w: MAP.w, h: 30, fixed: true },
   { x: 0, y: 0, w: 30, h: MAP.h, fixed: true }, { x: MAP.w - 30, y: 0, w: 30, h: MAP.h, fixed: true },
 ];
-let walls = [], gens = [], dummies = [], props = [];
+let walls = [], gens = [], dummies = [], props = [], floors = [], stairs = [];
+// ---- levels: everything carries lv (0 = ground). Upper levels are only walkable on floors and stairs.
+// CL is the level collisions are tested on (set from whoever is moving / thinking).
+const MAX_LV = 4, STAIR = { w: 80, len: 120, rail: 6, edge: 28 }, GRID = 20;
+let CL = 0, viewLv = 0, editLv = 0, gridOn = true, stairDir = 0, lvFlash = 0;
+const lvOf = (o) => o.lv || 0;
+const LV_NAMES = ['Ground floor', 'Floor 2', 'Floor 3', 'Floor 4', 'Roof'];
+const snap = (v) => Math.round(v / GRID) * GRID;
+const STAIR_DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];   // the way the stairs climb: north, east, south, west
+function stairRect(s) { return s.dir % 2 === 0 ? { x: s.x - STAIR.w / 2, y: s.y - STAIR.len / 2, w: STAIR.w, h: STAIR.len } : { x: s.x - STAIR.len / 2, y: s.y - STAIR.w / 2, w: STAIR.len, h: STAIR.w }; }
+// 0 at the bottom step, 1 at the top step.
+function stairU(s, x, y) { const [dx, dy] = STAIR_DIRS[s.dir]; return 0.5 + ((x - s.x) * dx + (y - s.y) * dy) / STAIR.len; }
+// A point on the stairs' centre line (u can go past 0/1 to stand just off either end).
+function stairAt(s, u) { const [dx, dy] = STAIR_DIRS[s.dir]; return { x: s.x + dx * (u - 0.5) * STAIR.len, y: s.y + dy * (u - 0.5) * STAIR.len }; }
+const inRect = (r, x, y) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+// Railings: both sides are always closed; from the bottom level the top end is closed too, from the top level the bottom end.
+function stairRails(s, L) {
+  const key = `${s.x},${s.y},${s.dir},${L === s.lv}`;
+  if (s.railKey === key) return s.rails;
+  const r = stairRect(s), t = STAIR.rail, out = s.dir % 2 === 0
+    ? [{ x: r.x - t, y: r.y - t, w: t, h: r.h + t * 2 }, { x: r.x + r.w, y: r.y - t, w: t, h: r.h + t * 2 }]
+    : [{ x: r.x - t, y: r.y - t, w: r.w + t * 2, h: t }, { x: r.x - t, y: r.y + r.h, w: r.w + t * 2, h: t }];
+  const ends = [{ x: r.x, y: r.y - t, w: r.w, h: t }, { x: r.x + r.w, y: r.y, w: t, h: r.h }, { x: r.x, y: r.y + r.h, w: r.w, h: t }, { x: r.x - t, y: r.y, w: t, h: r.h }];
+  out.push(ends[L === s.lv ? s.dir : (s.dir + 2) % 4]);
+  s.railKey = key; s.rails = out; return out;
+}
+function onFloor(x, y, L) {
+  for (const f of floors) if (f.lv === L && inRect(f, x, y)) return true;
+  for (const s of stairs) if ((s.lv === L || s.lv === L - 1) && inRect(stairRect(s), x, y)) return true;
+  return false;
+}
+// Walking up or down: past the middle step you're on the upper level, below it the lower one.
+function stairStep(e) {
+  const L = lvOf(e);
+  for (const s of stairs) {
+    if (s.lv !== L && s.lv !== L - 1) continue;
+    if (!inRect(stairRect(s), e.x, e.y)) continue;
+    e.lv = stairU(s, e.x, e.y) > 0.5 ? s.lv + 1 : s.lv; e.onStair = s; return;
+  }
+  e.onStair = null;
+}
+// Route across levels: the next point to head for on the way to (x, y) on level lv.
+function navPoint(e, x, y, lv) {
+  const L = lvOf(e);
+  if (lv === undefined || lv === L) return { x, y };
+  const up = lv > L;
+  let best = null, bs = Infinity;
+  for (const s of stairs) {
+    if (up ? s.lv !== L : s.lv !== L - 1) continue;
+    const on = stairAt(s, up ? 0 : 1), on2 = stairAt(s, up ? -STAIR.edge / STAIR.len : 1 + STAIR.edge / STAIR.len), off = stairAt(s, up ? 0.85 : 0.15);
+    const c = Math.hypot(e.x - on2.x, e.y - on2.y) + Math.hypot(x - off.x, y - off.y);
+    if (c < bs) { bs = c; best = { s, on, on2, off }; }
+  }
+  if (!best) return { x, y };
+  // On the stairs or lined up at the open end: climb; otherwise walk round to the open end first.
+  const [dx, dy] = STAIR_DIRS[best.s.dir], lat = Math.abs((e.x - best.s.x) * dy - (e.y - best.s.y) * dx), u = stairU(best.s, e.x, e.y), m = (STAIR.edge + 12) / STAIR.len;
+  const lined = lat < STAIR.w / 2 - 10 && (up ? u > -m && u < 1 : u < 1 + m && u > 0);
+  if (e.onStair === best.s || lined) return best.off;
+  return best.on2;
+}
 const LAMP_R = 6, DOOR = { reach: 70, rushReach: 150, speed: 4 };
 let chairStyle = 'random', invisSkin = 'none', rockSize = 'random';
 const ROCK_SIZES = { small: [12, 16], medium: [18, 24], large: [26, 36], random: [12, 34] };
 // Doors open when anyone is close and close again when they leave; a Void Rush slams them open instantly.
 function updateDoors(dt) {
-  const near = (w, e, R) => { const cx = clamp(e.x, w.x, w.x + w.w), cy = clamp(e.y, w.y, w.y + w.h); return (e.x - cx) ** 2 + (e.y - cy) ** 2 < R * R; };
+  const near = (w, e, R) => { if (lvOf(e) !== lvOf(w)) return false; const cx = clamp(e.x, w.x, w.x + w.w), cy = clamp(e.y, w.y, w.y + w.h); return (e.x - cx) ** 2 + (e.y - cy) ** 2 < R * R; };
   for (const w of walls) {
     if (w.kind !== 'door') continue;
     w.open = w.open || 0;
@@ -144,6 +213,7 @@ function updateDoors(dt) {
   }
 }
 function defaultMap() {
+  floors = []; stairs = []; CL = 0;
   walls = [...BORDER, { x: 620, y: 380, w: 70, h: 70 }, { x: 1310, y: 380, w: 70, h: 70 }, { x: 620, y: 950, w: 70, h: 70 }, { x: 1310, y: 950, w: 70, h: 70 }];
   gens = [{ x: 260, y: 240, fake: false, prog: 0 }, { x: 1740, y: 240, fake: false, prog: 0 }, { x: 260, y: 1160, fake: false, prog: 0 }, { x: 1740, y: 1160, fake: true, prog: 0 }];
   dummies = dummies.filter((d) => d.player); props = [];
@@ -154,6 +224,7 @@ function defaultMap() {
 // A map built only from creative-mode pieces: an abandoned lodge with a hall, a shed, a fenced yard,
 // a pillar court and a broken southwest corner, lit by lamp posts.
 function lodgeMap() {
+  floors = []; stairs = []; CL = 0;
   const W = (x, y, w, h, kind) => ({ x, y, w, h, kind, open: 0 });
   walls = [...BORDER,
     // Main hall: doors north and south, a glass window (invisible wall) west, a killer-only gap east, a table inside.
@@ -201,6 +272,7 @@ function lodgeMap() {
 // Quarry: a rocky dig site — a ring of boulders around the central pit, a boarded-up mine with a
 // killer-only crawlspace, two worker huts, a wire-fenced storage yard, a rubble line to the south, lamps on the road.
 function quarryMap() {
+  floors = []; stairs = []; CL = 0;
   const W = (x, y, w, h, kind, skin) => ({ x, y, w, h, kind, open: 0, skin });
   walls = [...BORDER,
     // Mine (north centre): rock walls, the entrance boarded up, a killer-only crawlspace on the side.
@@ -247,14 +319,58 @@ function quarryMap() {
   else spots.forEach(([x, y]) => addDummy(x, y, 'stand', 100, ''));
 }
 
+// A city block: two buildings with upper floors (and a roof), linked by a bridge on Floor 2.
+function cityMap() {
+  floors = []; stairs = []; CL = 0;
+  const mk = (lv) => (x, y, w, h, kind, skin) => ({ x, y, w, h, kind, open: 0, skin, lv });
+  const G = mk(0), F2 = mk(1), F3 = mk(2), wire = 'wire';
+  const F = (x, y, w, h, lv) => floors.push({ x, y, w, h, lv });
+  walls = [...BORDER,
+    // Building A, ground floor: door south and east
+    G(200, 200, 700, 20), G(200, 200, 20, 600), G(200, 780, 260, 20), G(460, 780, 80, 20, 'door'), G(540, 780, 360, 20),
+    G(880, 200, 20, 260), G(880, 460, 20, 80, 'door'), G(880, 540, 20, 260),
+    // Building B, ground floor: door west
+    G(1250, 300, 550, 20), G(1250, 880, 550, 20), G(1780, 300, 20, 600), G(1250, 300, 20, 340), G(1250, 640, 20, 80, 'door'), G(1250, 720, 20, 180),
+    // the alley between them: a wire fence with a gap only Noli fits through
+    G(1070, 30, 16, 600, 'invis', wire), G(1070, 630, 16, 80, 'killer'), G(1070, 710, 16, 250, 'invis', wire),
+    // street: parked cars, a bus stop
+    G(380, 1100, 130, 56), G(1480, 1160, 130, 56), G(960, 1010, 180, 16), G(1700, 1000, 56, 120),
+    // Building A, Floor 2: two rooms, opening east onto the bridge
+    F2(200, 200, 700, 20), F2(200, 780, 700, 20), F2(200, 200, 20, 600), F2(880, 200, 20, 260), F2(880, 540, 20, 260),
+    F2(560, 220, 20, 240), F2(560, 460, 20, 80, 'door'), F2(560, 540, 20, 240),
+    // the bridge's railings
+    F2(900, 460, 350, 10, 'invis', wire), F2(900, 530, 350, 10, 'invis', wire),
+    // Building B, Floor 2: opening west onto the bridge, a room divider
+    F2(1250, 300, 550, 20), F2(1250, 880, 550, 20), F2(1780, 300, 20, 600), F2(1250, 300, 20, 160), F2(1250, 540, 20, 360),
+    F2(1500, 320, 20, 200), F2(1500, 600, 20, 100),
+    // Building A roof (Floor 3): wire railing round the edge
+    F3(580, 210, 320, 10, 'invis', wire), F3(580, 620, 320, 10, 'invis', wire), F3(570, 210, 10, 420, 'invis', wire), F3(900, 210, 10, 420, 'invis', wire),
+    F3(620, 250, 60, 60),
+  ];
+  F(200, 200, 700, 600, 1); F(900, 470, 350, 60, 1); F(1250, 300, 550, 600, 1); F(580, 220, 320, 400, 2);
+  stairs = [{ x: 300, y: 600, lv: 0, dir: 0 }, { x: 800, y: 350, lv: 1, dir: 2 }, { x: 1700, y: 760, lv: 0, dir: 0 }];
+  gens = [{ x: 720, y: 400, lv: 0 }, { x: 1050, y: 1180, lv: 0 }, { x: 400, y: 330, lv: 1 }, { x: 1640, y: 450, lv: 1 }, { x: 760, y: 520, lv: 2 }, { x: 1450, y: 600, lv: 0, fake: true }]
+    .map((g) => ({ fake: false, prog: 0, ...g }));
+  props = [];
+  for (const [x, y, lv] of [[150, 960, 0], [550, 960, 0], [950, 1300, 0], [1350, 960, 0], [1850, 960, 0], [400, 1330, 0], [1600, 1330, 0], [240, 740, 0], [1730, 350, 0],
+    [840, 740, 1], [1730, 840, 1], [300, 250, 1], [870, 590, 2]]) props.push({ kind: 'lamp', x, y, lv });
+  for (const [x, y, st, rot, lv] of [[480, 300, 0, 0, 0], [540, 300, 0, 0, 0], [600, 300, 1, 0.2, 0], [1400, 820, 2, 3.1, 0], [1450, 820, 2, 3.1, 0], [700, 1060, 3, 0, 0], [1300, 1060, 3, 0, 0],
+    [300, 380, 4, 1.2, 1], [340, 440, 4, 2.5, 1], [700, 300, 1, 0.4, 1], [1400, 400, 0, 0, 1], [1700, 600, 3, 1.6, 1], [820, 560, 2, 0.8, 2]]) props.push({ kind: 'chair', x, y, style: st, rot, lv });
+  for (const [x, y, r] of [[1850, 1220, 20], [150, 1250, 18], [1180, 1320, 24], [1900, 150, 22], [1150, 150, 18], [1000, 900, 16]]) props.push({ kind: 'rock', x, y, r, seed: x * 0.37 + y, lv: 0 });
+  dummies = dummies.filter((d) => d.player);
+  const spots = [[600, 1050], [1400, 1060], [800, 1250]];
+  if (mode === 'survivor') KIT_IDS.filter((k) => k !== playerKit).slice(0, 3).forEach((k, i) => addDummy(...spots[i], 'smart', 100, k));
+  else spots.forEach(([x, y]) => addDummy(x, y, 'stand', 100, ''));
+}
+
 // ------------------------------------------------------------- entities
-const noli = { x: 1000, y: 1150, r: 18, ang: -Math.PI / 2, stamina: KIT.stamina.max, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart },
+const noli = { x: 1000, y: 1150, lv: 0, r: 18, ang: -Math.PI / 2, stamina: KIT.stamina.max, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart },
   state: 'free', st: 0, rush: null, stance: false, stunT: 0, hp: 2222, maxHp: 2222 };
 const fwdBox = (o) => ({ x: noli.x + Math.cos(noli.ang) * o.off, y: noli.y + Math.sin(noli.ang) * o.off, w: o.w, h: o.h, a: noli.ang });
 let newMode = 'stand', newHp = 100, newKit = '', noCd = false, tool = 'play', dummyN = 0;
 const novas = [], fx = [], texts = [];
 function addDummy(x, y, behave = newMode, hp = newHp, kit = newKit) {
-  const d = { id: ++dummyN, name: 'Dummy ' + dummyN, home: { x, y }, x, y, r: 16, maxHp: hp, hp, inf: hp === Infinity, hall: 0, hallT: 0, vx: 0, vy: 0, knockT: 0,
+  const d = { id: ++dummyN, name: 'Dummy ' + dummyN, home: { x, y, lv: CL }, x, y, lv: CL, r: 16, maxHp: hp, hp, inf: hp === Infinity, hall: 0, hallT: 0, vx: 0, vy: 0, knockT: 0,
     dead: false, deadT: 0, mode: behave, goal: null, genT: 0, repair: null, ang: -Math.PI / 2 };
   if (d.inf) { d.maxHp = 100; d.hp = 100; }
   dummies.push(d); applyKit(d, kit); return d;
@@ -334,7 +450,7 @@ addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (!keys[k]) press(k);
   keys[k] = true;
-  if (['q', 'e', 'r', ' ', 'tab'].includes(k)) e.preventDefault();
+  if (['q', 'e', 'r', ' ', 'tab', 'pageup', 'pagedown'].includes(k)) e.preventDefault();
 });
 addEventListener('keyup', (e) => { const k = e.key.toLowerCase(); keys[k] = false; if (k === 'q' && mode === 'noli') releaseRush(); if (k === 'r' && player && player.act && player.act.kind === 'pray') endPray(player); });
 cv.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
@@ -363,6 +479,9 @@ function press(k) {
     if (k === 'r') toggleObservant();
   }
   if (k === 'h') toggleUi();
+  if (k === 'g') toggleGrid();
+  if (k === 'pageup') setEditLv(editLv + 1);
+  if (k === 'pagedown') setEditLv(editLv - 1);
   const t = TOOLS.find((t) => t.key === k);
   if (t) setTool(t.id);
 }
@@ -371,15 +490,22 @@ function press(k) {
 // who: 'noli' (and his Nova), 'surv' (survivors and their stuff), 'see' (sight lines / rays), or none (solid for all).
 // Killer walls only stop survivors; invisible walls stop bodies but not sight; doors stop everything until open;
 // plan = route planning, which treats doors as open (they open as you walk up).
+const EDGE = { x: 0, y: 0, w: 0, h: 0, kind: 'edge' };   // returned for "that's off the edge of the floor"
 function hitWall(x, y, r, who, plan = false) {
   for (const w of walls) {
+    if ((w.lv || 0) !== CL) continue;
     if (w.kind === 'killer' && (who === 'noli' || who === 'see')) continue;
     if (w.kind === 'invis' && who === 'see') continue;
     if (w.kind === 'door' && (w.open > 0.75 || (plan && who !== 'see'))) continue;
     const cx = clamp(x, w.x, w.x + w.w), cy = clamp(y, w.y, w.y + w.h);
     if ((x - cx) ** 2 + (y - cy) ** 2 < r * r) return w;
   }
+  if (who !== 'see') {
+    for (const s of stairs) if (s.lv === CL || s.lv === CL - 1) for (const w of stairRails(s, CL)) { const cx = clamp(x, w.x, w.x + w.w), cy = clamp(y, w.y, w.y + w.h); if ((x - cx) ** 2 + (y - cy) ** 2 < r * r) return w; }
+    if (CL > 0 && !onFloor(x, y, CL)) { EDGE.x = x; EDGE.y = y; return EDGE; }
+  }
   if (who !== 'see') for (const q of props) {   // lamp post bases and rocks are solid (low, so they don't block sight)
+    if ((q.lv || 0) !== CL) continue;
     const R = q.kind === 'lamp' ? LAMP_R : q.kind === 'rock' ? q.r * 0.88 : 0;
     if (R && (x - q.x) ** 2 + (y - q.y) ** 2 < (r + R) ** 2) return q;
   }
@@ -387,9 +513,11 @@ function hitWall(x, y, r, who, plan = false) {
 }
 function whoOf(e) { return e === noli || novas.includes(e) ? 'noli' : 'surv'; }
 function moveCircle(e, dx, dy) {
-  let bx = false, by = false; const who = whoOf(e);
+  let bx = false, by = false; const who = whoOf(e), pl = CL; CL = lvOf(e);
   if (!hitWall(e.x + dx, e.y, e.r, who)) e.x += dx; else bx = true;
   if (!hitWall(e.x, e.y + dy, e.r, who)) e.y += dy; else by = true;
+  if (stairs.length) stairStep(e);
+  CL = pl;
   return { bx, by };
 }
 
@@ -860,7 +988,7 @@ function castNova() {
 function throwNova() {
   noli.state = 'free';
   const a = Math.atan2(NI.ay - noli.y, NI.ax - noli.x);
-  novas.push({ x: noli.x + Math.cos(a) * 26, y: noli.y + Math.sin(a) * 26, r: 10, vx: Math.cos(a) * KIT.nova.speed, vy: Math.sin(a) * KIT.nova.speed, t: 0, boom: false, bt: 0, carry: null });
+  novas.push({ lv: lvOf(noli), x: noli.x + Math.cos(a) * 26, y: noli.y + Math.sin(a) * 26, r: 10, vx: Math.cos(a) * KIT.nova.speed, vy: Math.sin(a) * KIT.nova.speed, t: 0, boom: false, bt: 0, carry: null });
 }
 function detonate(n, why) {
   n.boom = true; n.bt = 0;
@@ -877,7 +1005,7 @@ function detonate(n, why) {
     const a = rand(0, 6.3), r = Math.sqrt(Math.random()) * R0 * 1.1;
     parts.push({ kind: 'star', x: n.x + Math.cos(a) * r, y: n.y + Math.sin(a) * r, c: i % 4 === 0 ? '#000000' : i % 2 ? '#ffffff' : '#c9a8ff', size: rand(3, 11), t: rand(-1.4, 0), life: rand(0.8, 1.6) });
   }
-  const blast = { x: n.x, y: n.y, w: KIT.nova.blast, h: KIT.nova.blast, a: 0 };
+  const blast = { x: n.x, y: n.y, w: KIT.nova.blast, h: KIT.nova.blast, a: 0, lv: n.lv };
   const caught = alive().some((d) => boxHits(blast, d));
   showBox(blast, caught ? '#00ff4c' : '#ff0000', KIT.nova.pull);
   for (const d of alive()) if (boxHits(blast, d)) guardAbility(d), damage(d, KIT.nova.dmg, `Nova (${why})`, '#b98cff');
@@ -906,12 +1034,13 @@ function observantPick(g) {
 }
 function observantTeleport(g) {
   noli.state = 'free';
-  noli.x = g.x; noli.y = g.y + 46; noli.stance = false; noli.cds.obs = KIT.obs.cd;
+  noli.x = g.x; noli.y = g.y + 46; noli.lv = lvOf(g); noli.stance = false; noli.cds.obs = KIT.obs.cd;
   noli.stunT = KIT.obs.landRoot;   // stand still at the generator for 0.5s
   tpStrike(noli.x, noli.y);
   if (selGen) selGen.landed = 0;   // start fading the purple shine
   ring(g.x, g.y, 90, '#a26bff', 0.7);
   for (const d of alive()) {
+    if (lvOf(d) !== lvOf(noli)) continue;
     const studs = Math.max(Math.abs(noli.x - d.x), Math.abs(noli.y - d.y)) / STUD;   // square zones
     const band = KIT.obs.bands.find(([range]) => studs <= range);
     if (band) setHall(d, band[1], `Observant (${studs.toFixed(0)} studs)`);
@@ -923,7 +1052,7 @@ function dummyThink(d, dt) {
   if (d.knockT > 0) return null;
   let tx = d.x, ty = d.y, sp = 0;
   if (d.mode === 'wander') {
-    if (!d.goal || dist(d, d.goal) < 20) d.goal = { x: rand(120, MAP.w - 120), y: rand(120, MAP.h - 120) };
+    if (!d.goal || Math.hypot(d.x - d.goal.x, d.y - d.goal.y) < 20) d.goal = { x: rand(120, MAP.w - 120), y: rand(120, MAP.h - 120) };
     tx = d.goal.x; ty = d.goal.y; sp = 120;
   } else if (d.mode === 'flee') {
     const a = Math.atan2(d.y - noli.y, d.x - noli.x);
@@ -944,7 +1073,7 @@ function repairTick(d, g, dt) {
     d.repair = null;
   }
 }
-function respawnDummy(d) { Object.assign(d, { x: d.home.x, y: d.home.y, hp: d.maxHp, hall: 0, dead: false, dying: 0, air: null, rag: null, exec: false, squash: 0, fade: 1, wiggle: 0, deadT: 0, knockT: 0, vx: 0, vy: 0, repair: null, goal: null, plan: null, job: null, hide: null }); if (d.kit) resetSurv(d); }
+function respawnDummy(d) { Object.assign(d, { x: d.home.x, y: d.home.y, lv: d.home.lv || 0, onStair: null, hp: d.maxHp, hall: 0, dead: false, dying: 0, air: null, rag: null, exec: false, squash: 0, fade: 1, wiggle: 0, deadT: 0, knockT: 0, vx: 0, vy: 0, repair: null, goal: null, plan: null, job: null, hide: null }); if (d.kit) resetSurv(d); }
 
 // ------------------------------------------------------------- survivors (Forsaken kits)
 const SURV = { walk: 150, sprint: 255, stamMax: 100, drain: 12, regen: 18 };
@@ -1019,7 +1148,7 @@ function heal(d, n, why) {
   const b = d.hp; d.hp = Math.min(d.maxHp, d.hp + n);
   txt(d.x, d.y - 24, '+' + Math.round(d.hp - b), '#7dffa8'); log(`${d.name} — ${why}: +${Math.round(d.hp - b)} HP`);
 }
-const survBox = (d, off, w, h) => ({ x: d.x + Math.cos(d.ang) * off, y: d.y + Math.sin(d.ang) * off, w, h, a: d.ang });
+const survBox = (d, off, w, h) => ({ x: d.x + Math.cos(d.ang) * off, y: d.y + Math.sin(d.ang) * off, w, h, a: d.ang, lv: lvOf(d) });
 function behindNoli(d) { return Math.abs(angDiff(Math.atan2(d.y - noli.y, d.x - noli.x), noli.ang)) > 1.9; }
 const pizzas = [], beams = [], swings = [];
 function swing(d, c, r = 34) { swings.push({ x: d.x, y: d.y, a: d.ang, c, r, t: 0, life: 0.22 }); }
@@ -1128,7 +1257,7 @@ function fireGun(d) {
   for (let i = 0; i < 90; i++) {
     x += c * 8; y += s * 8;
     if (hitWall(x, y, 2)) break;
-    if (canHitNoli() && Math.hypot(noli.x - x, noli.y - y) < noli.r + 3) { hit = true; break; }
+    if (canHitNoli() && lvOf(noli) === lvOf(d) && Math.hypot(noli.x - x, noli.y - y) < noli.r + 3) { hit = true; break; }
   }
   beams.push({ x1: x0, y1: y0, x2: x, y2: y, t: 0, life: 0.35 }); aiNoise(d.x, d.y, 1400);   // everyone hears a gunshot
   noiseBurst(0.25, 0.4, d); if (d.player) cam.shake = Math.max(cam.shake || 0, 5);
@@ -1225,7 +1354,7 @@ function survivorTick(d, dt, ai) {
         for (let i = 0; i < (n === 2 ? 6 : 12); i++) { const a = rand(0, 6.3), sp = rand(40, 140); parts.push({ kind: 'spark', x: p.x, y: p.y, z: 2, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.8, vz: rand(80, 200), rot: rand(0, 6.3), spin: rand(6, 14), size: rand(2, 4), c: i % 2 ? '#bff6ff' : '#c9a8ff', t: 0, life: rand(0.5, 0.8) }); }
       }
       if (A.t >= A.dur) {
-        d.act = null; d.ritual = { x: p.x, y: p.y, t: 0 }; d.ritualUsed = true;
+        d.act = null; d.ritual = { x: p.x, y: p.y, t: 0, lv: lvOf(d) }; d.ritualUsed = true;
         ring(p.x, p.y, 30, '#c9a8ff', 0.5); txt(d.x, d.y - 44, 'RITUAL PLACED', '#c9a8ff'); log(`${d.name} placed a Ritual`);
       }
     } else if (A.kind === 'dagger') {
@@ -1300,14 +1429,75 @@ function updatePizzas(dt) {
 function clearPath(a, b, r) {
   // Thin checks (r <= 6) are sight lines; thicker ones are routes for whoever is at a.
   const who = r <= 6 ? 'see' : whoOf(a), plan = who !== 'see';
-  const L = Math.hypot(b.x - a.x, b.y - a.y), n = Math.max(1, Math.ceil(L / 15));
-  for (let i = 1; i <= n; i++) if (hitWall(a.x + (b.x - a.x) * i / n, a.y + (b.y - a.y) * i / n, r, who, plan)) return false;
-  return true;
+  const L = Math.hypot(b.x - a.x, b.y - a.y), n = Math.max(1, Math.ceil(L / 15)), pl = CL; CL = a.lv ?? CL;
+  let ok = true;
+  for (let i = 1; i <= n && ok; i++) if (hitWall(a.x + (b.x - a.x) * i / n, a.y + (b.y - a.y) * i / n, r, who, plan)) ok = false;
+  CL = pl; return ok;
 }
-// Heads straight for the target when the way is clear, otherwise picks the open direction that gets closest.
-function steerTo(e, tx, ty) {
+// ---- path finding: an A* grid per level (and per who — Noli fits through killer walls), rebuilt when the map changes.
+const NAV = { cell: 20, cache: new Map(), sig: 0 };
+const NB = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414]];
+function mapSig() {
+  let h = walls.length * 7 + floors.length * 13 + stairs.length * 17 + props.length * 3;
+  for (const a of [walls, floors, stairs, props]) for (const o of a) h = (h * 31 + o.x * 3 + o.y * 7 + (o.w || 0) + (o.h || 0) * 5 + (o.r || 0) + (o.lv || 0) * 11 + (o.dir || 0)) % 1e9;
+  return h;
+}
+function navGrid(L, who) {
+  const k = L + who; let g = NAV.cache.get(k); if (g) return g;
+  const c = NAV.cell, cols = Math.ceil(MAP.w / c), rows = Math.ceil(MAP.h / c), free = new Uint8Array(cols * rows), pl = CL; CL = L;
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) free[y * cols + x] = hitWall(x * c + c / 2, y * c + c / 2, 15, who, true) ? 0 : 1;
+  CL = pl; g = { cols, rows, free }; NAV.cache.set(k, g); return g;
+}
+function findPath(e, tx, ty) {
+  const { cols, rows, free } = navGrid(lvOf(e), whoOf(e)), c = NAV.cell;
+  const cellOf = (x, y) => {
+    const cx = clamp(Math.floor(x / c), 0, cols - 1), cy = clamp(Math.floor(y / c), 0, rows - 1);
+    if (free[cy * cols + cx]) return cy * cols + cx;
+    let best = -1, bd = Infinity;   // standing against a wall: use the nearest open cell
+    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+      const X = cx + dx, Y = cy + dy;
+      if (X >= 0 && Y >= 0 && X < cols && Y < rows && free[Y * cols + X] && dx * dx + dy * dy < bd) { bd = dx * dx + dy * dy; best = Y * cols + X; }
+    }
+    return best;
+  };
+  const s = cellOf(e.x, e.y), t = cellOf(tx, ty); if (s < 0 || t < 0) return null;
+  const N = cols * rows, gs = new Float32Array(N).fill(Infinity), from = new Int32Array(N).fill(-1), closed = new Uint8Array(N), heap = [];
+  const push = (f, i) => { heap.push([f, i]); let k = heap.length - 1; while (k > 0) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let k = 0; for (;;) { const l = k * 2 + 1, r = l + 1; let m = k; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
+  const hx = t % cols, hy = (t / cols) | 0, Hf = (i) => { const dx = Math.abs(i % cols - hx), dy = Math.abs(((i / cols) | 0) - hy); return dx + dy - 0.586 * Math.min(dx, dy); };
+  gs[s] = 0; push(Hf(s), s);
+  while (heap.length) {
+    const i = pop()[1]; if (closed[i]) continue; closed[i] = 1; if (i === t) break;
+    const x = i % cols, y = (i / cols) | 0;
+    for (const [dx, dy, w] of NB) {
+      const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= cols || Y >= rows) continue;
+      const j = Y * cols + X; if (!free[j] || closed[j]) continue;
+      if (dx && dy && (!free[y * cols + X] || !free[Y * cols + x])) continue;   // no cutting corners
+      const ng = gs[i] + w; if (ng < gs[j]) { gs[j] = ng; from[j] = i; push(ng + Hf(j), j); }
+    }
+  }
+  if (t !== s && from[t] < 0) return null;
+  const pts = []; for (let i = t; i !== s && i >= 0; i = from[i]) pts.push({ x: (i % cols) * c + c / 2, y: ((i / cols) | 0) * c + c / 2 });
+  pts.reverse(); pts.push({ x: tx, y: ty }); return pts;
+}
+// Follows a cached path, cutting ahead to the furthest point it can walk straight to.
+function pathWaypoint(e, tx, ty) {
+  const L = lvOf(e); let n = e.nav;
+  if (!n || n.L !== L || n.sig !== NAV.sig || Math.hypot(n.tx - tx, n.ty - ty) > 40 || gameT - n.t > 1.2) n = e.nav = { L, tx, ty, t: gameT, sig: NAV.sig, pts: findPath(e, tx, ty), i: 0 };
+  if (!n.pts || !n.pts.length) return null;
+  let bi = n.i, bd = Infinity;
+  for (let j = n.i; j < Math.min(n.pts.length, n.i + 14); j++) { const d = Math.hypot(n.pts[j].x - e.x, n.pts[j].y - e.y); if (d < bd) { bd = d; bi = j; } }
+  n.i = bi;
+  for (let j = Math.min(n.pts.length - 1, n.i + 8); j > n.i; j--) if (clearPath(e, n.pts[j], e.r - 2)) return n.pts[j];
+  return n.pts[Math.min(n.pts.length - 1, n.i + 1)];
+}
+// Heads straight for the target when the way is clear, otherwise follows a path round whatever's in the way.
+function steerTo(e, tx, ty, lv) {
+  if (lv !== undefined) ({ x: tx, y: ty } = navPoint(e, tx, ty, lv));
   const base = Math.atan2(ty - e.y, tx - e.x);
   if (clearPath(e, { x: tx, y: ty }, e.r - 2)) { e.steerA = base; return base; }
+  const way = pathWaypoint(e, tx, ty);
+  if (way) { const a = Math.atan2(way.y - e.y, way.x - e.x); e.steerA = a; return a; }
   let best = base, bs = -Infinity;
   for (let i = 0; i < 16; i++) {
     const a = i / 16 * Math.PI * 2, p = { x: e.x + Math.cos(a) * 70, y: e.y + Math.sin(a) * 70 };
@@ -1375,7 +1565,7 @@ function repairThink(d, dt) {
   if (!d.repair || d.repair.prog >= 1 || !gens.includes(d.repair)) d.repair = gens.filter((g) => g.prog < 1).sort((a, b) => dist(a, d) - dist(b, d))[0] || null;
   if (!d.repair) return null;
   const g = d.repair;
-  if (dist(d, g) > 44) { const a = steerTo(d, g.x, g.y + 40); return { mx: Math.cos(a), my: Math.sin(a), sp: 140 }; }
+  if (dist(d, g) > 44) { const a = steerTo(d, g.x, g.y + 40, lvOf(g)); return { mx: Math.cos(a), my: Math.sin(a), sp: 140 }; }
   repairTick(d, g, dt);
   return null;
 }
@@ -1411,9 +1601,9 @@ function withSep(d, a, sprint) {
   const l = Math.hypot(mx, my) || 1;
   return { mx: mx / l, my: my / l, sprint };
 }
-function goTo(d, x, y, sprint, stopAt = 6) {
-  if (Math.hypot(x - d.x, y - d.y) < stopAt) return null;
-  return withSep(d, steerTo(d, x, y), sprint);
+function goTo(d, x, y, sprint, stopAt = 6, lv) {
+  if (Math.hypot(x - d.x, y - d.y) < stopAt && (lv === undefined || lv === lvOf(d))) return null;
+  return withSep(d, steerTo(d, x, y, lv), sprint);
 }
 // Pick a generator nobody else is on (2 max), far from Noli, not too far from us.
 function pickJob(d) {
@@ -1422,7 +1612,7 @@ function pickJob(d) {
     if (g.prog >= 1) continue;
     const on = mates(d).filter((o) => o.job === g).length, danger = dist(g, noli);
     if (on >= 2 || danger < 400) continue;
-    const s = dist(d, g) + on * 400 - Math.min(danger, 1000) * 0.5;
+    const s = Math.hypot(d.x - g.x, d.y - g.y) + Math.abs(lvOf(g) - lvOf(d)) * 250 + on * 400 - Math.min(danger, 1000) * 0.5;   // another floor = a stair climb away
     if (s < bs) { bs = s; best = g; }
   }
   return best;
@@ -1431,13 +1621,13 @@ function genSlot(d, g) {
   // Each person on a generator works from their own side of it.
   const on = dummies.filter((o) => o.job === g && o.kit && !o.dead).sort((a, b) => a.id - b.id), i = Math.max(0, on.indexOf(d));
   const sides = [[0, 44], [0, -44], [48, 0], [-48, 0]], [ox, oy] = sides[i % 4];
-  return { x: g.x + ox, y: g.y + oy };
+  return { x: g.x + ox, y: g.y + oy, lv: lvOf(g) };
 }
 // Somewhere quiet: far from Noli, preferably with a pillar between, away from teammates.
 function pickHide(d) {
   let best = null, bs = -Infinity;
   for (let i = 0; i < 24; i++) {
-    const p = { x: rand(90, MAP.w - 90), y: rand(90, MAP.h - 90) };
+    const p = { x: rand(90, MAP.w - 90), y: rand(90, MAP.h - 90), lv: lvOf(d) };
     if (hitWall(p.x, p.y, d.r + 6)) continue;
     let s = Math.min(dist(p, noli), 1100) - dist(p, d) * 0.35 + (clearPath(p, noli, 2) ? 0 : 220);
     for (const o of mates(d)) if (dist(o, p) < 220) s -= 150;
@@ -1451,7 +1641,7 @@ function workThink(d, dt) {
   if (!d.job && d.jobT <= 0) { d.job = pickJob(d); d.jobT = 1.5; if (d.job) d.hide = null; }
   if (d.job) {
     const s = genSlot(d, d.job);
-    const m = goTo(d, s.x, s.y, dist(d, s) > 400, 10);
+    const m = goTo(d, s.x, s.y, dist(d, s) > 400, 10, s.lv);
     if (m) return m;
     d.ang = Math.atan2(d.job.y - d.y, d.job.x - d.x);
     repairTick(d, d.job, dt); d.repairing = d.job;
@@ -1460,7 +1650,7 @@ function workThink(d, dt) {
   // No generator worth doing: lie low somewhere of their own.
   d.hideT = (d.hideT || 0) - dt;
   if (!d.hide || d.hideT <= 0 || dist(d.hide, noli) < 450) { d.hide = pickHide(d); d.hideT = rand(5, 9); }
-  return d.hide ? goTo(d, d.hide.x, d.hide.y, false, 14) : null;
+  return d.hide ? goTo(d, d.hide.x, d.hide.y, false, 14, d.hide.lv) : null;
 }
 // One survivor with a stun ready goes in to save a teammate Noli is on.
 function helpThink(d, nd) {
@@ -1476,24 +1666,24 @@ function helpThink(d, nd) {
   SQUAD.helper = d; d.plan = 'help';
   if (d.kit === 'twotime') {   // circle round to his back (crouched, for the lunge)
     const back = d.crouch ? 160 : 40, bx = noli.x - Math.cos(noli.ang) * back, by = noli.y - Math.sin(noli.ang) * back;
-    return goTo(d, bx, by, true, 4) || { mx: 0, my: 0, face: Math.atan2(noli.y - d.y, noli.x - d.x) };
+    return goTo(d, bx, by, true, 4, lvOf(noli)) || { mx: 0, my: 0, face: Math.atan2(noli.y - d.y, noli.x - d.x) };
   }
   if (d.kit === 'chance' && nd < 300 && clearPath(d, noli, 2)) return { mx: 0, my: 0, face: Math.atan2(noli.y - d.y, noli.x - d.x) };   // line up the shot
-  return goTo(d, noli.x, noli.y, nd > 160, 50);
+  return goTo(d, noli.x, noli.y, nd > 160, 50, lvOf(noli));
 }
 // Elliot keeps hurt teammates fed when it's safe to.
 function supportThink(d) {
   if (d.kit !== 'elliot' || d.cds.q > 0) return null;
   const hurt = mates(d).filter((o) => o.hp < o.maxHp - 30 && dist(o, noli) > 300).sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
   if (!hurt || dist(hurt, d) < 260) return null;
-  return goTo(d, hurt.x, hurt.y, false, 240);
+  return goTo(d, hurt.x, hurt.y, false, 240, lvOf(hurt));
 }
 // AI Two Time: when hurt and safe, walk back to the Ritual and pray Oblation into HP.
 function prayThink(d, nd) {
   if (d.kit !== 'twotime' || !d.ritual) return undefined;
   if (d.act && d.act.kind === 'pray') { if (threatTo(d).chasing || nd < 300) endPray(d); return null; }
   if (d.hp > d.maxHp - 15 || (d.oblation || 0) < 20 || nd < 600 || dist(d.ritual, noli) < 500) return undefined;
-  if (dist(d, d.ritual) > PRAY.range - 15) return goTo(d, d.ritual.x, d.ritual.y, false, PRAY.range - 25);
+  if (dist(d, d.ritual) > PRAY.range - 15) return goTo(d, d.ritual.x, d.ritual.y, false, PRAY.range - 25, lvOf(d.ritual));
   startPray(d); return null;
 }
 function smartThink(d, dt) {
@@ -1557,6 +1747,7 @@ let gameT = 0;
 // ---- perception: Noli only knows what he can see, hear or remember.
 function canSee(d) {
   const nd = dist(noli, d);
+  if (lvOf(d) !== lvOf(noli)) return false;   // another floor
   if (d.crouch && nd > AIV.crouchSee) return false;   // Undetectable + Invisibility III
   if (nd < AIV.sense) return true;   // right next to him: always noticed
   return nd <= AIV.view && clearPath(noli, d, 3);
@@ -1568,13 +1759,13 @@ function remember(d, x, y, seen) {
   // Motion is read over ~0.35s, so a sudden change of direction takes him a moment to register.
   let vx = 0, vy = 0;
   if (seen) { const k = Math.min(1, (AI.dtNow || 0.016) / 0.35); vx = m ? m.vx + ((d.svx || 0) - m.vx) * k : d.svx || 0; vy = m ? m.vy + ((d.svy || 0) - m.vy) * k : d.svy || 0; }
-  AI.mem.set(d, { x, y, vx, vy, age: 0, seen, searched: false });
+  AI.mem.set(d, { x, y, lv: lvOf(d), vx, vy, age: 0, seen, searched: false });
 }
 function perceive(dt) {
   for (const m of AI.mem.values()) { m.age += dt; m.seen = m.seen && m.age < 0.05; }
   for (const d of alive()) {
     if (canSee(d)) { remember(d, d.x, d.y, true); continue; }
-    const nd = dist(noli, d), sp = Math.hypot(d.svx || 0, d.svy || 0);
+    const nd = Math.hypot(noli.x - d.x, noli.y - d.y) + (lvOf(d) !== lvOf(noli) ? 120 : 0), sp = Math.hypot(d.svx || 0, d.svy || 0);   // heard through a floor, a little muffled
     if ((!d.crouch && sp > 200 && nd < AIV.hearRun) || (d.repairing && nd < AIV.hearRepair)) remember(d, d.x + rand(-40, 40), d.y + rand(-40, 40), false);   // footsteps / generator noise
   }
   for (const n of AI.noises) if (dist(noli, n) < n.r) for (const d of alive()) if (dist(d, n) < 40) remember(d, n.x + rand(-30, 30), n.y + rand(-30, 30), false);
@@ -1588,6 +1779,7 @@ function predict(d, t) {
   const m = known(d); if (!m) return { x: d.x, y: d.y };
   if (m.seen) return { x: d.x + m.vx * t, y: d.y + m.vy * t };
   const k = Math.min(m.age, 1.2) + t;
+  if (m.lv !== lvOf(noli)) return { x: m.x, y: m.y, lv: m.lv };   // upstairs/downstairs: go to where they were
   return { x: m.x + m.vx * k, y: m.y + m.vy * k };
 }
 // Lead a moving target for something that travels at `speed` (intercept point).
@@ -1623,8 +1815,8 @@ function bestGen() {
   }
   return best;
 }
-function moveToward(x, y, sprint) {
-  let a = steerTo(noli, x, y);
+function moveToward(x, y, sprint, lv) {
+  let a = steerTo(noli, x, y, lv);
   // Unstick: if he's barely moved for a while, sidestep for a moment.
   const moved = Math.hypot(noli.x - (AI.sx ?? noli.x), noli.y - (AI.sy ?? noli.y)); AI.sx = noli.x; AI.sy = noli.y;
   AI.stuck = moved < 0.6 && noli.state === 'free' && noli.stunT <= 0 ? (AI.stuck || 0) + 1 : 0;
@@ -1705,7 +1897,7 @@ function noliBrain(dt) {
   if (live && live.t >= KIT.nova.recast && alive().some((d) => Math.abs(d.x - live.x) < KIT.nova.blast * 0.4 && Math.abs(d.y - live.y) < KIT.nova.blast * 0.4)) castNova();
   if (noli.stance) {
     NI.q = false; AI.obsT += dt;
-    if (AI.obsT > AI.obsWait) { const g = bestGen(); if (g) { observantPick(g); AI.search = { x: g.x, y: g.y + 60, t: 0 }; } else toggleObservant(); }
+    if (AI.obsT > AI.obsWait) { const g = bestGen(); if (g) { observantPick(g); AI.search = { x: g.x, y: g.y + 60, lv: lvOf(g), t: 0 }; } else toggleObservant(); }
     return;
   }
   if (noli.stunT > 0 || st === 'exec' || st === 'slamHold' || st === 'tp') {
@@ -1761,11 +1953,11 @@ function noliBrain(dt) {
     // Nobody known: check where he last heard something, Observant to the busiest generator, or patrol.
     AI.focus = null;
     if (st === 'free' && ready('obs') && gens.length > 1 && alive().length && (AI.idleT += dt) > 1.5) { toggleObservant(); AI.obsT = 0; AI.obsWait = rand(0.5, 1); AI.idleT = 0; thought('let me look around…'); return; }
-    if (AI.search && dist(noli, AI.search) > 50 && (AI.search.t += dt) < 6) { thought('checking over there'); NI.ax = AI.search.x; NI.ay = AI.search.y; moveToward(AI.search.x, AI.search.y, false); return; }
+    if (AI.search && dist(noli, AI.search) > 50 && (AI.search.t += dt) < 6) { thought('checking over there'); NI.ax = AI.search.x; NI.ay = AI.search.y; moveToward(AI.search.x, AI.search.y, false, AI.search.lv); return; }
     thought('patrolling the generators');
     AI.search = null;
-    if (!AI.wander || dist(noli, AI.wander) < 70) { const g = bestGen(); AI.wander = g ? { x: g.x, y: g.y + 60 } : { x: rand(200, MAP.w - 200), y: rand(200, MAP.h - 200) }; }
-    NI.ax = AI.wander.x; NI.ay = AI.wander.y; moveToward(AI.wander.x, AI.wander.y, false);
+    if (!AI.wander || dist(noli, AI.wander) < 70) { const g = bestGen(); AI.wander = g ? { x: g.x, y: g.y + 60, lv: lvOf(g) } : { x: rand(200, MAP.w - 200), y: rand(200, MAP.h - 200), lv: lvOf(noli) }; }
+    NI.ax = AI.wander.x; NI.ay = AI.wander.y; moveToward(AI.wander.x, AI.wander.y, false, AI.wander.lv);
     return;
   }
   AI.idleT = 0; AI.wander = null;
@@ -1775,9 +1967,9 @@ function noliBrain(dt) {
     NI.ax = p.x; NI.ay = p.y; thought(tm.age < 1 ? `where'd ${short(t)} go…` : 'they were heading this way…');
     if (dist(noli, p) < 70) { AI.lookA = (AI.lookA ?? noli.ang) + dt * 2.6; NI.ax = noli.x + Math.cos(AI.lookA) * 200; NI.ay = noli.y + Math.sin(AI.lookA) * 200; thought('hmm…'); }   // looking around
     // Flush them out from behind cover with a Nova into the wall next to them.
-    if (ready('nova') && st === 'free' && tm.age < 1.5 && dist(noli, p) < 600 && !clearPath(noli, p, 3)) { castNova(); return; }
+    if (ready('nova') && st === 'free' && tm.age < 1.5 && dist(noli, p) < 600 && !clearPath(noli, p, 3) && p.lv === undefined) { castNova(); return; }
     if (dist(noli, p) < 50) { tm.searched = true; tm.age += dt * 3; }   // nothing here — it goes stale fast
-    moveToward(p.x, p.y, tm.age < 1.5 && dist(noli, p) > 200 && !noli.exhausted);
+    moveToward(p.x, p.y, tm.age < 1.5 && dist(noli, p) > 200 && !noli.exhausted, p.lv);
     return;
   }
   AI.lookA = undefined;
@@ -1857,7 +2049,7 @@ function resetNoli() {
   for (const n of ['charge', 'voidrush', 'hype', 'hype2', 'din', 'stall', 'gen_start', 'observant_tp', 'rush_slam']) stopSfx(n);
   if (noli.ex) { const d = noli.ex.d; Object.assign(d, { exec: false, dead: true, deadT: 0, squash: 0, fade: 1 }); noli.ex = null; }
   if (noli.stance) endObsStar();
-  Object.assign(noli, { x: 1000, y: 1150, ang: -Math.PI / 2, stamina: KIT.stamina.max, state: 'free', st: 0, rush: null, stance: false, stunT: 0, slowT: 0, dazed: false,
+  Object.assign(noli, { x: 1000, y: 1150, lv: 0, onStair: null, ang: -Math.PI / 2, stamina: KIT.stamina.max, state: 'free', st: 0, rush: null, stance: false, stunT: 0, slowT: 0, dazed: false,
     stabVis: null, stabbed: false, tp: null, slamCam: null, obsStar: null, hp: noli.maxHp, stunImmT: 0, ifT: 0, helplessT: 0, slowEffT: 0, kb: null, chargedAt: undefined, cds: { stab: 0, rush: KIT.rush.cdStart, nova: 0, obs: KIT.obs.cdStart } });
   if (hitWall(noli.x, noli.y, noli.r)) { noli.x = MAP.w / 2; noli.y = MAP.h / 2; }
   novas.length = 0; novaReturn = null; selGen = null; chargeUI.hold = 0; chargeUI.cap = '';
@@ -1914,44 +2106,76 @@ const TOOLS = [
   { id: 'lamp', key: '-', name: 'Lamp post' },
   { id: 'chair', key: '=', name: 'Chair' },
   { id: 'rock', key: 'k', name: 'Rock' },
+  { id: 'floor', key: 'o', name: 'Floor' },
+  { id: 'stairs', key: 'u', name: 'Stairs (up)' },
 ];
 const WALL_TOOLS = { wall: null, kwall: 'killer', iwall: 'invis', door: 'door' };
 function pick(p) {
-  const d = dummies.slice().reverse().find((d) => dist(d, p) < d.r + 8); if (d) return { kind: 'dummy', o: d };
-  const g = gens.find((g) => Math.abs(g.x - p.x) < GEN_SIZE / 2 && Math.abs(g.y - p.y) < GEN_SIZE / 2); if (g) return { kind: 'gen', o: g };
-  const q = props.slice().reverse().find((q) => { if (q.kind === 'rock') return dist(q, p) < q.r; if (q.kind !== 'lamp') return dist(q, p) < 18; const r = lampRect(q); return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h + 4; }); if (q) return { kind: 'prop', o: q };
-  const w = walls.slice().reverse().find((w) => !w.fixed && p.x >= w.x && p.x <= w.x + w.w && p.y >= w.y && p.y <= w.y + w.h); if (w) return { kind: 'wall', o: w };
+  const L = editLv, on = (o) => lvOf(o) === L;
+  const d = dummies.slice().reverse().find((d) => on(d) && Math.hypot(d.x - p.x, d.y - p.y) < d.r + 8); if (d) return { kind: 'dummy', o: d };
+  const g = gens.find((g) => on(g) && Math.abs(g.x - p.x) < GEN_SIZE / 2 && Math.abs(g.y - p.y) < GEN_SIZE / 2); if (g) return { kind: 'gen', o: g };
+  const q = props.slice().reverse().find((q) => { if (!on(q)) return false; if (q.kind === 'rock') return Math.hypot(q.x - p.x, q.y - p.y) < q.r; if (q.kind !== 'lamp') return Math.hypot(q.x - p.x, q.y - p.y) < 18; const r = lampRect(q); return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h + 4; }); if (q) return { kind: 'prop', o: q };
+  const w = walls.slice().reverse().find((w) => !w.fixed && on(w) && inRect(w, p.x, p.y)); if (w) return { kind: 'wall', o: w };
+  const s = stairs.slice().reverse().find((s) => (s.lv === L || s.lv === L - 1) && inRect(stairRect(s), p.x, p.y)); if (s) return { kind: 'stair', o: s };
+  const f = floors.slice().reverse().find((f) => f.lv === L && inRect(f, p.x, p.y)); if (f) return { kind: 'floor', o: f };
   return null;
 }
+// Grid snap: building tools place on the 2-stud grid (Move snaps what you drag; Erase picks freely).
+function buildPoint() { const p = world(); return gridOn && tool !== 'move' && tool !== 'erase' && tool !== 'play' ? { x: snap(p.x), y: snap(p.y) } : p; }
+const dragRect = (dr, p) => ({ x: Math.min(dr.x0, p.x), y: Math.min(dr.y0, p.y), w: Math.abs(p.x - dr.x0), h: Math.abs(p.y - dr.y0) });
+// What a plain click builds: a pillar, a standard door, a 20x20-stud floor.
+function clickRect(t, p) {
+  if (t === 'floor') return { x: p.x - 100, y: p.y - 100, w: 200, h: 200 };
+  if (t === 'door') return gridOn ? { x: p.x - 40, y: p.y - 20, w: 80, h: 20 } : { x: p.x - 45, y: p.y - 7, w: 90, h: 14 };
+  return gridOn ? { x: p.x - 40, y: p.y - 40, w: 80, h: 80 } : { x: p.x - 35, y: p.y - 35, w: 70, h: 70 };
+}
+function placeStairs(p) {
+  if (editLv >= MAX_LV) { log('Already on the top level'); return; }
+  const s = { x: p.x, y: p.y, lv: editLv, dir: stairDir }; stairs.push(s);
+  // A landing at the top, so there's somewhere to step off onto the level above.
+  const top = stairAt(s, 1 + 40 / STAIR.len);
+  if (!onFloor(top.x, top.y, editLv + 1)) {
+    const r = stairRect(s), [dx, dy] = STAIR_DIRS[s.dir], D = 120;
+    floors.push(dx ? { x: dx > 0 ? r.x + r.w : r.x - D, y: r.y - 20, w: D, h: r.h + 40, lv: editLv + 1 } : { x: r.x - 20, y: dy > 0 ? r.y + r.h : r.y - D, w: r.w + 40, h: D, lv: editLv + 1 });
+    log(`Stairs up to ${LV_NAMES[editLv + 1]} (landing added — ▲ to build up there)`);
+  }
+  ring(p.x, p.y, 40, '#c9a8ff', 0.4);
+}
 function creativeInput() {
-  const p = world();
+  const raw = world(), p = buildPoint(), L = editLv;
   if (mouse.click && BUILD_TOOLS.includes(tool) && buildSpotOk(p)) hammerHitT = 0.16;   // hammer swing
   if (mouse.click) {
     if (tool === 'dummy') { if (!hitWall(p.x, p.y, 16)) { const d = addDummy(p.x, p.y); ring(p.x, p.y, 30, '#7dffa8'); log(`Placed ${d.name} (${d.mode}, ${d.inf ? '∞' : d.maxHp} HP)`); } }
-    else if (tool === 'gen' || tool === 'fake') { if (!hitWall(p.x, p.y, 20)) { gens.push({ x: p.x, y: p.y, fake: tool === 'fake', prog: 0 }); ring(p.x, p.y, 30, '#a26bff'); } }
+    else if (tool === 'gen' || tool === 'fake') { if (!hitWall(p.x, p.y, 20)) { gens.push({ x: p.x, y: p.y, lv: L, fake: tool === 'fake', prog: 0 }); ring(p.x, p.y, 30, '#a26bff'); } }
     else if (tool in WALL_TOOLS) mouse.drag = { kind: 'newWall', x0: p.x, y0: p.y, wk: WALL_TOOLS[tool] };
-    else if (tool === 'lamp') { if (!hitWall(p.x, p.y, LAMP_R + 4)) { props.push({ kind: 'lamp', x: p.x, y: p.y }); ring(p.x, p.y, 30, '#fff2c4', 0.4); } }
-    else if (tool === 'rock') { const [a, b2] = ROCK_SIZES[rockSize]; const r = rand(a, b2); if (!hitWall(p.x, p.y, r)) { props.push({ kind: 'rock', x: p.x, y: p.y, r, seed: Math.random() * 1000 }); stabBurst(p, 6, r); } }
-    else if (tool === 'chair') { props.push({ kind: 'chair', x: p.x, y: p.y, style: chairStyle === 'random' ? Math.floor(rand(0, 5)) : +chairStyle, rot: rand(0, 6.283) }); ring(p.x, p.y, 22, '#c9a8ff', 0.3); }
-    else if (tool === 'move') { const h = pick(p); if (h) mouse.drag = { ...h, ox: p.x - (h.o.x), oy: p.y - (h.o.y) }; }
+    else if (tool === 'floor') mouse.drag = { kind: 'newFloor', x0: p.x, y0: p.y };
+    else if (tool === 'stairs') placeStairs(p);
+    else if (tool === 'lamp') { if (!hitWall(p.x, p.y, LAMP_R + 4)) { props.push({ kind: 'lamp', x: p.x, y: p.y, lv: L }); ring(p.x, p.y, 30, '#fff2c4', 0.4); } }
+    else if (tool === 'rock') { const [a, b2] = ROCK_SIZES[rockSize]; const r = rand(a, b2); if (!hitWall(p.x, p.y, r)) { props.push({ kind: 'rock', x: p.x, y: p.y, r, seed: Math.random() * 1000, lv: L }); stabBurst(p, 6, r); } }
+    else if (tool === 'chair') { props.push({ kind: 'chair', x: p.x, y: p.y, lv: L, style: chairStyle === 'random' ? Math.floor(rand(0, 5)) : +chairStyle, rot: rand(0, 6.283) }); ring(p.x, p.y, 22, '#c9a8ff', 0.3); }
+    else if (tool === 'move') { const h = pick(raw); if (h) mouse.drag = { ...h, ox: raw.x - h.o.x, oy: raw.y - h.o.y }; }
     else if (tool === 'erase') {
-      const h = pick(p);
-      if (h) { const arr = h.kind === 'dummy' ? dummies : h.kind === 'gen' ? gens : h.kind === 'prop' ? props : walls; arr.splice(arr.indexOf(h.o), 1); ring(p.x, p.y, 26, '#ff4d6d', 0.3); }
+      const h = pick(raw);
+      if (h) { const arr = { dummy: dummies, gen: gens, prop: props, wall: walls, stair: stairs, floor: floors }[h.kind]; arr.splice(arr.indexOf(h.o), 1); ring(raw.x, raw.y, 26, '#ff4d6d', 0.3); }
     }
   }
   const dr = mouse.drag;
-  if (dr && dr.kind !== 'newWall' && mouse.down) {
-    dr.o.x = p.x - dr.ox; dr.o.y = p.y - dr.oy;
-    if (dr.kind === 'dummy') { dr.o.home = { x: dr.o.x, y: dr.o.y }; dr.o.vx = dr.o.vy = 0; }
+  if (dr && dr.kind !== 'newWall' && dr.kind !== 'newFloor' && mouse.down) {
+    let nx = raw.x - dr.ox, ny = raw.y - dr.oy;
+    if (gridOn) { nx = snap(nx); ny = snap(ny); }
+    dr.o.x = nx; dr.o.y = ny;
+    if (dr.kind === 'dummy') { dr.o.home = { x: nx, y: ny, lv: L }; dr.o.vx = dr.o.vy = 0; }
   }
   if (mouse.up) {
     if (dr && dr.kind === 'newWall') {
-      const x = Math.min(dr.x0, p.x), y = Math.min(dr.y0, p.y), w = Math.abs(p.x - dr.x0), h = Math.abs(p.y - dr.y0);
-      const kind = dr.wk;
+      const r = dragRect(dr, p), kind = dr.wk;
       const skin = kind === 'invis' && invisSkin !== 'none' ? invisSkin : undefined;
-      if (w > 8 && h > 8) walls.push({ x, y, w, h, kind, open: 0, skin });
-      else if (kind === 'door') walls.push({ x: dr.x0 - 45, y: dr.y0 - 7, w: 90, h: 14, kind, open: 0 });   // click = a standard door
-      else walls.push({ x: dr.x0 - 35, y: dr.y0 - 35, w: 70, h: 70, kind, skin: kind === 'invis' && invisSkin !== 'none' ? invisSkin : undefined });   // click = a pillar
+      if (r.w > 8 && r.h > 8) walls.push({ ...r, kind, open: 0, skin, lv: L });
+      else walls.push({ ...clickRect(kind === 'door' ? 'door' : 'wall', { x: dr.x0, y: dr.y0 }), kind, open: 0, skin, lv: L });   // click = a standard door / a pillar
+    }
+    if (dr && dr.kind === 'newFloor') {
+      const r = dragRect(dr, p);
+      floors.push({ ...(r.w > 8 && r.h > 8 ? r : clickRect('floor', { x: dr.x0, y: dr.y0 })), lv: L });
     }
     mouse.drag = null;
   }
@@ -1960,6 +2184,9 @@ function creativeInput() {
 // ------------------------------------------------------------- update
 function update(dt) {
   const npx = noli.x, npy = noli.y;
+  for (const a of [gens, props, walls]) for (const o of a) o.lv ??= 0;
+  const sg = mapSig(); if (sg !== NAV.sig) { NAV.sig = sg; NAV.cache.clear(); }
+  CL = lvOf(noli);
   for (const k in noli.cds) {
     const was = noli.cds[k];
     noli.cds[k] = Math.max(0, was - dt);
@@ -1987,10 +2214,10 @@ function update(dt) {
   }
 
   if (noli.stance && mode === 'noli') {
-    if (mouse.click) { const g = gens.find((g) => Math.hypot(g.x - w.x, g.y - w.y) < 70); if (g) observantPick(g); }
+    if (mouse.click) { const g = gens.find((g) => lvOf(g) === viewLv && Math.hypot(g.x - w.x, g.y - w.y) < 70); if (g) observantPick(g); }
   } else if (tool === 'play') {
     if (mouse.down && mode === 'noli') stab();
-  } else creativeInput();
+  } else { CL = editLv; creativeInput(); CL = lvOf(noli); }
   mouse.click = false; mouse.up = false;
 
   // movement
@@ -2105,7 +2332,7 @@ function update(dt) {
       n.bt += dt;
       if (n.bt < KIT.nova.pull) for (const d of alive()) {
         const dd = dist(n, d);
-        if (boxHits({ x: n.x, y: n.y, w: KIT.nova.blast, h: KIT.nova.blast, a: 0 }, d) && dd > 6) { const a = Math.atan2(n.y - d.y, n.x - d.x); moveCircle(d, Math.cos(a) * 240 * dt, Math.sin(a) * 240 * dt); }
+        if (boxHits({ x: n.x, y: n.y, w: KIT.nova.blast, h: KIT.nova.blast, a: 0, lv: n.lv }, d) && dd > 6) { const a = Math.atan2(n.y - d.y, n.x - d.x); moveCircle(d, Math.cos(a) * 240 * dt, Math.sin(a) * 240 * dt); }
       }
     }
   }
@@ -2113,6 +2340,7 @@ function update(dt) {
 
   // dummies
   for (const d of dummies) {
+    CL = lvOf(d);
     if (d.dead) { d.deadT += dt; if (d.deadT > 3) respawnDummy(d); continue; }
     if (d.exec) continue;   // the execution moves them
     if (d.air) { updateAirSlam(d, dt); if (d.air && !d.air.hit) continue; }   // held in place while airborne
@@ -2134,6 +2362,7 @@ function update(dt) {
     d.vx *= Math.pow(0.02, dt); d.vy *= Math.pow(0.02, dt);
     if (dt > 0) { d.svx = (d.x - px) / dt; d.svy = (d.y - py) / dt; }   // for Noli's AI to lead his aim
   }
+  CL = lvOf(noli);
   updatePizzas(dt);
   updateDoors(dt);
   if (round) {
@@ -2183,6 +2412,11 @@ function update(dt) {
   cam.s += (zTarget - cam.s) * Math.min(1, dt * zRate);
   const lead = rushingNow && !ex && !sl ? { x: noli.x + Math.cos(noli.ang) * 150, y: noli.y + Math.sin(noli.ang) * 150 } : null;
   const me = mode === 'survivor' && player ? player : noli;
+  // The level you see: yours while playing, the one you're editing in creative. Switching is instant (a quick fade).
+  if (tool === 'play') editLv = lvOf(me);
+  const nv = tool === 'play' ? lvOf(me) : editLv;
+  if (nv !== viewLv) { viewLv = nv; lvFlash = 1; updateLvLabel(); }
+  lvFlash = Math.max(0, lvFlash - dt * 3.5);
   const focus = ex && !ex.stomped ? ex.d : slFocus || lead || me;
   cam.shake = Math.max(0, (cam.shake || 0) - dt * 40);
   // Smooth only around the kill / slam; otherwise the camera sticks to Noli.
@@ -2509,7 +2743,7 @@ function crashFx() {
       lines.push({ pts: bp, w: 1 });
     }
   }
-  cracks.push({ x: ix, y: iy, lines, t: 0, wall });
+  cracks.push({ x: ix, y: iy, lines, t: 0, wall, lv: lvOf(noli) });
   // Sparkles, stars and little sparks bursting off the impact.
   for (let i = 0; i < 22; i++) parts.push({ kind: 'star', x: ix + rand(-18, 18), y: iy + rand(-18, 18), c: i % 3 === 0 ? '#000000' : i % 3 === 1 ? '#ffffff' : '#c9a8ff', size: rand(3, 8), t: rand(-0.15, 0), life: rand(0.4, 0.8) });
   for (let i = 0; i < 14; i++) { const a = noli.ang + Math.PI + rand(-1.3, 1.3), sp = rand(60, 200); parts.push({ kind: 'spark', x: ix, y: iy, z: 4, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.8, vz: rand(120, 260), rot: rand(0, 6.3), spin: rand(6, 14), size: rand(2.5, 5), c: TP_COLORS[i % 3], t: 0, life: rand(0.6, 1.0) }); }
@@ -2519,6 +2753,7 @@ function crashFx() {
 function updateCracks(dt) { for (const c of cracks) c.t += dt; for (let i = cracks.length - 1; i >= 0; i--) if (cracks[i].t > CRACK_LIFE) cracks.splice(i, 1); }
 function drawCracks() {
   for (const c of cracks) {
+    if ((c.lv || 0) !== viewLv) continue;
     const a = Math.min(1, (CRACK_LIFE - c.t) / 1.2);   // fades out over the last 1.2s
     ctx.save();
     if (c.wall) { ctx.beginPath(); ctx.rect(c.wall.x, c.wall.y, c.wall.w, c.wall.h); ctx.clip(); }   // only on the wall
@@ -2787,8 +3022,9 @@ function drawRituals() {
   for (const d of dummies) {
     if (d.kit !== 'twotime' || d.dead) continue;
     const A = d.act;
-    if (A && A.kind === 'ritual' && A.t >= RITUAL.stab1) drawRitualSymbol(A.at.x, A.at.y, clamp((A.t - RITUAL.stab1) / (RITUAL.len - RITUAL.stab1), 0, 1), false, d.id * 0.37);   // forming
-    const R = d.ritual; if (!R) continue;
+    if (lvOf(d) !== viewLv && !(d.ritual && lvOf(d.ritual) === viewLv)) continue;
+    if (A && A.kind === 'ritual' && A.t >= RITUAL.stab1 && lvOf(d) === viewLv) drawRitualSymbol(A.at.x, A.at.y, clamp((A.t - RITUAL.stab1) / (RITUAL.len - RITUAL.stab1), 0, 1), false, d.id * 0.37);   // forming
+    const R = d.ritual; if (!R || lvOf(R) !== viewLv) continue;
     drawRitualSymbol(R.x, R.y, 1, d.oblation >= 100, d.id * 0.37);
   }
 }
@@ -2893,7 +3129,7 @@ function drawRock(x, y, r, seed, hot) {
   ctx.strokeStyle = 'rgba(233,228,255,0.25)'; ctx.lineWidth = 1; ctx.stroke();
   ctx.strokeStyle = '#2c2833'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x - r * 0.1, y - r * 0.15); ctx.lineTo(x + r * 0.2, y + r * 0.2); ctx.lineTo(x + r * 0.15, y + r * 0.45); ctx.stroke();   // crack
 }
-function drawRocks(hover) { for (const q of props) if (q.kind === 'rock') drawRock(q.x, q.y, q.r, q.seed, hover && hover.o === q); }
+function drawRocks(hover, L = viewLv) { for (const q of props) if (q.kind === 'rock' && lvOf(q) === L) drawRock(q.x, q.y, q.r, q.seed, hover && hover.o === q); }
 // Blockade skins for invisible walls: boards, rocks or wire.
 function drawBlockade(w, hot) {
   const horiz = w.w >= w.h, L = horiz ? w.w : w.h, T = horiz ? w.h : w.w, seed = w.x * 0.37 + w.y * 0.71;
@@ -2935,10 +3171,10 @@ function drawBlockade(w, hot) {
   }
   ctx.restore(); ctx.globalAlpha = 1;
 }
-function drawLampGlow() {
+function drawLampGlow(L = viewLv) {
   const T = performance.now() / 1000;
   for (const q of props) {
-    if (q.kind !== 'lamp') continue;
+    if (q.kind !== 'lamp' || lvOf(q) !== L) continue;
     const fl = 0.92 + 0.08 * Math.sin(T * 7 + q.x) * Math.sin(T * 3.1 + q.y), R = 150, cy = q.y - 20;   // light pool under the lamp head
     const g = ctx.createRadialGradient(q.x, cy, 4, q.x, cy, R);
     g.addColorStop(0, `rgba(255,242,196,${0.28 * fl})`); g.addColorStop(0.45, `rgba(255,242,196,${0.1 * fl})`); g.addColorStop(1, 'rgba(255,242,196,0)');
@@ -3000,10 +3236,64 @@ function drawChair(style, hot) {
     ctx.restore(); leg(-8, 9); leg(8, 11);
   }
 }
-function drawChairs(hover) {
+function drawChairs(hover, L = viewLv) {
   for (const q of props) {
-    if (q.kind !== 'chair') continue;
+    if (q.kind !== 'chair' || lvOf(q) !== L) continue;
     ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.rot || 0); drawChair(q.style, hover && hover.o === q); ctx.restore();
+  }
+}
+// ------------------------------------------------------------- levels: floors, stairs, the level below
+function drawFloors(L, hover) {
+  for (const f of floors) {
+    if (f.lv !== L) continue;
+    ctx.save();
+    if (L > 0) { ctx.shadowColor = 'rgba(0,0,0,0.75)'; ctx.shadowBlur = 22; ctx.shadowOffsetY = 10; }   // raised: it casts a shadow on the level below
+    ctx.fillStyle = L > 0 ? '#1c1727' : '#151120'; ctx.fillRect(f.x, f.y, f.w, f.h);
+    ctx.restore();
+    ctx.save(); ctx.beginPath(); ctx.rect(f.x, f.y, f.w, f.h); ctx.clip();
+    ctx.strokeStyle = '#262036'; ctx.lineWidth = 1; ctx.beginPath();
+    for (let y = f.y, i = 0; y < f.y + f.h; y += 20, i++) {   // floorboards
+      ctx.moveTo(f.x, y); ctx.lineTo(f.x + f.w, y);
+      for (let x = f.x + ((i * 37) % 80); x < f.x + f.w; x += 80) { ctx.moveTo(x, y); ctx.lineTo(x, y + 20); }
+    }
+    ctx.stroke(); ctx.restore();
+    ctx.strokeStyle = hover && hover.o === f ? (tool === 'erase' ? '#ff4d6d' : '#ffffff') : L > 0 ? '#6b5a86' : '#2c2540'; ctx.lineWidth = 2; ctx.strokeRect(f.x, f.y, f.w, f.h);
+  }
+}
+function drawStair(s, L, hot, ghost) {
+  const r = stairRect(s), [dx] = STAIR_DIRS[s.dir], n = 8, fromTop = s.lv === L - 1;
+  if (!ghost) { ctx.save(); ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 14; ctx.fillStyle = '#1a1524'; ctx.fillRect(r.x, r.y, r.w, r.h); ctx.restore(); }
+  const band = (u0, u1) => { const a = stairAt(s, u0), b = stairAt(s, u1); return dx ? [Math.min(a.x, b.x), r.y, Math.abs(b.x - a.x), r.h] : [r.x, Math.min(a.y, b.y), r.w, Math.abs(b.y - a.y)]; };
+  for (let i = 0; i < n; i++) {   // steps, lighter toward the top
+    const k = (i + 0.5) / n, c = Math.round(38 + 80 * k);
+    ctx.fillStyle = `rgb(${c},${c - 14},${c + 34})`;
+    const [x, y, w, h] = band(i / n + 0.012, (i + 1) / n - 0.012); ctx.fillRect(x, y, w, h);
+  }
+  if (fromTop) { ctx.fillStyle = 'rgba(4,3,9,0.5)'; const [x, y, w, h] = band(0, 0.5); ctx.fillRect(x, y, w, h); }   // the lower half is below you
+  ctx.fillStyle = hot ? (tool === 'erase' ? '#ff4d6d' : '#ffffff') : '#9a88c4';
+  for (const w of stairRails(s, ghost ? s.lv : L)) ctx.fillRect(w.x, w.y, w.w, w.h);
+  if (tool !== 'play' || showHitboxes) label(s.x, s.y + 4, fromTop ? '▼ down' : '▲ up', '#ffffff', '700 11px system-ui');
+}
+function drawStairs(L, hover) { for (const s of stairs) if (s.lv === L || s.lv === L - 1) drawStair(s, L, hover && hover.o === s); }
+// The level under the one you're on: its floor plan and the people on it, drawn first and dimmed.
+function drawLevel(L) {
+  drawFloors(L, null); drawStairs(L, null); drawLampGlow(L);
+  for (const w of walls) if (lvOf(w) === L) drawWall(w, false);
+  drawChairs(null, L); drawRocks(null, L);
+  for (const g of gens) if (lvOf(g) === L) { ctx.fillStyle = '#3a3150'; ctx.fillRect(g.x - 24, g.y - 18, 48, 36); }
+  const layers = dummies.filter((d) => lvOf(d) === L && !d.dead).map((d) => ({ y: d.y, f: () => drawDummy(d) }));
+  for (const q of props) if (q.kind === 'lamp' && lvOf(q) === L) layers.push({ y: q.y, f: () => drawLampPost(q, null) });
+  if (lvOf(noli) === L) layers.push({ y: noli.y, f: () => drawNoli() });
+  layers.sort((a, b) => a.y - b.y).forEach((l) => l.f());
+}
+function drawGrid() {
+  const x0 = Math.max(0, Math.floor(cam.x / GRID) * GRID), y0 = Math.max(0, Math.floor(cam.y / GRID) * GRID);
+  const x1 = Math.min(MAP.w, cam.x + W / cam.s), y1 = Math.min(MAP.h, cam.y + H / cam.s);
+  for (const major of [false, true]) {
+    ctx.strokeStyle = major ? 'rgba(201,168,255,0.2)' : 'rgba(201,168,255,0.08)'; ctx.lineWidth = 1 / cam.s; ctx.beginPath();
+    for (let x = x0; x <= x1; x += GRID) if ((x % 100 === 0) === major) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
+    for (let y = y0; y <= y1; y += GRID) if ((y % 100 === 0) === major) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
+    ctx.stroke();
   }
 }
 function render() {
@@ -3014,15 +3304,23 @@ function render() {
   ctx.strokeStyle = '#1b1628'; ctx.lineWidth = 1;
   for (let x = 0; x <= MAP.w; x += 100) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, MAP.h); ctx.stroke(); }
   for (let y = 0; y <= MAP.h; y += 100) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(MAP.w, y); ctx.stroke(); }
-  const p = world();
-  const hover = tool === 'move' || tool === 'erase' ? pick(p) : null;
+  CL = viewLv;
+  const p = buildPoint(), V = viewLv, onV = (o) => lvOf(o) === V;
+  const hover = tool === 'move' || tool === 'erase' ? pick(world()) : null;
+  if (V > 0) {   // upstairs: the level below shows through, dimmed, everywhere there's no floor
+    drawLevel(V - 1);
+    ctx.fillStyle = 'rgba(4,3,9,0.66)'; ctx.fillRect(-200, -200, MAP.w + 400, MAP.h + 400);
+  }
+  drawFloors(V, hover);
+  drawStairs(V, hover);
   drawLampGlow();
-  for (const w of walls) drawWall(w, hover && hover.o === w);
+  for (const w of walls) if (onV(w)) drawWall(w, hover && hover.o === w);
   drawChairs(hover);
   drawRocks(hover);
   drawCracks();
-  drawDarkTrail();   // under everyone
+  if (onV(noli)) drawDarkTrail();   // under everyone
   for (const g of gens) {
+    if (!onV(g)) continue;
     const hot = (noli.stance && Math.hypot(g.x - p.x, g.y - p.y) < 70) || (hover && hover.o === g);
     drawGenBack(g);
     // Idle: 80% slower and 50% transparent. Hovered: normal speed, 10% transparent.
@@ -3051,6 +3349,7 @@ function render() {
     ctx.restore(); ctx.globalAlpha = 1;
   }
   for (const n of novas) {
+    if (!onV(n)) continue;
     const T = performance.now() / 1000;
     if (!n.boom) {
       // Void orb: soft glow, black core, spinning star, orbiting wisps.
@@ -3072,19 +3371,17 @@ function render() {
   }
   drawRituals();
   // Characters and lamp posts drawn back-to-front by their ground position, so you can walk behind a post.
-  const layers = dummies.map((d) => ({ y: d.dead ? d.home.y : d.y, f: () => drawDummy(d) }));
-  for (const q of props) if (q.kind === 'lamp') layers.push({ y: q.y, f: () => drawLampPost(q, hover) });
-  layers.push({ y: noli.y, f: () => { drawNoli(); drawCrown(); } });
+  const layers = dummies.filter(onV).map((d) => ({ y: d.dead ? d.home.y : d.y, f: () => drawDummy(d) }));
+  for (const q of props) if (q.kind === 'lamp' && onV(q)) layers.push({ y: q.y, f: () => drawLampPost(q, hover) });
+  if (onV(noli)) layers.push({ y: noli.y, f: () => { drawNoli(); drawCrown(); } });
   layers.sort((a, b) => a.y - b.y).forEach((l) => l.f());
   drawSurvFx();
   drawAIKnowledge();
   drawExec();
   if (hover && hover.kind === 'dummy') { ctx.strokeStyle = tool === 'erase' ? '#ff4d6d' : '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hover.o.x, hover.o.y, 24, 0, 6.3); ctx.stroke(); }
-  drawStabStar();
-  drawRushStar();
-  drawNovaReturn();
-  drawObsStar();
+  if (onV(noli)) { drawStabStar(); drawRushStar(); drawNovaReturn(); drawObsStar(); }
   drawParts();
+  if (tool !== 'play' && gridOn) drawGrid();
   // placement ghost
   if (!noli.stance && tool !== 'play') {
     ctx.globalAlpha = 0.45;
@@ -3093,11 +3390,13 @@ function render() {
     if (tool in WALL_TOOLS) {
       const dr = mouse.drag; ctx.fillStyle = { wall: '#4a3d70', kwall: '#b3121f', iwall: '#9a90bf', door: '#6b5a86' }[tool];
       if (dr && dr.kind === 'newWall') ctx.fillRect(Math.min(dr.x0, p.x), Math.min(dr.y0, p.y), Math.abs(p.x - dr.x0), Math.abs(p.y - dr.y0));
-      else if (tool === 'door') ctx.fillRect(p.x - 45, p.y - 7, 90, 14); else ctx.fillRect(p.x - 35, p.y - 35, 70, 70);
+      else { const c = clickRect(tool === 'door' ? 'door' : 'wall', p); ctx.fillRect(c.x, c.y, c.w, c.h); }
     }
     if (tool === 'lamp') { const r = lampRect(p); if (LAMP_IMG.complete && LAMP_IMG.naturalWidth) ctx.drawImage(LAMP_IMG, r.x, r.y, r.w, r.h); }   // the base goes where you click
     if (tool === 'rock') { const [a, b2] = ROCK_SIZES[rockSize]; drawRock(p.x, p.y, (a + b2) / 2, 7, false); }
-    if (tool === 'iwall' && invisSkin !== 'none') { const dr = mouse.drag; const g = dr && dr.kind === 'newWall' ? { x: Math.min(dr.x0, p.x), y: Math.min(dr.y0, p.y), w: Math.abs(p.x - dr.x0), h: Math.abs(p.y - dr.y0), skin: invisSkin } : { x: p.x - 35, y: p.y - 35, w: 70, h: 70, skin: invisSkin }; if (g.w > 4 && g.h > 4) drawBlockade(g, false); }
+    if (tool === 'iwall' && invisSkin !== 'none') { const dr = mouse.drag; const g = dr && dr.kind === 'newWall' ? { x: Math.min(dr.x0, p.x), y: Math.min(dr.y0, p.y), w: Math.abs(p.x - dr.x0), h: Math.abs(p.y - dr.y0), skin: invisSkin } : { ...clickRect('wall', p), skin: invisSkin }; if (g.w > 4 && g.h > 4) drawBlockade(g, false); }
+    if (tool === 'floor') { const dr = mouse.drag, c = dr && dr.kind === 'newFloor' ? dragRect(dr, p) : clickRect('floor', p); ctx.fillStyle = '#8a78b0'; ctx.fillRect(c.x, c.y, c.w, c.h); }
+    if (tool === 'stairs' && viewLv < MAX_LV) drawStair({ x: p.x, y: p.y, dir: stairDir, lv: viewLv }, viewLv, false, true);
     if (tool === 'chair') { ctx.save(); ctx.translate(p.x, p.y); drawChair(chairStyle === 'random' ? 0 : +chairStyle, false); ctx.restore(); }
     ctx.globalAlpha = 1;
   }
@@ -3105,6 +3404,8 @@ function render() {
   ctx.restore();
   if (noli.stance && mode === 'noli') { ctx.fillStyle = 'rgba(60,20,120,0.18)'; ctx.fillRect(0, 0, W, H); label(W / 2, 40, 'OBSERVANT — click a generator · R to leave', '#c49bff'); }
   else if (noli.stance) label(W / 2, 64, 'Noli is choosing a generator…', '#c49bff', '700 14px system-ui');
+  if (lvFlash > 0) { ctx.fillStyle = `rgba(7,6,12,${0.55 * lvFlash})`; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = Math.min(1, lvFlash * 1.6); label(W / 2, H * 0.22, LV_NAMES[viewLv], '#ffffff', '700 26px system-ui'); ctx.globalAlpha = 1; }   // changing floors
+  if (viewLv > 0 || stairs.length) label(W / 2, 42, (viewLv > 0 ? '▲ ' : '') + LV_NAMES[viewLv], '#c9a8ff', '700 13px system-ui');
   if (screenFlash > 0) { ctx.globalAlpha = 0.28 * screenFlash; ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; screenFlash = Math.max(0, screenFlash - 1 / 12); }   // brief white flash
   if (mode === 'survivor') survHud(); else hud();
   drawRushCursor();
@@ -3142,14 +3443,16 @@ const HAND_IMG = new Image(); HAND_IMG.src = 'img/move_cursor.png';   // Move to
 const HAND = { tipX: 35, tipY: 28 };
 // Building tools: hammer cursor (normal / red circle = can't build here / swing when you place something).
 const HAMMER = [0, 1, 2].map((i) => { const im = new Image(); im.src = `img/build_cursor_${i}.png`; return im; });
-const HAMMER_TIP = [[28, 28], [28, 28], [29, 30]], BUILD_TOOLS = ['wall', 'gen', 'fake', 'kwall', 'iwall', 'lamp', 'door', 'rock', 'chair'];
+const HAMMER_TIP = [[28, 28], [28, 28], [29, 30]], BUILD_TOOLS = ['wall', 'gen', 'fake', 'kwall', 'iwall', 'lamp', 'door', 'rock', 'chair', 'floor', 'stairs'];
 let hammerHitT = 0;
 // Would a click here actually place something?
 function buildSpotOk(p) {
-  if (tool === 'gen' || tool === 'fake') return !hitWall(p.x, p.y, 20);
-  if (tool === 'lamp') return !hitWall(p.x, p.y, LAMP_R + 4);
-  if (tool === 'rock') return !hitWall(p.x, p.y, ROCK_SIZES[rockSize][0]);
-  return true;
+  const pl = CL; CL = editLv;
+  const ok = tool === 'gen' || tool === 'fake' ? !hitWall(p.x, p.y, 20)
+    : tool === 'lamp' ? !hitWall(p.x, p.y, LAMP_R + 4)
+    : tool === 'rock' ? !hitWall(p.x, p.y, ROCK_SIZES[rockSize][0])
+    : tool === 'stairs' ? editLv < MAX_LV : true;
+  CL = pl; return ok;
 }
 const CC = { size: 52, tipX: 31, tipY: 31, src: 60, glide: 0.35, startOff: 46 };
 let ccAnim = null, wasCreative = false;
@@ -3160,7 +3463,7 @@ function drawCreativeCursor(creative) {
   let img = hand ? HAND_IMG : CC_IMG, tx = hand ? HAND.tipX : CC.tipX, ty = hand ? HAND.tipY : CC.tipY;
   if (build) {
     hammerHitT = Math.max(0, hammerHitT - 1 / 60);
-    const f = hammerHitT > 0 ? 2 : buildSpotOk(world()) ? 0 : 1;
+    const f = hammerHitT > 0 ? 2 : buildSpotOk(buildPoint()) ? 0 : 1;
     img = HAMMER[f]; [tx, ty] = HAMMER_TIP[f];
   }
   if (!creative || !img.complete || !img.naturalWidth) return;
@@ -3368,9 +3671,17 @@ function survHud() {
 
 // ------------------------------------------------------------- UI
 const toolList = document.getElementById('toolList');
+function toggleGrid() { gridOn = !gridOn; const b = document.getElementById('gridBtn'); b.textContent = `Grid snap: ${gridOn ? 'on' : 'off'} (G)`; b.classList.toggle('on', gridOn); }
+function updateLvLabel() { const el = document.getElementById('lvLabel'); if (el) el.textContent = LV_NAMES[tool === 'play' ? viewLv : editLv]; }
+// Pick the level to build on (switches you out of Play so you can look at it).
+function setEditLv(n) {
+  n = clamp(n, 0, MAX_LV);
+  if (tool === 'play') setTool('move');
+  editLv = n; updateLvLabel();
+}
 function setTool(id) {
   if (id !== tool && id !== 'play' && typeof sfx === 'function' && toolList.children.length) sfx('creative_button', 0.8);   // picking a building tool clicks
-  tool = id; mouse.drag = null; for (const b of toolList.children) b.classList.toggle('on', b.dataset.t === id); for (const [row, t] of [['chairRow', 'chair'], ['invisRow', 'iwall'], ['rockRow', 'rock']]) { const el = document.getElementById(row); if (el) el.style.display = id === t ? '' : 'none'; } }
+  tool = id; mouse.drag = null; for (const b of toolList.children) b.classList.toggle('on', b.dataset.t === id); for (const [row, t] of [['chairRow', 'chair'], ['invisRow', 'iwall'], ['rockRow', 'rock'], ['stairRow', 'stairs']]) { const el = document.getElementById(row); if (el) el.style.display = id === t ? '' : 'none'; } }
 for (const t of TOOLS) {
   const b = document.createElement('button'); b.className = 'tool'; b.dataset.t = t.id;
   b.innerHTML = `<span>${t.name}</span><kbd>${t.key}</kbd>`; b.onclick = () => setTool(t.id);
@@ -3387,6 +3698,7 @@ function segment(el, items, get, set) {
 segment(document.getElementById('modes'), [['stand', 'Stand'], ['wander', 'Wander'], ['flee', 'Flee'], ['repair', 'Repair'], ['smart', 'Smart AI']], () => newMode, (v) => (newMode = v));
 segment(document.getElementById('chairStyles'), [['random', 'Random'], ...CHAIR_STYLES.map((n, i) => [String(i), n])], () => chairStyle, (v) => (chairStyle = v));
 segment(document.getElementById('invisSkins'), [['none', 'None'], ['boards', 'Boards'], ['rocks', 'Rocks'], ['wire', 'Wire']], () => invisSkin, (v) => (invisSkin = v));
+segment(document.getElementById('stairDirs'), [[0, 'North ↑'], [1, 'East →'], [2, 'South ↓'], [3, 'West ←']], () => stairDir, (v) => (stairDir = v));
 segment(document.getElementById('rockSizes'), [['random', 'Random'], ['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']], () => rockSize, (v) => (rockSize = v));
 segment(document.getElementById('kits'), [['', 'Dummy'], ...KIT_IDS.map((k) => [k, KITS[k].name])], () => newKit, (v) => (newKit = v));
 for (const [m, name] of [['noli', 'Noli'], ['survivor', 'Survivor (vs AI Noli)']]) {
@@ -3402,17 +3714,22 @@ segment(document.getElementById('hps'), [[100, '100 HP'], [250, '250 HP'], [Infi
 document.getElementById('applyAll').onclick = () => { for (const d of dummies) { if (d.player) continue; d.mode = newMode; d.goal = null; d.repair = null; d.inf = newHp === Infinity; d.maxHp = d.inf ? 100 : newHp; d.hp = d.maxHp; applyKit(d, newKit); } log(`All dummies → ${newMode}, ${newHp === Infinity ? '∞' : newHp} HP`); };
 document.getElementById('respawn').onclick = () => { for (const d of dummies) respawnDummy(d); log('Dummies respawned'); };
 document.getElementById('clearD').onclick = () => { dummies = dummies.filter((d) => d.player); log('Dummies cleared'); };
-document.getElementById('clearAll').onclick = () => { walls = [...BORDER]; gens = []; props = []; dummies = dummies.filter((d) => d.player); log('Map emptied'); };
+document.getElementById('clearAll').onclick = () => { walls = [...BORDER]; gens = []; props = []; floors = []; stairs = []; dummies = dummies.filter((d) => d.player); log('Map emptied'); };
 document.getElementById('squad').onclick = () => {
+  CL = 0;
   // Every survivor (except yours) as a Smart AI.
   dummies = dummies.filter((d) => d.player);
   const spots = [[700, 300], [1300, 300], [500, 700], [1500, 700], [1000, 550]];
   KIT_IDS.filter((k) => !player || k !== player.kit).forEach((k, i) => { const p = freeSpot(...spots[i]); addDummy(p.x, p.y, 'smart', 100, k); });
   log('Survivor squad spawned (Smart AI)');
 };
-document.getElementById('resetMap').onclick = () => { defaultMap(); log('Default map loaded'); };
-document.getElementById('quarryMap').onclick = () => { quarryMap(); Object.assign(noli, { x: 1000, y: 1150 }); log('Quarry map loaded'); };
-document.getElementById('lodgeMap').onclick = () => { lodgeMap(); Object.assign(noli, { x: 1000, y: 1150 }); log('Lodge map loaded'); };
+document.getElementById('resetMap').onclick = () => { defaultMap(); noli.lv = 0; log('Default map loaded'); };
+document.getElementById('quarryMap').onclick = () => { quarryMap(); Object.assign(noli, { x: 1000, y: 1150, lv: 0 }); log('Quarry map loaded'); };
+document.getElementById('cityMap').onclick = () => { cityMap(); Object.assign(noli, { x: 1000, y: 1280, lv: 0 }); log('City map loaded — take the stairs up'); };
+document.getElementById('gridBtn').onclick = () => toggleGrid();
+document.getElementById('lvUp').onclick = () => setEditLv(editLv + 1);
+document.getElementById('lvDown').onclick = () => setEditLv(editLv - 1);
+document.getElementById('lodgeMap').onclick = () => { lodgeMap(); Object.assign(noli, { x: 1000, y: 1150, lv: 0 }); log('Lodge map loaded'); };
 document.getElementById('reset').onclick = () => { for (const k in noli.cds) noli.cds[k] = 0; log('Cooldowns reset'); };
 document.getElementById('hbx').onclick = (e) => { showHitboxes = !showHitboxes; e.target.textContent = 'Hitboxes: ' + (showHitboxes ? 'on' : 'off'); e.target.classList.toggle('on', showHitboxes); };
 document.getElementById('nocd').onclick = (e) => { noCd = !noCd; e.target.textContent = 'No cooldowns: ' + (noCd ? 'on' : 'off'); e.target.classList.toggle('on', noCd); };
@@ -3438,7 +3755,7 @@ defaultMap();
 log('Noli spawned. Void Rush ready in 10s, Observant in 25s (round-start cooldowns).');
 let last = performance.now();
 function loop(now) { const dt = clamp((now - last) / 1000, 0, 0.05); last = now; update(dt); render(); requestAnimationFrame(loop); }
-window.__t = { noli, get dummies() { return dummies; }, cam, setTool, setMode, setPlayerKit, get player() { return player; }, get mode() { return mode; }, AI, NI, stunNoli, useSkill, addDummy, get round() { return round; }, hitSurvivor: (d, n) => damage(d, n, 'test hit'), get walls() { return walls; }, get props() { return props; } };
+window.__t = { noli, get dummies() { return dummies; }, cam, setTool, setMode, setPlayerKit, get player() { return player; }, get mode() { return mode; }, AI, NI, stunNoli, useSkill, addDummy, get round() { return round; }, hitSurvivor: (d, n) => damage(d, n, 'test hit'), get walls() { return walls; }, get props() { return props; }, get floors() { return floors; }, get stairs() { return stairs; }, get viewLv() { return viewLv; }, setEditLv, cityMap, hitWallAt: (x, y, r, lv, who) => { const pl = CL; CL = lv; const h = hitWall(x, y, r, who); CL = pl; return h; } };
 requestAnimationFrame(loop);
 })();
 </script>
