@@ -2163,7 +2163,7 @@ function creativeInput() {
     else if (tool === 'move') { const h = pick(raw); if (h) mouse.drag = { ...h, ox: raw.x - h.o.x, oy: raw.y - h.o.y }; }
     else if (tool === 'erase') {
       const h = pick(raw);
-      if (h) { const arr = { dummy: dummies, gen: gens, prop: props, wall: walls, stair: stairs, floor: floors }[h.kind]; arr.splice(arr.indexOf(h.o), 1); ring(raw.x, raw.y, 26, '#ff4d6d', 0.3); }
+      if (h) { selectDeleted(h); const arr = { dummy: dummies, gen: gens, prop: props, wall: walls, stair: stairs, floor: floors }[h.kind]; arr.splice(arr.indexOf(h.o), 1); ring(raw.x, raw.y, 26, '#ff4d6d', 0.3); }
     }
   }
   const dr = mouse.drag;
@@ -3298,6 +3298,57 @@ function drawLevel(L) {
   if (lvOf(noli) === L) layers.push({ y: noli.y, f: () => drawNoli() });
   layers.sort((a, b) => a.y - b.y).forEach((l) => l.f());
 }
+// ---- creative selection: an RGB-split box (cyan / red / green) glows in round whatever the cursor is on,
+// with glitchy slices as it pops up; erasing something glitches its box apart.
+const SEL = { o: null, t0: 0, del: [] }, SEL_COLORS = ['#00f0ff', '#ff2b4a', '#3dff6e'];
+function pickBox(h) {
+  const o = h.o;
+  if (h.kind === 'dummy') return { x: o.x - 22, y: o.y - 26, w: 44, h: 48 };
+  if (h.kind === 'gen') return { x: o.x - 30, y: o.y - 24, w: 60, h: 48 };
+  if (h.kind === 'prop') { if (o.kind === 'lamp') return lampRect(o); const r = o.kind === 'rock' ? o.r : 16; return { x: o.x - r, y: o.y - r, w: r * 2, h: r * 2 }; }
+  if (h.kind === 'stair') return stairRect(o);
+  return { x: o.x, y: o.y, w: o.w, h: o.h };
+}
+function selectPing(rate = 1, vol = 0.35) {
+  try { const a = new Audio('sfx/select_ping.mp3'); a.volume = vol; a.preservesPitch = false; a.playbackRate = rate; a.play().catch(() => {}); } catch (e) { /* no audio */ }
+}
+function selectDeleted(h) { SEL.del.push({ b: pickBox(h), t0: performance.now() / 1000 }); selectPing(0.8, 0.45); if (SEL.o === h.o) SEL.o = null; }
+// Little glitch slices and blocks in the three colours, scattered round a box's edges.
+function glitchBits(b, n, amp) {
+  for (let i = 0; i < n; i++) {
+    const side = Math.floor(rand(0, 4)), w = rand(6, 34), hh = rand(1.5, 4);
+    const x = side === 1 ? b.x + b.w + rand(-4, 8) : side === 3 ? b.x - w + rand(-8, 4) : b.x + rand(-10, b.w + 10 - w);
+    const y = side === 0 ? b.y + rand(-8, 3) : side === 2 ? b.y + b.h + rand(-3, 8) : b.y + rand(-6, b.h + 6);
+    ctx.fillStyle = SEL_COLORS[i % 3]; ctx.globalAlpha = rand(0.35, 0.85) * amp; ctx.fillRect(x, y, w, hh);
+    if (Math.random() < 0.3) ctx.fillRect(x + rand(-12, 12), y + rand(-10, 10), rand(2, 6), rand(2, 6));   // stray pixels
+  }
+  ctx.globalAlpha = 1;
+}
+function rgbBox(b, pad, split, alpha, jitter) {
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineWidth = 2;
+  const offs = [[-split, 0], [split, 0], [0, split]];
+  SEL_COLORS.forEach((c, i) => {
+    const jx = jitter ? rand(-jitter, jitter) : 0, jy = jitter ? rand(-jitter, jitter) * 0.5 : 0;
+    ctx.strokeStyle = c; ctx.shadowColor = c; ctx.shadowBlur = 10; ctx.globalAlpha = alpha;
+    ctx.strokeRect(b.x - pad + offs[i][0] + jx, b.y - pad + offs[i][1] + jy, b.w + pad * 2, b.h + pad * 2);
+  });
+  ctx.restore();
+}
+function drawSelection(hover) {
+  const now = performance.now() / 1000, o = hover ? hover.o : null;
+  if (o !== SEL.o) { SEL.o = o; SEL.t0 = now; if (o) selectPing(); }
+  if (o) {
+    const t = now - SEL.t0, k = Math.min(1, t / 0.22), e = 1 - Math.pow(1 - k, 3), b = pickBox(hover);
+    const pop = t < 0.4, flick = pop && Math.random() < 0.25;   // the box drops out for a frame now and then while it pops in
+    if (!flick) rgbBox(b, 5 + (1 - e) * 12, 1 + (1 - e) * 6 + (pop ? rand(0, 2) : 0), e * (0.85 + 0.15 * Math.sin(now * 6)), pop ? 3 * (1 - k * 0.6) : 0);
+    if (pop) glitchBits(b, 7, 1 - t / 0.4);
+  }
+  for (const d of SEL.del) {   // erased: the box splits apart and glitches out
+    const t = now - d.t0, k = t / 0.35;
+    rgbBox(d.b, 5 + k * 10, 2 + k * 14, 1 - k, 4); glitchBits(d.b, 10, 1 - k);
+  }
+  SEL.del = SEL.del.filter((d) => now - d.t0 < 0.35);
+}
 function drawGrid() {
   const x0 = Math.max(0, Math.floor(cam.x / GRID) * GRID), y0 = Math.max(0, Math.floor(cam.y / GRID) * GRID);
   const x1 = Math.min(MAP.w, cam.x + W / cam.s), y1 = Math.min(MAP.h, cam.y + H / cam.s);
@@ -3390,6 +3441,7 @@ function render() {
   drawSurvFx();
   drawAIKnowledge();
   drawExec();
+  if (tool !== 'play') drawSelection(hover); else SEL.o = null;
   if (hover && hover.kind === 'dummy') { ctx.strokeStyle = tool === 'erase' ? '#ff4d6d' : '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hover.o.x, hover.o.y, 24, 0, 6.3); ctx.stroke(); }
   if (onV(noli)) { drawStabStar(); drawRushStar(); drawNovaReturn(); drawObsStar(); }
   drawParts();
