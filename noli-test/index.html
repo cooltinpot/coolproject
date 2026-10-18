@@ -83,6 +83,7 @@
     <button id="reset">Reset cooldowns</button>
     <button id="nocd">No cooldowns: off</button>
     <button id="hbx" class="on">Hitboxes: on</button>
+    <button id="fogBtn" class="on">Fog: on</button>
   </div>
   <small id="helpSurv" style="display:none"></small>
   <small id="helpNoli">WASD move · Shift sprint · Mouse aim<br>
@@ -520,7 +521,7 @@ function hitWall(x, y, r, who, plan = false) {
   return null;
 }
 // ---- dropping off a floor edge: a short fall (drawn coming down from above), a thud, and 0.8s of slowness.
-const DROP = { time: 0.3, slow: 0.8, mult: 0.6 };
+const DROP = { time: 0.3, slow: 0.8, mult: 0.6, dmgPer: 5, dmgMax: 20 };
 function dropTo(e, L) {
   const h = lvOf(e) - L; e.lv = L; e.onStair = null; e.dropT = DROP.time; e.dropH = h; e.fallSlowT = DROP.slow;
   if (e.r < 12) return;   // a Nova just carries on below
@@ -528,6 +529,9 @@ function dropTo(e, L) {
     ring(e.x, e.y, 26, '#9a90bf', 0.35);
     for (let i = 0; i < 10; i++) { const a = rand(0, 6.3); parts.push({ kind: 'star', x: e.x + Math.cos(a) * 14, y: e.y + Math.sin(a) * 10, c: i % 2 ? '#9a90bf' : '#ffffff', size: rand(2, 4), t: 0, life: rand(0.25, 0.45) }); }
     noiseBurst(0.12, 0.22, e); tone(80, 0.16, 'sine', 0.18, -30, e);
+    const dmg = clamp(DROP.dmgPer * h, DROP.dmgPer, DROP.dmgMax);   // 5 per floor fallen, up to 20
+    if (e === noli) damageNoli(dmg, `fell ${h} floor${h > 1 ? 's' : ''}`);
+    else if (dummies.includes(e)) damage(e, dmg, `Fell ${h} floor${h > 1 ? 's' : ''}`, '#ffffff');
   }, DROP.time * 1000);
 }
 // Falling: bigger and higher while coming down, with a shadow growing under them.
@@ -3263,9 +3267,14 @@ function lightPoly(q, key) {
     const d = Math.hypot(c.x - ox, c.y - oy), rc = c.r * 0.88; if (d > R + rc || d <= rc) continue;
     const a = Math.atan2(c.y - oy, c.x - ox), sp = Math.asin(Math.min(1, rc / d)); circs.push(c); angs.push(a - sp - 2e-3, a, a + sp + 2e-3);
   }
-  for (let i = 0; i < 72; i++) angs.push(-Math.PI + i / 72 * Math.PI * 2);
+  q.lightKey = key; q.light = { ox, oy, pts: castPoly(ox, oy, R, rects, circs, angs, 72, 0) }; return q.light;
+}
+// Rays from (ox, oy) out to R, stopped by boxes and circles; corner angles are passed in so shadow edges are sharp.
+// push = how far a ray carries on into whatever it hits (so the face you're looking at shows).
+function castPoly(ox, oy, R, rects, circs, angs, n, push) {
+  for (let i = 0; i < n; i++) angs.push(-Math.PI + i / n * Math.PI * 2);
   const norm = angs.map((a) => Math.atan2(Math.sin(a), Math.cos(a))).sort((a, b) => a - b);
-  const pts = norm.map((a) => {
+  return norm.map((a) => {
     const dx = Math.cos(a), dy = Math.sin(a); let t = R, hit = false;
     for (const w of rects) {   // ray vs box (slabs)
       let t0 = -Infinity, t1 = Infinity;
@@ -3277,9 +3286,36 @@ function lightPoly(q, key) {
       const fx = ox - c.x, fy = oy - c.y, rc = c.r * 0.88, b = fx * dx + fy * dy, disc = b * b - (fx * fx + fy * fy - rc * rc);
       if (disc >= 0) { const tt = -b - Math.sqrt(disc); if (tt > 0 && tt < t) { t = tt; hit = true; } }
     }
+    if (hit) t += push;
     return { x: ox + dx * t, y: oy + dy * t, hit, t };
   });
-  q.lightKey = key; q.light = { ox, oy, pts }; return q.light;
+}
+// ---- fog of war: you only see what's in your line of sight; walls and closed doors hide what's behind them
+// (inside a building, the outside only shows through doorways and gaps). Off while building in creative.
+let fogOn = true;
+const blocksSight = (w) => w.kind === undefined || (w.kind === 'door' && !(w.open > 0.75));
+function drawFog(me) {
+  const vx0 = cam.x - 40, vy0 = cam.y - 40, vx1 = cam.x + W / cam.s + 40, vy1 = cam.y + H / cam.s + 40;
+  const ox = me.x, oy = me.y, L = lvOf(me), R = Math.hypot(vx1 - vx0, vy1 - vy0), rects = [], angs = [];
+  for (const w of walls) {
+    if (lvOf(w) !== L || !blocksSight(w) || inRect(w, ox, oy)) continue;
+    if (w.x > vx1 || w.x + w.w < vx0 || w.y > vy1 || w.y + w.h < vy0) continue;
+    rects.push(w);
+    for (const [cx, cy] of [[w.x, w.y], [w.x + w.w, w.y], [w.x, w.y + w.h], [w.x + w.w, w.y + w.h]]) { const a = Math.atan2(cy - oy, cx - ox); angs.push(a - 1e-4, a, a + 1e-4); }
+  }
+  const pts = castPoly(ox, oy, R, rects, [], angs, 90, 14);
+  const T = performance.now() / 1000, cut = () => { ctx.beginPath(); ctx.rect(vx0, vy0, vx1 - vx0, vy1 - vy0); pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.closePath(); };
+  ctx.save();
+  cut(); ctx.fillStyle = 'rgba(8,6,14,0.84)'; ctx.fill('evenodd');
+  cut(); ctx.clip('evenodd');   // drifting haze inside the fog
+  for (let i = 0; i < 7; i++) {
+    const x = vx0 + ((hash1(i) * (vx1 - vx0) + T * (12 + i * 4)) % (vx1 - vx0)), y = vy0 + (hash1(i + 9) * (vy1 - vy0) + Math.sin(T * 0.3 + i) * 40), r = 180 + hash1(i + 3) * 220;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, 'rgba(154,144,191,0.07)'); g.addColorStop(1, 'rgba(154,144,191,0)');
+    ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  ctx.restore();
+  // a soft fringe along the edge of what you can see
+  ctx.save(); ctx.strokeStyle = 'rgba(8,6,14,0.45)'; ctx.lineWidth = 10; ctx.lineJoin = 'round'; ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y))); ctx.closePath(); ctx.stroke(); ctx.restore();
 }
 function lightKey(L) { let k = NAV.sig + ':'; for (const w of walls) if (w.kind === 'door' && lvOf(w) === L) k += w.open > 0.75 ? 1 : 0; return k; }
 const lampFlicker = (q, T) => 0.92 + 0.08 * Math.sin(T * 7 + q.x) * Math.sin(T * 3.1 + q.y);
@@ -3580,6 +3616,7 @@ function render() {
   if (hover && hover.kind === 'dummy') { ctx.strokeStyle = tool === 'erase' ? '#ff4d6d' : '#ffffff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(hover.o.x, hover.o.y, 24, 0, 6.3); ctx.stroke(); }
   if (onV(noli)) { drawStabStar(); drawRushStar(); drawNovaReturn(); drawObsStar(); }
   drawParts();
+  { const me = listener(); if (fogOn && tool === 'play' && lvOf(me) === viewLv) drawFog(me); }
   if (tool !== 'play' && gridOn) drawGrid();
   // placement ghost
   if (!noli.stance && tool !== 'play') {
@@ -3930,6 +3967,7 @@ document.getElementById('lvUp').onclick = () => setEditLv(editLv + 1);
 document.getElementById('lvDown').onclick = () => setEditLv(editLv - 1);
 document.getElementById('lodgeMap').onclick = () => { lodgeMap(); Object.assign(noli, { x: 1000, y: 1150, lv: 0 }); log('Lodge map loaded'); };
 document.getElementById('reset').onclick = () => { for (const k in noli.cds) noli.cds[k] = 0; log('Cooldowns reset'); };
+document.getElementById('fogBtn').onclick = (e) => { fogOn = !fogOn; e.target.textContent = 'Fog: ' + (fogOn ? 'on' : 'off'); e.target.classList.toggle('on', fogOn); };
 document.getElementById('hbx').onclick = (e) => { showHitboxes = !showHitboxes; e.target.textContent = 'Hitboxes: ' + (showHitboxes ? 'on' : 'off'); e.target.classList.toggle('on', showHitboxes); };
 document.getElementById('nocd').onclick = (e) => { noCd = !noCd; e.target.textContent = 'No cooldowns: ' + (noCd ? 'on' : 'off'); e.target.classList.toggle('on', noCd); };
 for (const b of document.querySelectorAll('.panel')) b.addEventListener('mousedown', (e) => e.stopPropagation());
