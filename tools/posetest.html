@@ -1,0 +1,42 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Pose test</title>
+<style>body{margin:0;background:#111}canvas{display:block}</style>
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.min.js","three/addons/":"../vendor/three/addons/"}}</script>
+</head><body>
+<script type="module">
+import * as THREE from 'three';
+import { buildHumanoid, Animator, locomotion, POSES } from '../src/actors/Rig.js';
+const params = new URLSearchParams(location.search);
+const style = params.get('style') || 'player';
+const poses = (params.get('poses') || 'idle,run,a1Wind,a1Hit,a2Wind,a2Hit,a3Wind,a3Hit,parry,block,dash,riposteHit').split(',');
+const view = params.get('view') || 'front';
+const W = 1600, H = 900;
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(W, H);
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x303040);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444466, 2));
+const dl = new THREE.DirectionalLight(0xffffff, 2); dl.position.set(3, 5, 4); scene.add(dl);
+const cols = 6;
+const cam = new THREE.PerspectiveCamera(30, W / H, 0.1, 100);
+poses.forEach((name, i) => {
+  const rig = buildHumanoid(style);
+  const anim = new Animator(rig);
+  const x = (i % cols) * 1.6 * rig.scale - (cols - 1) * 0.8 * rig.scale;
+  const y = -Math.floor(i / cols) * 2.4 * rig.scale;
+  rig.root.position.set(x, y, 0);
+  if (view === 'side') rig.root.rotation.y = Math.PI / 2;
+  if (view === 'back') rig.root.rotation.y = Math.PI;
+  if (view === 'three') rig.root.rotation.y = 0.7;
+  scene.add(rig.root);
+  locomotion(anim, { speed: name === 'run' ? 1 : 0, phase: 1.2, time: 0, guard: style === 'brute' ? 'heavy' : style === 'lancer' ? 'spear' : 'sword' });
+  if (POSES[name]) { for (const k in POSES[name]) anim.lastPose[k] = POSES[name][k]; anim.weight = 1; }
+  anim.update(0);
+});
+const rows = Math.ceil(poses.length / cols);
+cam.position.set(0, -((rows - 1) * 1.2) + 1, 14 * (style === 'brute' ? 1.5 : 1));
+cam.lookAt(0, -((rows - 1) * 1.2) + 1, 0);
+renderer.render(scene, cam);
+window.__done = true;
+</script></body></html>

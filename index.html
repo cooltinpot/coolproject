@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NEON RIPOSTE</title>
+  <meta name="description" content="A fast-paced 3D rhythm-action game built around a beat-synced parry." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.min.js",
+        "three/addons/": "./vendor/three/addons/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- ======================= HUD ======================= -->
+  <div id="hud" class="hidden">
+    <div id="vitals">
+      <div class="bar-label"><span>INTEGRITY</span><span id="hp-num">100</span></div>
+      <div id="hp-bar" class="bar"><div class="ghost"></div><div class="fill"></div><div class="segments"></div></div>
+      <div class="bar-label"><span>RESONANCE</span><span id="res-hint">[Q] OVERDRIVE</span></div>
+      <div id="res-bar" class="bar"><div class="fill"></div><div class="segments"></div></div>
+      <div id="dash-pips"><span class="pip"></span><span class="pip"></span><em>DASH</em></div>
+    </div>
+
+    <div id="topcenter">
+      <div id="wave-label">WAVE <b id="wave-num">1</b> · <span id="wave-name"></span></div>
+      <div id="enemy-count"></div>
+    </div>
+
+    <div id="boss" class="hidden">
+      <div id="boss-name">THE CONDUCTOR</div>
+      <div id="boss-bar"><div class="ghost"></div><div class="fill"></div><div class="posture"></div></div>
+      <div id="boss-phase">MOVEMENT I</div>
+    </div>
+
+    <div id="stylebox">
+      <div id="score">0</div>
+      <div id="rank-wrap">
+        <div id="rank-letter">D</div>
+        <div id="rank-info">
+          <div id="rank-name">DULL</div>
+          <div id="rank-bar"><div class="fill"></div></div>
+        </div>
+      </div>
+      <div id="combo"><b>0</b> COMBO</div>
+    </div>
+
+    <div id="reticle"></div>
+    <div id="target-marker" class="hidden"><div class="ring"></div></div>
+    <div id="popups"></div>
+    <div id="damage-layer"></div>
+    <div id="enemy-layer"></div>
+    <div id="arrows"></div>
+
+    <div id="lane-wrap">
+      <canvas id="lane" width="760" height="96"></canvas>
+      <div id="lane-caption">THREAT LANE — parry as markers hit the center</div>
+    </div>
+
+    <div id="banner" class="hidden">
+      <div class="small" id="banner-small">WAVE 1</div>
+      <div class="big" id="banner-big">OVERTURE</div>
+      <div class="tip" id="banner-tip"></div>
+    </div>
+    <div id="tip" class="hidden"></div>
+  </div>
+
+  <!-- ======================= MENUS ======================= -->
+  <div id="title" class="screen">
+    <div class="title-inner">
+      <div class="logo">
+        <div class="logo-top">NEON</div>
+        <div class="logo-bottom">RIPOSTE</div>
+        <div class="logo-sub">// DEFLECT ON THE BEAT //</div>
+      </div>
+      <div class="menu">
+        <button id="btn-play" class="primary">PLAY</button>
+        <button id="btn-howto">HOW TO PLAY</button>
+        <button id="btn-settings">SETTINGS</button>
+      </div>
+      <div class="hint">Click PLAY to lock the mouse · Headphones recommended</div>
+    </div>
+  </div>
+
+  <div id="howto" class="screen hidden">
+    <div class="panel wide">
+      <h2>HOW TO PLAY</h2>
+      <div class="cols">
+        <div>
+          <h3>CONTROLS</h3>
+          <table class="keys">
+            <tr><td><kbd>W A S D</kbd></td><td>Move</td></tr>
+            <tr><td><kbd>Mouse</kbd></td><td>Look</td></tr>
+            <tr><td><kbd>LMB</kbd> / <kbd>J</kbd></td><td>Attack (3-hit combo, air attacks)</td></tr>
+            <tr><td><kbd>RMB</kbd> / <kbd>F</kbd></td><td><b>PARRY</b> (tap) · Block (hold)</td></tr>
+            <tr><td><kbd>Shift</kbd></td><td>Dash (invulnerable, 2 charges)</td></tr>
+            <tr><td><kbd>Space</kbd></td><td>Jump / Double jump</td></tr>
+            <tr><td><kbd>Q</kbd></td><td>Overdrive (needs full Resonance)</td></tr>
+            <tr><td><kbd>E</kbd> / <kbd>Tab</kbd> / <kbd>MMB</kbd></td><td>Lock-on</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>Pause</td></tr>
+          </table>
+          <p class="small">Gamepad: Left stick move · Right stick look · X attack · LB/RB/RT parry · B dash · A jump · Y overdrive · R3 lock</p>
+        </div>
+        <div>
+          <h3>THE PARRY</h3>
+          <ul>
+            <li>Every enemy attack lands <b>on the beat</b> of the soundtrack. A shrinking <span class="gold">gold ring</span> marks the moment of impact.</li>
+            <li>Tap <b>PARRY</b> just before impact. The window is about <b>0.18 s</b>. A perfect parry slows time, sends projectiles back, and damages the attacker's <b>posture</b>.</li>
+            <li>Parry <b>on the beat</b> (±95 ms) for a chord-tuned chime, double Resonance and more style.</li>
+            <li>Enough parries <b>break posture</b>. Hit <b>ATTACK</b> on a broken enemy to <b>RIPOSTE</b>, an instant execution.</li>
+            <li><span class="red">Red</span> attacks can't be parried. Jump them or dash through them.</li>
+            <li>The <b>Threat Lane</b> at the bottom shows incoming hits sliding toward the center in time with the music.</li>
+            <li>Mashing doesn't work: a parry that misses locks you out for a moment. A successful parry resets the lockout, so you can chain them.</li>
+          </ul>
+        </div>
+      </div>
+      <button class="back">BACK</button>
+    </div>
+  </div>
+
+  <div id="settings" class="screen hidden">
+    <div class="panel">
+      <h2>SETTINGS</h2>
+      <label>Master volume <input type="range" id="set-master" min="0" max="1" step="0.01" /></label>
+      <label>Music volume <input type="range" id="set-music" min="0" max="1" step="0.01" /></label>
+      <label>SFX volume <input type="range" id="set-sfx" min="0" max="1" step="0.01" /></label>
+      <label>Mouse sensitivity <input type="range" id="set-sens" min="0.2" max="3" step="0.05" /></label>
+      <label class="row">Invert Y <input type="checkbox" id="set-invert" /></label>
+      <label class="row">Show threat lane <input type="checkbox" id="set-lane" /></label>
+      <label class="row">Graphics quality
+        <select id="set-quality">
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+          <option value="ultra">Ultra</option>
+        </select>
+      </label>
+      <label class="row">Audio latency offset (ms) <input type="number" id="set-latency" min="-200" max="200" step="5" /></label>
+      <p class="small">Quality changes apply on restart. Latency offset shifts the on-beat check if your audio output lags.</p>
+      <button class="back">BACK</button>
+    </div>
+  </div>
+
+  <div id="pause" class="screen hidden">
+    <div class="panel">
+      <h2>PAUSED</h2>
+      <div class="menu">
+        <button id="btn-resume" class="primary">RESUME</button>
+        <button id="btn-pause-settings">SETTINGS</button>
+        <button id="btn-pause-howto">HOW TO PLAY</button>
+        <button id="btn-quit">QUIT TO TITLE</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="results" class="screen hidden">
+    <div class="panel wide">
+      <h2 id="results-title">SILENCED</h2>
+      <div id="results-grade">C</div>
+      <div id="results-stats"></div>
+      <div class="menu row">
+        <button id="btn-retry" class="primary">RETRY</button>
+        <button id="btn-endless" class="hidden">ENCORE (ENDLESS)</button>
+        <button id="btn-title">TITLE</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="loading" class="screen">
+    <div class="loading-text">TUNING THE ARENA<span class="dots"></span></div>
+  </div>
+
+  <div id="fallback" class="screen hidden">
+    <div class="panel">
+      <h2>WEBGL2 REQUIRED</h2>
+      <p>NEON RIPOSTE needs a browser with WebGL2 and ES module support (recent Chrome, Edge, Firefox or Safari).</p>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
