@@ -14,6 +14,7 @@ import { newFurnace, newChest, tickFurnace } from './inventory.js';
 import { audio } from './audio.js';
 import { loadWorld, saveWorld, listWorlds } from './save.js';
 import { makeRng } from './noise.js';
+import { planVillage, REGION } from './world/village.js';
 
 const TICK = 0.05;
 
@@ -1250,7 +1251,7 @@ export class Game {
       case 'tp': {
         const [x, y, z] = args.map((a, i) => (a.startsWith('~') ? p.pos.getComponent(i) + (parseFloat(a.slice(1)) || 0) : parseFloat(a)));
         if ([x, y, z].some((v) => isNaN(v))) { msg('Usage: /tp <x> <y> <z>'); break; }
-        p.pos.set(x, y, z); p.vel.set(0, 0, 0); p.fallDistance = 0;
+        p.pos.set(x, y, z); p.vel.set(0, 0, 0); p.fallDistance = 0; p.onGround = false;
         msg(`Teleported to ${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}`);
         break;
       }
@@ -1284,7 +1285,22 @@ export class Game {
         this.switchDimension(to, p.pos.x * s, p.pos.z * s, true);
         break;
       }
-      case 'locate': msg(`You are in biome: ${this.world.getBiome(Math.floor(p.pos.x), Math.floor(p.pos.z))}`); break;
+      case 'locate': {
+        if ((args[0] || '').toLowerCase() === 'village') {
+          let best = null, bd = Infinity;
+          for (let r = 0; r <= 3 && !best; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+            const v = planVillage(this.world.gen, Math.floor(p.pos.x / REGION) + dx, Math.floor(p.pos.z / REGION) + dz);
+            if (!v) continue;
+            const d = Math.hypot(v.cx - p.pos.x, v.cz - p.pos.z);
+            if (d < bd) { bd = d; best = v; }
+          }
+          if (best && this.world.dim === 'overworld') msg(`The nearest village is at ${best.cx}, ${best.y}, ${best.cz} (${Math.round(bd)} blocks away)`);
+          else msg('No village found nearby', '#ff8080');
+          break;
+        }
+        msg(`You are in biome: ${this.world.getBiome(Math.floor(p.pos.x), Math.floor(p.pos.z))}`);
+        break;
+      }
       default: msg(`Unknown command: ${cmd}. Type /help`, '#ff8080');
     }
   }

@@ -1,6 +1,7 @@
 import { SimplexNoise, makeRng, hash2 } from '../noise.js';
 import { B } from '../blocks.js';
 import { CS, CH, SEA, idx } from './chunk.js';
+import { stampVillages, inVillage } from './village.js';
 
 export const BIOME = { OCEAN: 0, BEACH: 1, PLAINS: 2, FOREST: 3, DESERT: 4, SNOWY: 5, MOUNTAINS: 6, FROZEN_OCEAN: 7, NETHER: 8 };
 export const BIOME_NAMES = ['Ocean', 'Beach', 'Plains', 'Forest', 'Desert', 'Snowy Tundra', 'Mountains', 'Frozen Ocean', 'Nether'];
@@ -204,6 +205,7 @@ export class Generator {
       }
       const r = hash2(wx, wz, this.seed + 101);
       if (r >= density) continue;
+      if (inVillage(this, wx, wz)) continue;
       if (this.caveAt(wx, c.h, wz, c.h, false)) continue;
       const tr = hash2(wx, wz, this.seed + 202);
       let kind = 'oak';
@@ -245,6 +247,8 @@ export class Generator {
         } else if (r < 0.012) blocks[idx(x, y, z)] = B.DEAD_BUSH;
       }
     }
+
+    stampVillages(this, chunk);
 
     // Dungeons: rare mossy rooms with a chest
     if (rng() < 0.08) this.dungeon(chunk, rng);

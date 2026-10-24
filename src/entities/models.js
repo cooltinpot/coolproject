@@ -125,13 +125,15 @@ export function buildModel(type) {
     }
     case 'zombie':
     case 'pigman':
+    case 'villager':
     case 'player': {
       const zombie = type === 'zombie' || type === 'pigman';
       const pig = type === 'pigman';
-      const skin = pig ? [230, 150, 150] : zombie ? [100, 150, 80] : [210, 160, 120];
-      const shirt = pig ? [150, 110, 90] : zombie ? [40, 160, 160] : [40, 170, 180];
-      const pants = pig ? [110, 150, 90] : zombie ? [70, 60, 140] : [60, 60, 150];
-      const hair = pig ? [120, 160, 100] : zombie ? [60, 100, 50] : [70, 45, 25];
+      const vil = type === 'villager';
+      const skin = vil ? [190, 140, 110] : pig ? [230, 150, 150] : zombie ? [100, 150, 80] : [210, 160, 120];
+      const shirt = vil ? [105, 75, 45] : pig ? [150, 110, 90] : zombie ? [40, 160, 160] : [40, 170, 180];
+      const pants = vil ? [95, 68, 40] : pig ? [110, 150, 90] : zombie ? [70, 60, 140] : [60, 60, 150];
+      const hair = vil ? [150, 105, 80] : pig ? [120, 160, 100] : zombie ? [60, 100, 50] : [70, 45, 25];
       m.part('head', `${type}_head`, { size: [8, 8, 8], color: skin, faceColor: { top: hair, back: hair }, faces: { front: (g, w, h) => {
         g.fillStyle = `rgb(${hair})`; g.fillRect(0, 0, 8, 2); g.fillRect(0, 2, 1, 1); g.fillRect(7, 2, 1, 1);
         eyes(g, w, h, 4, zombie ? '#1a3010' : '#fff', zombie ? '#000' : '#3050a0', 1);
@@ -142,6 +144,10 @@ export function buildModel(type) {
       m.part('armR', `${type}_arm`, { size: [4, 12, 4], color: skin, paint: (g, w, h) => { g.fillStyle = `rgb(${shirt})`; g.fillRect(0, 0, w, 4); } }, [6, 22, 0], [0, -4, 0]);
       m.part('legL', `${type}_leg`, { size: [4, 12, 4], color: pants, paint: (g, w, h) => { g.fillStyle = '#444'; g.fillRect(0, h - 2, w, 2); } }, [-2, 12, 0], [0, -6, 0]);
       m.part('legR', `${type}_leg`, { size: [4, 12, 4], color: pants, paint: (g, w, h) => { g.fillStyle = '#444'; g.fillRect(0, h - 2, w, 2); } }, [2, 12, 0], [0, -6, 0]);
+      if (vil) {
+        m.part('nose', 'villager_nose', { size: [2, 4, 2], color: [170, 120, 95] }, [0, 0, 0], [0, 2.5, 5], m.parts.head);
+        m.part('robe', 'villager_robe', { size: [9, 8, 5], color: shirt }, [0, 0, 0], [0, -5, 0], m.parts.body);
+      }
       m.humanoid = true;
       m.height = 1.95; m.width = 0.6;
       break;

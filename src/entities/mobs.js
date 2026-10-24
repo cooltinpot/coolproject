@@ -5,6 +5,7 @@ import { B, I, BLOCKS, SOLID, OPAQUE } from '../blocks.js';
 import { lightToBrightness } from '../render/materials.js';
 import { audio } from '../audio.js';
 import { CH } from '../world/chunk.js';
+import { villagesNear } from '../world/village.js';
 
 export const MOB_TYPES = {
   pig: { health: 10, speed: 1.3, hostile: false, sound: 'pig', drops: (r) => [[I.RAW_PORK, 1 + Math.floor(r() * 3)]], xp: 2, food: I.WHEAT },
@@ -14,6 +15,7 @@ export const MOB_TYPES = {
   zombie: { health: 20, speed: 2.3, hostile: true, sound: 'zombie', drops: (r) => [[I.ROTTEN_FLESH, Math.floor(r() * 3)]], xp: 5, damage: 3, burns: true },
   creeper: { health: 20, speed: 2.0, hostile: true, sound: null, drops: (r) => [[I.GUNPOWDER, Math.floor(r() * 3)]], xp: 5 },
   skeleton: { health: 20, speed: 2.0, hostile: true, sound: 'skeleton', drops: (r) => [[I.BONE, Math.floor(r() * 3)], [I.ARROW, Math.floor(r() * 3)]], xp: 5, burns: true, ranged: true },
+  villager: { health: 20, speed: 1.0, hostile: false, sound: 'villager', drops: () => [], xp: 0 },
   pigman: { health: 20, speed: 2.4, hostile: false, neutral: true, sound: 'pig', drops: (r) => [[I.ROTTEN_FLESH, Math.floor(r() * 2)], [I.GOLD_NUGGET, Math.floor(r() * 2)]], xp: 5, damage: 5 },
   spider: { health: 16, speed: 2.9, hostile: true, sound: 'zombie', drops: (r) => [[I.STRING, Math.floor(r() * 3)]], xp: 5, damage: 2 },
 };
@@ -361,6 +363,22 @@ export class MobManager {
     const passive = this.mobs.filter((m) => !m.def.hostile).length;
     const hostile = this.mobs.length - passive;
     const w = this.world;
+    // villagers live around village wells
+    if (this.world.dim === 'overworld') {
+      for (const v of villagesNear(this.world.gen, p.x, p.z)) {
+        if (Math.hypot(v.cx - p.x, v.cz - p.z) > 80 || !this.world.isLoaded(v.cx, v.cz)) continue;
+        const n = this.mobs.filter((m) => m.type === 'villager' && Math.hypot(m.pos.x - v.cx, m.pos.z - v.cz) < 60).length;
+        if (n >= Math.min(6, v.houses.length + 1)) continue;
+        const h = v.houses[Math.floor(Math.random() * v.houses.length)] || { hx: v.cx + 3, hz: v.cz + 3 };
+        const x = h.hx + Math.floor((Math.random() - 0.5) * 6), z = h.hz + Math.floor((Math.random() - 0.5) * 6);
+        if (Math.hypot(x - p.x, z - p.z) < 12) continue;
+        const y = this.world.surfaceY(x, z) + 1;
+        const free = (b) => b === 0 || (b > 0 && BLOCKS[b].replaceable && !BLOCKS[b].fluid);
+        const ground = this.world.getBlock(x, y - 1, z);
+        const onGround = ground === B.GRASS || ground === B.GRAVEL || ground === B.DIRT || ground === B.SAND || ground === B.SANDSTONE;
+        if (onGround && free(this.world.getBlock(x, y, z)) && free(this.world.getBlock(x, y + 1, z))) this.spawn('villager', x + 0.5, y, z + 0.5);
+      }
+    }
     // passive animals on grass in daylight-lit areas
     if (passive < 14 && Math.random() < 0.5) {
       const a = Math.random() * Math.PI * 2, r = 24 + Math.random() * 40;

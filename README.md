@@ -25,6 +25,7 @@ three.js is vendored in `vendor/`, so the game also runs offline. Only the pixel
 - Oak, birch and spruce trees, cacti, flowers, tall grass, pumpkins and dead bushes
 - Coal, iron, gold, redstone and diamond ores, plus gravel and dirt pockets
 - Dungeons: mossy cobblestone rooms with cobwebs and loot chests
+- Villages on plains and deserts: houses with doors, windows and furniture, a central well, gravel paths, wheat farms, and villagers (`/locate village`)
 - **The Nether**:
   - Build an obsidian frame and light it with flint and steel to make a portal
   - Stand inside the portal to travel. One block in the Nether is eight in the overworld, and the game links to an existing portal or builds a new one
@@ -96,7 +97,7 @@ three.js is vendored in `vendor/`, so the game also runs offline. Only the pixel
 
 `/help`, `/gamemode <survival|creative>`, `/time set <day|noon|night|midnight|ticks>`, `/give <item> [count]`,
 `/tp <x> <y> <z>` (supports `~`), `/summon <pig|cow|sheep|chicken|zombie|skeleton|creeper|spider>`, `/weather <clear|rain|thunder>`, `/dimension <overworld|nether>`, `/kill`, `/heal`, `/seed`,
-`/spawnpoint`, `/clear`, `/fly`, `/locate`
+`/spawnpoint`, `/clear`, `/fly`, `/locate [village]`
 
 ## Code layout
 
@@ -114,6 +115,7 @@ src/world/
   mesher.js               chunk meshing, smooth lighting / AO, special shapes, fluids
   world.js                chunk streaming, block updates, fluids, random ticks, raycasting
   redstone.js             redstone power: dust, sources, torches, consumers
+  village.js              village planning and stamping
 src/entities/
   physics.js              AABB versus voxel collision
   player.js               movement, survival stats
@@ -130,6 +132,6 @@ src/save.js               localStorage persistence
 This is a large slice of Minecraft, not all of it. The following aren't implemented:
 - The End
 - Repeaters, comparators and pistons (the rest of redstone)
-- Villages
+- Villager trading
 - Enchanting and potions
 - Multiplayer

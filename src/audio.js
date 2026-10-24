@@ -118,6 +118,7 @@ export class GameAudio {
       case 'sheep': { for (let i = 0; i < 5; i++) this.tone(380 + (i % 2) * 30, 0.08, 'sawtooth', 0.07 * a, i * 0.07); break; }
       case 'zombie': this.tone(90, 0.9, 'sawtooth', 0.1 * a, 0, 70); this.noise(0.8, 'lowpass', 400, 1, 0.12 * a); break;
       case 'creeper_hiss': this.noise(1.4, 'highpass', 2500, 0.3, 0.35 * a); break;
+      case 'villager': this.tone(220, 0.25, 'sawtooth', 0.06 * a, 0, 160); this.tone(180, 0.2, 'sawtooth', 0.05 * a, 0.25, 140); break;
       case 'chicken': this.tone(1200, 0.06, 'square', 0.05 * a, 0, 900); this.tone(1100, 0.06, 'square', 0.05 * a, 0.1, 800); break;
       case 'skeleton': for (let i = 0; i < 3; i++) this.noise(0.05, 'bandpass', 2500, 4, 0.2 * a, i * 0.07); break;
       case 'bow': this.noise(0.25, 'bandpass', 600, 1, 0.35 * a, 0, 1.4); break;
