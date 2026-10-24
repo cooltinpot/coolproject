@@ -299,7 +299,9 @@ export class Game {
     const p = this.player;
     const s = p.stats;
     const beatRatio = s.parries ? s.onBeat / s.parries : 0;
-    const gi = clamp(Math.round(this.style.peakRank * 0.55 + beatRatio * 2 + (s.hitsTaken < 6 ? 1 : 0) + (victory ? 1 : 0) - 0.5), 0, 6);
+    let gi = clamp(Math.round(this.style.peakRank * 0.55 + beatRatio * 2 + (s.hitsTaken < 6 ? 1 : 0) + (victory ? 1 : 0) - 0.5), 0, 6);
+    // A run that ended early can't earn the top grades.
+    if (!victory) gi = Math.min(gi, 1 + Math.floor(Math.max(0, this.director.waveIndex) / 2));
     this.lastWaveIndex = this.director.endless ? 0 : Math.max(0, this.director.waveIndex);
     return {
       victory,

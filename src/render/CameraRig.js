@@ -72,9 +72,13 @@ export class CameraRig {
     if (this.attract) {
       // Slow orbit for the title screen.
       const t = this.time * 0.08;
-      this._p.set(Math.sin(t) * 19, 6.5 + Math.sin(t * 0.7) * 2.5, Math.cos(t) * 19);
+      this._p.set(Math.sin(t) * 13, 3.2 + Math.sin(t * 0.7) * 1.2, Math.cos(t) * 13);
       cam.position.lerp(this._p, 1 - Math.exp(-2 * rawDt));
-      cam.lookAt(0, 2.2, 0);
+      // Frame the ronin on the right third, leaving room for the menu.
+      const dx = -cam.position.x, dz = -cam.position.z;
+      const l = Math.hypot(dx, dz) || 1;
+      const rx = -dz / l, rz = dx / l;
+      cam.lookAt(-rx * 3.2, 2.4, -rz * 3.2);
       cam.fov = damp(cam.fov, 60, 3, rawDt);
       cam.updateProjectionMatrix();
       return;

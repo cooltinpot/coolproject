@@ -187,16 +187,25 @@ canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
   position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
   background: radial-gradient(ellipse at center, rgba(10, 6, 30, 0.35), rgba(5, 4, 12, 0.85));
 }
-#title { background: radial-gradient(ellipse at 50% 60%, rgba(10, 6, 30, 0.05), rgba(5, 4, 12, 0.75)); }
-.title-inner { text-align: center; }
+#title {
+  justify-content: flex-start;
+  background: linear-gradient(90deg, rgba(5, 4, 12, 0.88) 0%, rgba(5, 4, 12, 0.55) 38%, rgba(5, 4, 12, 0) 62%);
+}
+.title-inner { text-align: left; padding-left: clamp(24px, 7vw, 120px); }
+.title-inner .menu { align-items: flex-start; }
+@media (max-width: 900px) {
+  #title { justify-content: center; background: rgba(5, 4, 12, 0.6); }
+  .title-inner { text-align: center; padding-left: 0; }
+  .title-inner .menu { align-items: center; }
+}
 .logo { margin-bottom: 40px; }
 .logo-top {
-  font: 900 clamp(48px, 9vw, 120px)/0.9 var(--display); letter-spacing: 0.3em; margin-right: -0.3em;
+  font: 900 clamp(44px, 7vw, 104px)/0.9 var(--display); letter-spacing: 0.3em; margin-right: -0.3em;
   color: transparent; -webkit-text-stroke: 2px var(--cyan); text-shadow: 0 0 30px rgba(95, 244, 255, 0.5);
   animation: flicker 4s infinite;
 }
 .logo-bottom {
-  font: 900 clamp(56px, 11vw, 150px)/0.95 var(--display); letter-spacing: 0.12em; margin-right: -0.12em;
+  font: 900 clamp(50px, 8.5vw, 130px)/0.95 var(--display); letter-spacing: 0.12em; margin-right: -0.12em;
   background: linear-gradient(180deg, #fff 10%, #ff9ae0 55%, #ff2b8a 90%);
   -webkit-background-clip: text; background-clip: text; color: transparent;
   filter: drop-shadow(0 0 24px rgba(255, 43, 138, 0.7));
