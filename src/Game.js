@@ -413,9 +413,20 @@ export class Game {
     if (this.state === 'playing' || this.state === 'dead' || this.state === 'victory') {
       this.runTime = (this.runTime || 0) + (this.state === 'playing' ? rawDt : 0);
       // If the pointer lock was refused or lost, pause and ask for a click.
-      if (this.state === 'playing' && this.requireLock && !this.bot && !this.input.locked) {
+      const inp = this.input;
+      inp.freeLook = this.state === 'playing' && !inp.locked && inp.lockFailed;
+      if (inp.freeLook && !this._freeLookTipShown) {
+        this._freeLookTipShown = true;
+        this.hud.showTip('Mouse lock is unavailable here. Aim with the cursor and push it to the screen edge to turn. For the full experience, open the game in its own browser tab.', 8);
+      }
+      if (this.state === 'playing' && this.requireLock && !this.bot && !inp.locked && !inp.lockFailed) {
         this.unlockedTime += rawDt;
-        if (this.unlockedTime > 0.6) { this.unlockedTime = 0; this.pause(); }
+        if (this.unlockedTime > 0.8) {
+          this.unlockedTime = 0;
+          // Never managed to lock at all: fall back to free-cursor play.
+          if (!inp.everLocked) inp.lockFailed = true;
+          else this.pause();
+        }
       } else this.unlockedTime = 0;
       if (this.state === 'playing') {
         const [dx, dy] = this.input.takeLook();

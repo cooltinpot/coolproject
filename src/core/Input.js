@@ -35,6 +35,13 @@ export class Input {
     this.sensitivity = 1;
     this.invertY = false;
     this.locked = false;
+    // Free-cursor fallback for frames that refuse pointer lock: the cursor
+    // stays visible, mouse motion still aims, and pushing it to the screen
+    // edge keeps turning the camera.
+    this.lockFailed = false;
+    this.everLocked = false;
+    this.freeLook = false;
+    this.cursorNX = 0.5;
     this.enabled = true;
     this.now = 0;
     this.usingPad = false;
@@ -61,7 +68,7 @@ export class Input {
       if (a) this.down[a] = false;
     });
     canvas.addEventListener('mousedown', (e) => {
-      if (!this.locked) return;
+      if (!this.locked && !this.freeLook) return;
       this.usingPad = false;
       if (e.button === 0) this._press('attack');
       else if (e.button === 2) this._press('parry');
@@ -74,7 +81,14 @@ export class Input {
     });
     window.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('mousemove', (e) => {
-      if (!this.locked) return;
+      this.cursorNX = e.clientX / Math.max(1, window.innerWidth);
+      if (!this.locked) {
+        if (this.freeLook && Math.abs(e.movementX) < 200 && Math.abs(e.movementY) < 200) {
+          this.lookDX += e.movementX * 0.8;
+          this.lookDY += e.movementY * 0.8;
+        }
+        return;
+      }
       // Chrome occasionally reports a huge spurious jump right after locking.
       if (Math.abs(e.movementX) > 350 || Math.abs(e.movementY) > 350) return;
       this.lookDX += e.movementX;
@@ -82,11 +96,13 @@ export class Input {
     });
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === this.canvas;
+      if (this.locked) { this.everLocked = true; this.lockFailed = false; }
       if (!this.locked) {
         for (const a of ACTIONS) this.down[a] = false;
       }
       if (this.onPointerLockChange) this.onPointerLockChange(this.locked);
     });
+    document.addEventListener('pointerlockerror', () => { if (!this.everLocked) this.lockFailed = true; });
     window.addEventListener('blur', () => {
       for (const a of ACTIONS) this.down[a] = false;
     });
@@ -97,8 +113,10 @@ export class Input {
     const fallback = () => {
       try {
         const p2 = this.canvas.requestPointerLock();
-        if (p2 && p2.catch) p2.catch(() => {});
-      } catch (_) { /* lock unavailable; the game pauses and asks for a click */ }
+        if (p2 && p2.catch) p2.catch(() => { if (!this.everLocked) this.lockFailed = true; });
+      } catch (_) {
+        if (!this.everLocked) this.lockFailed = true;
+      }
     };
     try {
       const p = this.canvas.requestPointerLock({ unadjustedMovement: true });
@@ -161,6 +179,11 @@ export class Input {
         this.padPrev[key] = isDown;
       }
       break;
+    }
+    if (this.freeLook && !this.locked) {
+      const edge = 0.07;
+      if (this.cursorNX < edge) this.lookDX -= ((edge - this.cursorNX) / edge) * 900 * rawDt;
+      else if (this.cursorNX > 1 - edge) this.lookDX += ((this.cursorNX - 1 + edge) / edge) * 900 * rawDt;
     }
     let kx = (this.down.right ? 1 : 0) - (this.down.left ? 1 : 0);
     let ky = (this.down.up ? 1 : 0) - (this.down.down ? 1 : 0);

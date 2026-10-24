@@ -14,6 +14,8 @@ The repo has no image, model or audio files.
 
 ## Running it
 
+If mouse lock is refused (some embedded viewers do this), the game falls back to a free cursor: aim with the mouse and push the cursor to the screen edge to turn.
+
 It's a static site using native ES modules, so it needs to be served over HTTP. Opening the file directly won't work.
 
 ```bash
