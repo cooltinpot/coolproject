@@ -23,7 +23,7 @@ three.js is vendored in `vendor/`, so the game also runs offline. Only the pixel
 - Seeded generation using simplex noise for continents, mountains, and spaghetti and cheese caves (with lava lakes deep down)
 - 8 biomes: Plains, Forest, Desert, Snowy Tundra, Mountains, Beach, Ocean and Frozen Ocean
 - Oak, birch and spruce trees, cacti, flowers, tall grass, pumpkins and dead bushes
-- Coal, iron, gold and diamond ores, plus gravel and dirt pockets
+- Coal, iron, gold, redstone and diamond ores, plus gravel and dirt pockets
 - Dungeons: mossy cobblestone rooms with cobwebs and loot chests
 - **The Nether**:
   - Build an obsidian frame and light it with flint and steel to make a portal
@@ -51,6 +51,11 @@ three.js is vendored in `vendor/`, so the game also runs offline. Only the pixel
 - Step-up movement, so you can walk onto slabs and stairs without jumping, like in Minecraft
 - Armor in leather, gold, iron and diamond. It has its own slots, an armor bar, damage reduction and durability
 - Bows with charge-up and zoom, and arrows you can pick back up
+- Redstone:
+  - Dust carries a signal that weakens by one level per block, and can step up and down blocks
+  - Power sources: levers, buttons and pressure plates
+  - Redstone torches act as inverters
+  - Lamps, doors and TNT respond to power
 - Weather: rain, snow in cold biomes, and thunderstorms with lightning. Rain puts out fires and stops undead burning in daylight
 - Flowing water and lava. Water meeting lava makes obsidian or cobblestone. Buckets pick up and place fluids
 - Falling sand and gravel, leaf decay, saplings that grow into trees, grass spreading, cactus growth and ice melting
@@ -108,6 +113,7 @@ src/world/
   lighting.js             sky and block light flood fill (add and remove)
   mesher.js               chunk meshing, smooth lighting / AO, special shapes, fluids
   world.js                chunk streaming, block updates, fluids, random ticks, raycasting
+  redstone.js             redstone power: dust, sources, torches, consumers
 src/entities/
   physics.js              AABB versus voxel collision
   player.js               movement, survival stats
@@ -123,7 +129,7 @@ src/save.js               localStorage persistence
 
 This is a large slice of Minecraft, not all of it. The following aren't implemented:
 - The End
-- Redstone
+- Repeaters, comparators and pistons (the rest of redstone)
 - Villages
 - Enchanting and potions
 - Multiplayer

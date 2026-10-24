@@ -12,6 +12,8 @@ export const B = {
   SPRUCE_LOG: 49, SPRUCE_LEAVES: 50, JACK_O_LANTERN: 51, LADDER: 52, COBWEB: 53, FARMLAND: 54, WHEAT: 55,
   OAK_SLAB: 56, STONE_SLAB: 57, COBBLE_SLAB: 58, OAK_STAIRS: 59, COBBLE_STAIRS: 60, STONE_BRICK_STAIRS: 61,
   BRICK_STAIRS: 62, OAK_DOOR: 63, NETHERRACK: 64, SOUL_SAND: 65, PORTAL: 66, NETHER_BRICKS: 67, QUARTZ_ORE: 68,
+  REDSTONE_ORE: 69, REDSTONE_WIRE: 70, REDSTONE_TORCH: 71, REDSTONE_TORCH_OFF: 72, LEVER: 73, STONE_BUTTON: 74,
+  PRESSURE_PLATE: 75, REDSTONE_LAMP: 76, REDSTONE_LAMP_ON: 77,
 };
 
 export const I = {
@@ -21,7 +23,7 @@ export const I = {
   LAVA_BUCKET: 273, FLINT_AND_STEEL: 274, RAW_MUTTON: 275, COOKED_MUTTON: 276, STRING: 277,
   BONE: 278, BREAD: 279, WHEAT_SEEDS: 280, GOLDEN_APPLE: 281, BOWL: 282, MUSHROOM_STEW: 283, WHEAT: 284,
   LEATHER: 285, FEATHER: 286, RAW_CHICKEN: 287, COOKED_CHICKEN: 288, ARROW: 289, BOW: 290, BONE_MEAL: 291,
-  QUARTZ: 292, GOLD_NUGGET: 293,
+  QUARTZ: 292, GOLD_NUGGET: 293, REDSTONE: 294,
 };
 
 export const ARMOR_MATERIALS = [
@@ -162,6 +164,15 @@ block(B.SOUL_SAND, 'soul_sand', 'Soul Sand', { tex: T('soul_sand'), render: 'box
 block(B.PORTAL, 'portal', 'Nether Portal', { tex: T('portal'), render: 'portal', layer: 'translucent', solid: false, opaque: false, light: 11, hardness: -1, selectable: false, hidden: true, needsSupport: true, drops: () => [] });
 block(B.NETHER_BRICKS, 'nether_bricks', 'Nether Bricks', { tex: T('nether_bricks'), hardness: 2, tool: 'pickaxe', level: 0 });
 block(B.QUARTZ_ORE, 'quartz_ore', 'Nether Quartz Ore', { tex: T('quartz_ore'), hardness: 3, tool: 'pickaxe', level: 0, drops: () => [[I.QUARTZ, 1]] });
+block(B.REDSTONE_ORE, 'redstone_ore', 'Redstone Ore', { tex: T('redstone_ore'), hardness: 3, tool: 'pickaxe', level: 2, drops: (rng) => [[I.REDSTONE, 4 + Math.floor(rng() * 2)]] });
+block(B.REDSTONE_WIRE, 'redstone_wire', 'Redstone Dust', { tex: T('redstone_dust'), render: 'wire', layer: 'cutout', solid: false, opaque: false, hardness: 0, needsSupport: true, redstone: true, hidden: true, sound: 'stone', drops: () => [[I.REDSTONE, 1]] });
+block(B.REDSTONE_TORCH, 'redstone_torch', 'Redstone Torch', { tex: T('redstone_torch'), render: 'torch', layer: 'cutout', solid: false, opaque: false, light: 7, hardness: 0, sound: 'wood', needsSupport: true, redstone: true, attach: true });
+block(B.REDSTONE_TORCH_OFF, 'redstone_torch_off', 'Redstone Torch (off)', { tex: T('redstone_torch_off'), render: 'torch', layer: 'cutout', solid: false, opaque: false, hardness: 0, sound: 'wood', needsSupport: true, redstone: true, attach: true, hidden: true, drops: () => [[B.REDSTONE_TORCH, 1]] });
+block(B.LEVER, 'lever', 'Lever', { tex: T('cobblestone'), render: 'shape', shape: 'lever', layer: 'cutout', solid: false, opaque: false, hardness: 0.5, sound: 'wood', needsSupport: true, redstone: true, attach: true, interact: 'lever', flatIcon: 'lever_item' });
+block(B.STONE_BUTTON, 'stone_button', 'Stone Button', { tex: T('stone'), render: 'shape', shape: 'button', layer: 'cutout', solid: false, opaque: false, hardness: 0.5, needsSupport: true, redstone: true, attach: true, interact: 'button', flatIcon: 'button_item' });
+block(B.PRESSURE_PLATE, 'pressure_plate', 'Stone Pressure Plate', { tex: T('stone'), render: 'shape', shape: 'plate', layer: 'cutout', solid: false, opaque: false, hardness: 0.5, tool: 'pickaxe', needsSupport: true, redstone: true, flatIcon: 'plate_item' });
+block(B.REDSTONE_LAMP, 'redstone_lamp', 'Redstone Lamp', { tex: T('redstone_lamp'), hardness: 0.3, sound: 'glass', redstone: true });
+block(B.REDSTONE_LAMP_ON, 'redstone_lamp_on', 'Redstone Lamp (on)', { tex: T('redstone_lamp_on'), hardness: 0.3, sound: 'glass', light: 15, redstone: true, hidden: true, drops: () => [[B.REDSTONE_LAMP, 1]] });
 block(B.COBWEB, 'cobweb', 'Cobweb', { tex: T('cobweb'), render: 'cross', layer: 'cutout', solid: false, opaque: false, hardness: 4, tool: 'sword', sound: 'cloth', web: true, drops: () => [[I.STRING, 1]] });
 
 // Planks from birch/spruce logs share the oak plank block to keep things simple.
@@ -201,6 +212,7 @@ item(I.BOW, 'bow', 'Bow', { stack: 1, durability: 384, bow: true });
 item(I.BONE_MEAL, 'bone_meal', 'Bone Meal');
 item(I.QUARTZ, 'quartz', 'Nether Quartz');
 item(I.GOLD_NUGGET, 'gold_nugget', 'Gold Nugget');
+item(I.REDSTONE, 'redstone', 'Redstone Dust', { places: B.REDSTONE_WIRE });
 ARMOR_MATERIALS.forEach((m, mi) => ARMOR_SLOTS.forEach((slot, si) => {
   const names = { helmet: 'Helmet', chestplate: 'Chestplate', leggings: 'Leggings', boots: 'Boots' };
   item(armorId(mi, si), `${m.key}_${slot}`, `${m.key === 'leather' ? 'Leather ' + (slot === 'helmet' ? 'Cap' : slot === 'chestplate' ? 'Tunic' : slot === 'leggings' ? 'Pants' : 'Boots') : m.name + ' ' + names[slot]}`, {
@@ -230,6 +242,19 @@ for (const id of [B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG, B.PLANKS, B.CRAFTING_TAB
   ITEMS[id].fuel = id === B.SAPLING ? 5 : 15;
 }
 
+// Rotate a floor-mounted box (y = distance from the support) onto a wall. attach: 0 floor, 1 +x, 2 -x, 3 +z, 4 -z.
+function attachBox(b, attach) {
+  const [a0, h0, c0, a1, h1, c1] = b;
+  const v0 = c0, v1 = c1; // the floor box's z extent becomes the vertical extent on a wall
+  switch (attach) {
+    case 1: return [16 - h1, v0, a0, 16 - h0, v1, a1];
+    case 2: return [h0, v0, a0, h1, v1, a1];
+    case 3: return [a0, v0, 16 - h1, a1, v1, 16 - h0];
+    case 4: return [a0, v0, h0, a1, v1, h1];
+    default: return b;
+  }
+}
+
 // Collision/render boxes (1/16 units) for non-cube blocks; null = full cube.
 const DOOR_CLOSED = [[0, 0, 0, 16, 16, 3], [13, 0, 0, 16, 16, 16], [0, 0, 13, 16, 16, 16], [0, 0, 0, 3, 16, 16]];
 const STAIR_BACK = [[0, 0, 0, 16, 16, 8], [8, 0, 0, 16, 16, 16], [0, 0, 8, 16, 16, 16], [0, 0, 0, 8, 16, 16]];
@@ -246,6 +271,12 @@ export function blockShapes(id, meta = 0) {
       ? [[0, 8, 0, 16, 16, 16], [b[0], 0, b[2], b[3], 8, b[5]]]
       : [[0, 0, 0, 16, 8, 16], [b[0], 8, b[2], b[3], 16, b[5]]];
   }
+  if (d.shape === 'lever') {
+    const on = meta & 8;
+    return [[5, 0, 4, 11, 3, 12], on ? [9, 3, 7, 11, 10, 9] : [5, 3, 7, 7, 10, 9]].map((b) => attachBox(b, meta & 7));
+  }
+  if (d.shape === 'button') return [attachBox([5, 0, 6, 11, meta & 8 ? 1 : 2, 10], meta & 7)];
+  if (d.shape === 'plate') return [[1, 0, 1, 15, meta & 8 ? 0.5 : 1, 15]];
   if (d.shape === 'door') {
     const f = meta & 3;
     return [meta & 4 ? DOOR_CLOSED[(f + 3) % 4] : DOOR_CLOSED[f]];

@@ -529,6 +529,49 @@ const P = {
       t.set(x, y, [235, 228, 220]); t.set(x + 1, y, [210, 200, 190]); if (t.rng() < 0.5) t.set(x, y + 1, [200, 192, 182]);
     }
   },
+  redstone_ore(t) { oreTile(t, [200, 20, 20], [255, 120, 120]); },
+  redstone_dust(t) {
+    t.clear();
+    for (let i = 0; i < S; i++) for (const o of [7, 8]) {
+      const f = 0.75 + t.rng() * 0.25;
+      t.set(i, o, [255 * f, 255 * f, 255 * f]); t.set(o, i, [255 * f, 255 * f, 255 * f]);
+    }
+    for (let i = 0; i < 12; i++) t.set(5 + Math.floor(t.rng() * 6), 5 + Math.floor(t.rng() * 6), [220, 220, 220]);
+  },
+  redstone_torch(t) {
+    t.clear();
+    for (let y = 8; y < 16; y++) { t.set(7, y, [120, 90, 50]); t.set(8, y, [96, 72, 38]); }
+    t.set(7, 6, [255, 80, 60]); t.set(8, 6, [230, 40, 30]); t.set(7, 7, [200, 20, 20]); t.set(8, 7, [170, 10, 10]);
+    t.set(7, 5, [255, 120, 100, 150]); t.set(8, 5, [255, 90, 80, 120]);
+  },
+  redstone_torch_off(t) {
+    t.clear();
+    for (let y = 8; y < 16; y++) { t.set(7, y, [120, 90, 50]); t.set(8, y, [96, 72, 38]); }
+    t.set(7, 6, [90, 20, 20]); t.set(8, 6, [70, 15, 15]); t.set(7, 7, [70, 15, 15]); t.set(8, 7, [60, 10, 10]);
+  },
+  redstone_lamp(t) {
+    t.noise([90, 55, 30], 0.2);
+    for (let i = 0; i < S; i++) { t.set(i, 0, [60, 35, 20]); t.set(0, i, [60, 35, 20]); t.set(i, 15, [60, 35, 20]); t.set(15, i, [60, 35, 20]); }
+    for (let y = 3; y < 13; y++) for (let x = 3; x < 13; x++) if ((x + y) % 3 === 0) t.set(x, y, [130, 90, 50]);
+  },
+  redstone_lamp_on(t) {
+    t.noise([240, 200, 120], 0.15);
+    for (let i = 0; i < S; i++) { t.set(i, 0, [150, 100, 50]); t.set(0, i, [150, 100, 50]); t.set(i, 15, [150, 100, 50]); t.set(15, i, [150, 100, 50]); }
+    for (let y = 3; y < 13; y++) for (let x = 3; x < 13; x++) if ((x + y) % 3 === 0) t.set(x, y, [255, 250, 210]);
+  },
+  lever_item(t) {
+    t.clear();
+    for (let y = 11; y < 15; y++) for (let x = 4; x < 12; x++) t.set(x, y, [120 + t.rng() * 30, 120 + t.rng() * 30, 120 + t.rng() * 30]);
+    for (let i = 0; i < 8; i++) { t.set(6 + Math.floor(i / 2), 10 - i, [140, 105, 60]); t.set(7 + Math.floor(i / 2), 10 - i, [100, 75, 40]); }
+  },
+  button_item(t) {
+    t.clear();
+    for (let y = 6; y < 10; y++) for (let x = 4; x < 12; x++) t.set(x, y, y === 9 ? [90, 90, 90] : [140 + t.rng() * 20, 140 + t.rng() * 20, 140 + t.rng() * 20]);
+  },
+  plate_item(t) {
+    t.clear();
+    for (let y = 9; y < 13; y++) for (let x = 1; x < 15; x++) t.set(x, y, y === 12 ? [90, 90, 90] : [140 + t.rng() * 20, 140 + t.rng() * 20, 140 + t.rng() * 20]);
+  },
   farmland(t) {
     t.noise([96, 62, 38], 0.25);
     for (let y = 0; y < S; y += 4) for (let x = 0; x < S; x++) t.shade(x, y, 0.7);
@@ -712,6 +755,7 @@ function line(t, x0, y0, x1, y1, c) {
 }
 
 const ITEM_PAINTERS = {
+  redstone: (t) => drawArt(t, ART.lump, shadePal([200, 20, 20], [80, 0, 0])),
   quartz: (t) => drawArt(t, ART.gem, shadePal([230, 225, 215], [120, 110, 100])),
   gold_nugget: (t) => drawArt(t, ART.lump.map((r, i) => (i < 4 ? '................' : r)), shadePal([250, 210, 50])),
   leather: (t) => drawArt(t, ART.lump, shadePal([150, 90, 50])),

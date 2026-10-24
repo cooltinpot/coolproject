@@ -161,6 +161,8 @@ export class Game {
       fallingBlock: (x, y, z, id) => this.spawnFalling(x, y, z, id),
       blockBroken: (x, y, z, id, m, drop) => { this.particles.blockBreak(x, y, z, id); if (drop) this.dropBlock(x, y, z, id, m, true); },
       sound: (n, x, y, z) => audio.play(n, { x, y, z }),
+      ignite: (x, y, z) => this.primeTNT(x, y, z),
+      entityOn: (x, y, z) => this.entityOnBlock(x, y, z),
     };
     this.particles.world = this.world;
     this.world.renderDist = this.ui.settings.renderDist;
@@ -639,7 +641,27 @@ export class Game {
     this.weatherState = { type, timer: duration ?? (type === 'clear' ? 600 + Math.random() * 1200 : 240 + Math.random() * 360) };
   }
 
+  entityOnBlock(x, y, z) {
+    const on = (e) => Math.floor(e.pos.x) === x && Math.floor(e.pos.y + 0.05) === y && Math.floor(e.pos.z) === z;
+    if (!this.player.dead && on(this.player)) return true;
+    return this.mobs.mobs.some((m) => !m.dying && on(m));
+  }
+
   gameTick() {
+    // pressure plates
+    {
+      const w = this.world;
+      const press = (e) => {
+        const x = Math.floor(e.pos.x), y = Math.floor(e.pos.y + 0.05), z = Math.floor(e.pos.z);
+        if (w.getBlock(x, y, z) === B.PRESSURE_PLATE && !(w.getMeta(x, y, z) & 8)) {
+          w.setBlock(x, y, z, B.PRESSURE_PLATE, w.getMeta(x, y, z) | 8);
+          w.scheduleUpdate(x, y, z, 0.5, 'unpress');
+          audio.play('click', { x, y, z });
+        }
+      };
+      if (!this.player.dead && !this.player.flying) press(this.player);
+      for (const m of this.mobs.mobs) press(m);
+    }
     const ws = this.weatherState;
     ws.timer -= TICK;
     if (ws.timer <= 0) this.setWeather(ws.type === 'clear' ? (Math.random() < 0.3 ? 'thunder' : 'rain') : 'clear');
@@ -927,6 +949,9 @@ export class Game {
     let pick = id;
     if (id === B.FURNACE_LIT) pick = B.FURNACE;
     if (id === B.WHEAT) pick = I.WHEAT_SEEDS;
+    if (id === B.REDSTONE_WIRE) pick = I.REDSTONE;
+    if (id === B.REDSTONE_TORCH_OFF) pick = B.REDSTONE_TORCH;
+    if (id === B.REDSTONE_LAMP_ON) pick = B.REDSTONE_LAMP;
     for (let i = 0; i < 9; i++) if (inv.slots[i] && inv.slots[i].id === pick) { inv.selected = i; return; }
     if (this.player.creative) {
       let slot = inv.slots.findIndex((s, i) => i < 9 && !s);
@@ -962,6 +987,18 @@ export class Game {
         return;
       }
       if (def.interact === 'bed') { this.trySleep(hit); return; }
+      if (def.interact === 'lever') {
+        w.setBlock(hit.x, hit.y, hit.z, hit.id, w.getMeta(hit.x, hit.y, hit.z) ^ 8);
+        audio.play('click', hit);
+        this.swing = 1;
+        return;
+      }
+      if (def.interact === 'button') {
+        const m = w.getMeta(hit.x, hit.y, hit.z);
+        if (!(m & 8)) { w.setBlock(hit.x, hit.y, hit.z, hit.id, m | 8); w.scheduleUpdate(hit.x, hit.y, hit.z, 1, 'unpress'); audio.play('click', hit); }
+        this.swing = 1;
+        return;
+      }
       if (def.interact === 'door') {
         const m = w.getMeta(hit.x, hit.y, hit.z);
         const by = m & 8 ? hit.y - 1 : hit.y;
@@ -1061,10 +1098,10 @@ export class Game {
       }
       return;
     }
-    if (!heldDef.isBlock) return;
+    if (!heldDef.isBlock && !heldDef.places) return;
 
     // place block
-    const id = held.id;
+    const id = heldDef.places || held.id;
     const def = BLOCKS[id];
     const hitPoint = p.eye.addScaledVector(p.lookDir(new THREE.Vector3()), hit.dist);
     const upperHalf = hit.face[1] === -1 || (hit.face[1] === 0 && hitPoint.y - Math.floor(hitPoint.y) > 0.5);
@@ -1104,7 +1141,7 @@ export class Game {
       if (!p.creative) inv.consumeHeld(1);
       return;
     }
-    if (id === B.TORCH || id === B.LADDER) {
+    if (id === B.TORCH || id === B.LADDER || def.attach) {
       const f = hit.face;
       if (f[1] === -1) return;
       if (f[1] === 1) { if (id === B.LADDER) return; meta = 0; }

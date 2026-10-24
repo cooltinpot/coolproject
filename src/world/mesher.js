@@ -158,12 +158,32 @@ export function buildChunkMesh(world, chunk) {
       case 'cross': crossBlock(def, p, x, y, z, biome); break;
       case 'fluid': fluidBlock(def, id, p, x, y, z); break;
       case 'box': boxBlock(def, p, x, y, z, def.box, null); break;
+      case 'wire': {
+        const pw = pm[p] & 15;
+        const l = pl[p];
+        const f = 0.3 + 0.7 * pw / 15;
+        const r = 255 * f, g = 20 * f + (pw > 10 ? 30 : 0), bb = 20 * f;
+        const L = def.faces.top;
+        const yy = y + 0.02;
+        const a = solidB.vert(x, yy, z + 1, 0, 1, L, r, g, bb, (l >> 4) * 17, Math.max(l & 15, pw >> 1) * 17);
+        const b2 = solidB.vert(x + 1, yy, z + 1, 1, 1, L, r, g, bb, (l >> 4) * 17, Math.max(l & 15, pw >> 1) * 17);
+        const c = solidB.vert(x + 1, yy, z, 1, 0, L, r, g, bb, (l >> 4) * 17, Math.max(l & 15, pw >> 1) * 17);
+        const d = solidB.vert(x, yy, z, 0, 0, L, r, g, bb, (l >> 4) * 17, Math.max(l & 15, pw >> 1) * 17);
+        solidB.quad(a, b2, c, d, false);
+        break;
+      }
       case 'portal':
         boxBlock(def, p, x, y, z, pm[p] & 1 ? [6, 0, 0, 10, 16, 16] : [0, 0, 6, 16, 16, 10], null, null, { builder: transB, fullLight: true });
         break;
       case 'shape': {
         const shapes = blockShapes(id, pm[p]);
         let uvo = null;
+        if (def.shape === 'lever') {
+          const handle = tileIndex.planks;
+          boxBlock(def, p, x, y, z, shapes[0], null, null, null);
+          boxBlock(def, p, x, y, z, shapes[1], null, null, { layer: () => handle });
+          break;
+        }
         if (def.shape === 'door') {
           const L = tileIndex[pm[p] & 8 ? 'door_top' : 'door_bottom'];
           uvo = { layer: (d) => (d === 2 || d === 3 ? def.faces.top : L) };

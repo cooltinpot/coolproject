@@ -5,6 +5,7 @@ import { Generator, NetherGenerator, BIOME_NAMES } from './generator.js';
 import { Lighting } from './lighting.js';
 import { buildChunkMesh, ATTACH_DIRS } from './mesher.js';
 import { makeRng } from '../noise.js';
+import { redstoneUpdate, notifyRedstone } from './redstone.js';
 import { dungeonLoot } from '../inventory.js';
 
 const NEIGHBORS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
@@ -104,6 +105,7 @@ export class World {
     if (!opts.silent) {
       this.scheduleUpdate(x, y, z, 0);
       for (const [dx, dy, dz] of NEIGHBORS) this.scheduleUpdate(x + dx, y + dy, z + dz, 0);
+      notifyRedstone(this, x, y, z);
     }
     if (old !== id && (old === B.OAK_LOG || old === B.BIRCH_LOG || old === B.SPRUCE_LOG)) this.scheduleLeafDecay(x, y, z);
     return true;
@@ -116,10 +118,10 @@ export class World {
 
   scheduleUpdate(x, y, z, delay, kind = 'block') {
     if (y < 0 || y >= CH) return;
-    const key = `${x},${y},${z}`;
+    const key = `${x},${y},${z},${kind}`;
     const ex = this.updates.get(key);
     const t = this.time + delay;
-    if (ex && ex.kind === kind && ex.t <= t) return;
+    if (ex && ex.t <= t) return;
     this.updates.set(key, { x, y, z, t, kind });
   }
 
@@ -146,6 +148,7 @@ export class World {
     if (u.kind === 'fluid') { this.fluidTick(x, y, z, id); return; }
     if (def.fluid) { this.scheduleUpdate(x, y, z, def.fluid === 'water' ? 0.25 : 1.5, 'fluid'); return; }
     if (def.needsSupport && !this.isSupported(x, y, z, id)) { this.breakBlock(x, y, z, true); return; }
+    if ((def.redstone || id === B.OAK_DOOR || id === B.TNT) && redstoneUpdate(this, x, y, z, id, u.kind)) return;
     if (def.gravity) {
       const below = this.getBlock(x, y - 1, z);
       if (below >= 0 && (below === 0 || (BLOCKS[below] && (BLOCKS[below].fluid || BLOCKS[below].replaceable)))) {
@@ -160,10 +163,11 @@ export class World {
   isSupported(x, y, z, id) {
     const below = this.getBlock(x, y - 1, z);
     if (below < 0) return true;
-    if (id === B.TORCH || id === B.LADDER) {
-      const m = this.getMeta(x, y, z);
+    if (id === B.REDSTONE_WIRE || id === B.PRESSURE_PLATE) return SOLID[below] === 1 && OPAQUE[below] === 1;
+    if (id === B.TORCH || id === B.LADDER || BLOCKS[id].attach) {
+      const m = this.getMeta(x, y, z) & 7;
       const dir = ATTACH_DIRS[m];
-      if (!dir) return id === B.TORCH ? SOLID[below] === 1 : false;
+      if (!dir) return id === B.LADDER ? false : SOLID[below] === 1;
       return SOLID[this.getBlock(x + dir[0], y, z + dir[2])] === 1 || this.getBlock(x + dir[0], y, z + dir[2]) < 0;
     }
     if (id === B.CACTUS) {

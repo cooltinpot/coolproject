@@ -178,6 +178,7 @@ export class Generator {
     ore(B.IRON_ORE, 14, 5, 64, [3, 8]);
     ore(B.GOLD_ORE, 3, 5, 32, [3, 7]);
     ore(B.DIAMOND_ORE, 2, 5, 16, [2, 6]);
+    ore(B.REDSTONE_ORE, 6, 5, 16, [3, 8]);
     ore(B.GRAVEL, 6, 5, 100, [8, 20]);
     ore(B.DIRT, 6, 5, 100, [8, 20]);
 

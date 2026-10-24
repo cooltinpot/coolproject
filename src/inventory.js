@@ -160,6 +160,11 @@ for (const [mat, out] of [[B.PLANKS, B.OAK_STAIRS], [B.COBBLE, B.COBBLE_STAIRS],
 shaped(['XX', 'XX', 'XX'], { X: B.PLANKS }, B.OAK_DOOR, 3);
 shaped(['XXX', 'XXX', 'XXX'], { X: I.GOLD_NUGGET }, I.GOLD_INGOT);
 shapeless([I.GOLD_INGOT], I.GOLD_NUGGET, 9);
+shaped(['R', 'S'], { R: I.REDSTONE, S: I.STICK }, B.REDSTONE_TORCH);
+shaped(['S', 'C'], { S: I.STICK, C: B.COBBLE }, B.LEVER);
+shapeless([B.STONE], B.STONE_BUTTON);
+shaped(['SS'], { S: B.STONE }, B.PRESSURE_PLATE);
+shaped([' R ', 'RGR', ' R '], { R: I.REDSTONE, G: B.GLOWSTONE }, B.REDSTONE_LAMP);
 export { RECIPES };
 
 function matchKey(k, id) { return Array.isArray(k) ? k.includes(id) : k === id; }
@@ -208,7 +213,7 @@ export function matchRecipe(grid, w, h) {
 export const SMELTING = {
   [B.IRON_ORE]: I.IRON_INGOT, [B.GOLD_ORE]: I.GOLD_INGOT, [B.SAND]: B.GLASS, [B.COBBLE]: B.STONE,
   [B.OAK_LOG]: I.COAL, [B.BIRCH_LOG]: I.COAL, [B.SPRUCE_LOG]: I.COAL, [I.CLAY_BALL]: I.BRICK,
-  [B.NETHERRACK]: B.NETHER_BRICKS, [B.QUARTZ_ORE]: I.QUARTZ,
+  [B.NETHERRACK]: B.NETHER_BRICKS, [B.REDSTONE_ORE]: I.REDSTONE, [B.QUARTZ_ORE]: I.QUARTZ,
   [I.RAW_PORK]: I.COOKED_PORK, [I.RAW_CHICKEN]: I.COOKED_CHICKEN, [I.RAW_BEEF]: I.STEAK, [I.RAW_MUTTON]: I.COOKED_MUTTON,
   [B.CLAY]: B.BRICKS, [B.STONE]: B.STONE_BRICKS, [B.DIAMOND_ORE]: I.DIAMOND, [B.COAL_ORE]: I.COAL,
 };
