@@ -1,5 +1,5 @@
 // Item stacks, inventory container, crafting & smelting.
-import { B, I, ITEMS, TOOL_MATERIALS, TOOL_TYPES, toolId, maxStack } from './blocks.js';
+import { B, I, ITEMS, TOOL_MATERIALS, TOOL_TYPES, toolId, maxStack, ARMOR_MATERIALS, ARMOR_SLOTS, armorId } from './blocks.js';
 
 export function stack(id, count = 1, dmg = 0) { return { id, count, dmg }; }
 export function cloneStack(s) { return s ? { id: s.id, count: s.count, dmg: s.dmg || 0 } : null; }
@@ -8,6 +8,7 @@ export function sameItem(a, b) { return a && b && a.id === b.id && (a.dmg || 0) 
 export class Inventory {
   constructor(size = 36) {
     this.slots = new Array(size).fill(null);
+    this.armor = [null, null, null, null]; // helmet, chestplate, leggings, boots
     this.selected = 0;
     this.onChange = null;
   }
@@ -39,6 +40,18 @@ export class Inventory {
     return left;
   }
 
+  removeItem(id, n = 1) {
+    for (let i = this.slots.length - 1; i >= 0 && n > 0; i--) {
+      const s = this.slots[i];
+      if (!s || s.id !== id) continue;
+      const k = Math.min(n, s.count);
+      s.count -= k; n -= k;
+      if (s.count <= 0) this.slots[i] = null;
+    }
+    this.changed();
+    return n === 0;
+  }
+
   count(id) { let n = 0; for (const s of this.slots) if (s && s.id === id) n += s.count; return n; }
 
   consumeHeld(n = 1) {
@@ -61,11 +74,29 @@ export class Inventory {
     return false;
   }
 
-  toJSON() { return { slots: this.slots, selected: this.selected }; }
+  armorPoints() {
+    let n = 0;
+    for (const a of this.armor) if (a) n += ITEMS[a.id].armor.defense;
+    return n;
+  }
+
+  damageArmor(amount) {
+    const d = Math.max(1, Math.floor(amount / 4));
+    for (let i = 0; i < 4; i++) {
+      const a = this.armor[i];
+      if (!a) continue;
+      a.dmg = (a.dmg || 0) + d;
+      if (a.dmg >= ITEMS[a.id].durability) this.armor[i] = null;
+    }
+    this.changed();
+  }
+
+  toJSON() { return { slots: this.slots, selected: this.selected, armor: this.armor }; }
   load(o) {
     if (!o) return;
     this.slots = o.slots.map((s) => (s && ITEMS[s.id] ? { id: s.id, count: s.count, dmg: s.dmg || 0 } : null));
     while (this.slots.length < 36) this.slots.push(null);
+    this.armor = (o.armor || [null, null, null, null]).map((s) => (s && ITEMS[s.id] ? { id: s.id, count: 1, dmg: s.dmg || 0 } : null));
     this.selected = o.selected || 0;
   }
 }
@@ -114,6 +145,19 @@ const TOOL_MAT_ITEM = { wood: B.PLANKS, stone: B.COBBLE, iron: I.IRON_INGOT, gol
 TOOL_MATERIALS.forEach((m, mi) => TOOL_TYPES.forEach((t) => {
   shaped(TOOL_PATTERNS[t], { X: TOOL_MAT_ITEM[m.key], S: I.STICK }, toolId(mi, t));
 }));
+const ARMOR_PATTERNS = [['XXX', 'X X'], ['X X', 'XXX', 'XXX'], ['XXX', 'X X', 'X X'], ['X X', 'X X']];
+const ARMOR_MAT_ITEM = { leather: I.LEATHER, gold: I.GOLD_INGOT, iron: I.IRON_INGOT, diamond: I.DIAMOND };
+ARMOR_MATERIALS.forEach((m, mi) => ARMOR_SLOTS.forEach((_, si) => shaped(ARMOR_PATTERNS[si], { X: ARMOR_MAT_ITEM[m.key] }, armorId(mi, si))));
+shaped([' TS', 'T S', ' TS'], { T: I.STICK, S: I.STRING }, I.BOW);
+shaped(['F', 'S', 'E'], { F: I.FLINT, S: I.STICK, E: I.FEATHER }, I.ARROW, 4);
+shapeless([I.BONE], I.BONE_MEAL, 3);
+shaped(['XXX'], { X: B.PLANKS }, B.OAK_SLAB, 6);
+shaped(['XXX'], { X: B.STONE }, B.STONE_SLAB, 6);
+shaped(['XXX'], { X: B.COBBLE }, B.COBBLE_SLAB, 6);
+for (const [mat, out] of [[B.PLANKS, B.OAK_STAIRS], [B.COBBLE, B.COBBLE_STAIRS], [B.STONE_BRICKS, B.STONE_BRICK_STAIRS], [B.BRICKS, B.BRICK_STAIRS]]) {
+  shaped(['X  ', 'XX ', 'XXX'], { X: mat }, out, 4);
+}
+shaped(['XX', 'XX', 'XX'], { X: B.PLANKS }, B.OAK_DOOR, 3);
 export { RECIPES };
 
 function matchKey(k, id) { return Array.isArray(k) ? k.includes(id) : k === id; }
@@ -162,7 +206,7 @@ export function matchRecipe(grid, w, h) {
 export const SMELTING = {
   [B.IRON_ORE]: I.IRON_INGOT, [B.GOLD_ORE]: I.GOLD_INGOT, [B.SAND]: B.GLASS, [B.COBBLE]: B.STONE,
   [B.OAK_LOG]: I.COAL, [B.BIRCH_LOG]: I.COAL, [B.SPRUCE_LOG]: I.COAL, [I.CLAY_BALL]: I.BRICK,
-  [I.RAW_PORK]: I.COOKED_PORK, [I.RAW_BEEF]: I.STEAK, [I.RAW_MUTTON]: I.COOKED_MUTTON,
+  [I.RAW_PORK]: I.COOKED_PORK, [I.RAW_CHICKEN]: I.COOKED_CHICKEN, [I.RAW_BEEF]: I.STEAK, [I.RAW_MUTTON]: I.COOKED_MUTTON,
   [B.CLAY]: B.BRICKS, [B.STONE]: B.STONE_BRICKS, [B.DIAMOND_ORE]: I.DIAMOND, [B.COAL_ORE]: I.COAL,
 };
 const SMELT_TIME = 10;

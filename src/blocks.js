@@ -10,6 +10,8 @@ export const B = {
   CLAY: 37, PUMPKIN: 38, GLOWSTONE: 39, SNOW_BLOCK: 40, MOSSY_COBBLE: 41, CHEST: 42,
   BED: 43, IRON_BLOCK: 44, GOLD_BLOCK: 45, DIAMOND_BLOCK: 46, SAPLING: 47, DEAD_BUSH: 48,
   SPRUCE_LOG: 49, SPRUCE_LEAVES: 50, JACK_O_LANTERN: 51, LADDER: 52, COBWEB: 53, FARMLAND: 54, WHEAT: 55,
+  OAK_SLAB: 56, STONE_SLAB: 57, COBBLE_SLAB: 58, OAK_STAIRS: 59, COBBLE_STAIRS: 60, STONE_BRICK_STAIRS: 61,
+  BRICK_STAIRS: 62, OAK_DOOR: 63,
 };
 
 export const I = {
@@ -18,7 +20,18 @@ export const I = {
   RAW_BEEF: 268, STEAK: 269, ROTTEN_FLESH: 270, BUCKET: 271, WATER_BUCKET: 272,
   LAVA_BUCKET: 273, FLINT_AND_STEEL: 274, RAW_MUTTON: 275, COOKED_MUTTON: 276, STRING: 277,
   BONE: 278, BREAD: 279, WHEAT_SEEDS: 280, GOLDEN_APPLE: 281, BOWL: 282, MUSHROOM_STEW: 283, WHEAT: 284,
+  LEATHER: 285, FEATHER: 286, RAW_CHICKEN: 287, COOKED_CHICKEN: 288, ARROW: 289, BOW: 290, BONE_MEAL: 291,
 };
+
+export const ARMOR_MATERIALS = [
+  { key: 'leather', name: 'Leather', defense: [1, 3, 2, 1], durability: [55, 80, 75, 65], color: '#a0653a', dark: '#6b3f1f' },
+  { key: 'gold', name: 'Golden', defense: [2, 5, 3, 1], durability: [77, 112, 105, 91], color: '#f7e14b', dark: '#c9a01b' },
+  { key: 'iron', name: 'Iron', defense: [2, 6, 5, 2], durability: [165, 240, 225, 195], color: '#e6e6e6', dark: '#9a9a9a' },
+  { key: 'diamond', name: 'Diamond', defense: [3, 8, 6, 3], durability: [363, 528, 495, 429], color: '#5ff0e0', dark: '#1fa89a' },
+];
+export const ARMOR_SLOTS = ['helmet', 'chestplate', 'leggings', 'boots'];
+export const ARMOR_BASE = 400;
+export function armorId(matIdx, slot) { return ARMOR_BASE + matIdx * 4 + slot; }
 
 export const TOOL_MATERIALS = [
   { key: 'wood', name: 'Wooden', tier: 0, speed: 2, durability: 59, dmg: 0, color: '#9a7440', dark: '#6b4f26' },
@@ -133,6 +146,16 @@ block(B.LADDER, 'ladder', 'Ladder', { tex: T('ladder'), render: 'ladder', layer:
 block(B.FARMLAND, 'farmland', 'Farmland', { tex: { top: 'farmland', bottom: 'dirt', side: 'dirt' }, render: 'box', box: [0, 0, 0, 16, 15, 16], hardness: 0.6, tool: 'shovel', sound: 'gravel', drops: () => [[B.DIRT, 1]] });
 block(B.WHEAT, 'wheat_crop', 'Wheat Crops', { tex: T('wheat_7'), render: 'cross', layer: 'cutout', solid: false, opaque: false, hardness: 0, sound: 'grass', needsSupport: true, stages: 8, hidden: true,
   drops: (rng, meta) => meta >= 7 ? [[I.WHEAT, 1], [I.WHEAT_SEEDS, 1 + Math.floor(rng() * 3)]] : [[I.WHEAT_SEEDS, 1]] });
+const slabDrop = (id) => (rng, meta) => [[id, 1]];
+block(B.OAK_SLAB, 'oak_slab', 'Oak Slab', { tex: T('planks'), render: 'shape', shape: 'slab', opaque: false, hardness: 2, tool: 'axe', sound: 'wood', double: B.PLANKS, drops: slabDrop(B.OAK_SLAB) });
+block(B.STONE_SLAB, 'stone_slab', 'Stone Slab', { tex: { top: 'stone_slab_top', bottom: 'stone_slab_top', side: 'stone_slab_side' }, render: 'shape', shape: 'slab', opaque: false, hardness: 2, tool: 'pickaxe', level: 0, double: B.STONE_BRICKS, drops: slabDrop(B.STONE_SLAB) });
+block(B.COBBLE_SLAB, 'cobblestone_slab', 'Cobblestone Slab', { tex: T('cobblestone'), render: 'shape', shape: 'slab', opaque: false, hardness: 2, tool: 'pickaxe', level: 0, double: B.COBBLE, drops: slabDrop(B.COBBLE_SLAB) });
+block(B.OAK_STAIRS, 'oak_stairs', 'Oak Stairs', { tex: T('planks'), render: 'shape', shape: 'stairs', opaque: false, hardness: 2, tool: 'axe', sound: 'wood' });
+block(B.COBBLE_STAIRS, 'cobblestone_stairs', 'Cobblestone Stairs', { tex: T('cobblestone'), render: 'shape', shape: 'stairs', opaque: false, hardness: 2, tool: 'pickaxe', level: 0 });
+block(B.STONE_BRICK_STAIRS, 'stone_brick_stairs', 'Stone Brick Stairs', { tex: T('stone_bricks'), render: 'shape', shape: 'stairs', opaque: false, hardness: 1.5, tool: 'pickaxe', level: 0 });
+block(B.BRICK_STAIRS, 'brick_stairs', 'Brick Stairs', { tex: T('bricks'), render: 'shape', shape: 'stairs', opaque: false, hardness: 2, tool: 'pickaxe', level: 0 });
+block(B.OAK_DOOR, 'oak_door', 'Oak Door', { tex: { top: 'planks', bottom: 'planks', side: 'door_bottom', front: 'door_bottom' }, render: 'shape', shape: 'door', layer: 'cutout', opaque: false, hardness: 3, tool: 'axe', sound: 'wood', stack: 16, interact: 'door', needsSupport: true, flatIcon: 'door_item',
+  drops: (rng, meta) => (meta & 8 ? [] : [[B.OAK_DOOR, 1]]) });
 block(B.COBWEB, 'cobweb', 'Cobweb', { tex: T('cobweb'), render: 'cross', layer: 'cutout', solid: false, opaque: false, hardness: 4, tool: 'sword', sound: 'cloth', web: true, drops: () => [[I.STRING, 1]] });
 
 // Planks from birch/spruce logs share the oak plank block to keep things simple.
@@ -163,6 +186,19 @@ item(I.BONE, 'bone', 'Bone');
 item(I.BREAD, 'bread', 'Bread', { food: { hunger: 5, sat: 6 } });
 item(I.WHEAT_SEEDS, 'wheat_seeds', 'Seeds', { plants: B.WHEAT });
 item(I.WHEAT, 'wheat', 'Wheat');
+item(I.LEATHER, 'leather', 'Leather');
+item(I.FEATHER, 'feather', 'Feather');
+item(I.RAW_CHICKEN, 'raw_chicken', 'Raw Chicken', { food: { hunger: 2, sat: 1.2 } });
+item(I.COOKED_CHICKEN, 'cooked_chicken', 'Cooked Chicken', { food: { hunger: 6, sat: 7.2 } });
+item(I.ARROW, 'arrow', 'Arrow');
+item(I.BOW, 'bow', 'Bow', { stack: 1, durability: 384, bow: true });
+item(I.BONE_MEAL, 'bone_meal', 'Bone Meal');
+ARMOR_MATERIALS.forEach((m, mi) => ARMOR_SLOTS.forEach((slot, si) => {
+  const names = { helmet: 'Helmet', chestplate: 'Chestplate', leggings: 'Leggings', boots: 'Boots' };
+  item(armorId(mi, si), `${m.key}_${slot}`, `${m.key === 'leather' ? 'Leather ' + (slot === 'helmet' ? 'Cap' : slot === 'chestplate' ? 'Tunic' : slot === 'leggings' ? 'Pants' : 'Boots') : m.name + ' ' + names[slot]}`, {
+    stack: 1, icon: `armor_${slot}_${m.key}`, armor: { slot: si, defense: m.defense[si], material: m.key }, durability: m.durability[si],
+  });
+}));
 item(I.GOLDEN_APPLE, 'golden_apple', 'Golden Apple', { food: { hunger: 4, sat: 9.6, regen: true } });
 item(I.BOWL, 'bowl', 'Bowl', { fuel: 5 });
 item(I.MUSHROOM_STEW, 'mushroom_stew', 'Stew', { stack: 1, food: { hunger: 6, sat: 7.2, returns: I.BOWL } });
@@ -184,6 +220,29 @@ TOOL_MATERIALS.forEach((m, mi) => {
 // Fuel values in seconds of burn time (one smelt = 10s).
 for (const id of [B.OAK_LOG, B.BIRCH_LOG, B.SPRUCE_LOG, B.PLANKS, B.CRAFTING_TABLE, B.BOOKSHELF, B.CHEST, B.SAPLING, B.LADDER]) {
   ITEMS[id].fuel = id === B.SAPLING ? 5 : 15;
+}
+
+// Collision/render boxes (1/16 units) for non-cube blocks; null = full cube.
+const DOOR_CLOSED = [[0, 0, 0, 16, 16, 3], [13, 0, 0, 16, 16, 16], [0, 0, 13, 16, 16, 16], [0, 0, 0, 3, 16, 16]];
+const STAIR_BACK = [[0, 0, 0, 16, 16, 8], [8, 0, 0, 16, 16, 16], [0, 0, 8, 16, 16, 16], [0, 0, 0, 8, 16, 16]];
+export function blockShapes(id, meta = 0) {
+  const d = BLOCKS[id];
+  if (!d) return null;
+  if (d.render === 'box') return [d.box];
+  if (d.render !== 'shape') return null;
+  if (d.shape === 'slab') return [meta & 1 ? [0, 8, 0, 16, 16, 16] : [0, 0, 0, 16, 8, 16]];
+  if (d.shape === 'stairs') {
+    const f = meta & 3, up = meta & 4;
+    const b = STAIR_BACK[f];
+    return up
+      ? [[0, 8, 0, 16, 16, 16], [b[0], 0, b[2], b[3], 8, b[5]]]
+      : [[0, 0, 0, 16, 8, 16], [b[0], 8, b[2], b[3], 16, b[5]]];
+  }
+  if (d.shape === 'door') {
+    const f = meta & 3;
+    return [meta & 4 ? DOOR_CLOSED[(f + 3) % 4] : DOOR_CLOSED[f]];
+  }
+  return null;
 }
 
 export function isBlockId(id) { return id > 0 && id < 256 && !!BLOCKS[id]; }

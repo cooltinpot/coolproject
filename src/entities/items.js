@@ -1,7 +1,7 @@
 // Dropped items, falling blocks, primed TNT and particles.
 import * as THREE from 'three';
 import { Entity } from './physics.js';
-import { BLOCKS, ITEMS, B, maxStack } from '../blocks.js';
+import { BLOCKS, ITEMS, B, maxStack, blockShapes } from '../blocks.js';
 import { iconCanvases, tileAvgColor } from '../textures.js';
 import { FACES, FACING_FACE } from '../world/mesher.js';
 import { lightToBrightness } from '../render/materials.js';
@@ -16,9 +16,10 @@ export function blockGeometry(id, size = 1) {
   if (cubeCache.has(key)) return cubeCache.get(key);
   const def = BLOCKS[id];
   const pos = [], uv = [], layer = [], col = [], index = [];
-  let box = [0, 0, 0, 16, 16, 16];
-  if (def.render === 'box') box = def.box;
-  if (def.render === 'torch') box = [7, 0, 7, 9, 10, 9];
+  let boxes = blockShapes(id, 0) || [[0, 0, 0, 16, 16, 16]];
+  if (def.render === 'torch') boxes = [[7, 0, 7, 9, 10, 9]];
+  const minY = Math.min(...boxes.map((b) => b[1])) / 16, maxY = Math.max(...boxes.map((b) => b[4])) / 16;
+  for (const box of boxes) {
   const [x0, y0, z0, x1, y1, z1] = box.map((v) => v / 16);
   for (let d = 0; d < 6; d++) {
     const F = FACES[d];
@@ -29,7 +30,7 @@ export function blockGeometry(id, size = 1) {
     for (let k = 0; k < 4; k++) {
       const c = F.corners[k];
       const px = c[0] ? x1 : x0, py = c[1] ? y1 : y0, pz = c[2] ? z1 : z0;
-      pos.push((px - 0.5) * size, (py - 0.5 * (y1 - y0) - y0) * size, (pz - 0.5) * size);
+      pos.push((px - 0.5) * size, (py - 0.5 * (maxY - minY) - minY) * size, (pz - 0.5) * size);
       const rel = [px - 0.5, py - 0.5, pz - 0.5];
       let u = rel[0] * F.right[0] + rel[1] * F.right[1] + rel[2] * F.right[2] + 0.5;
       let v = 1 - (rel[0] * F.up[0] + rel[1] * F.up[1] + rel[2] * F.up[2] + 0.5);
@@ -43,6 +44,7 @@ export function blockGeometry(id, size = 1) {
     }
     index.push(base, base + 1, base + 2, base, base + 2, base + 3);
   }
+  }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
@@ -55,7 +57,7 @@ export function blockGeometry(id, size = 1) {
 
 export function isCubeItem(id) {
   const d = ITEMS[id];
-  return d && d.isBlock && (d.render === 'cube' || d.render === 'box' || d.render === 'fluid');
+  return d && d.isBlock && !d.flatIcon && (d.render === 'cube' || d.render === 'box' || d.render === 'fluid' || d.render === 'shape');
 }
 
 const spriteTexCache = new Map();
@@ -193,6 +195,117 @@ export class PrimedTNT extends Entity {
     }
   }
   remove() { this.dead = true; this.scene.remove(this.mesh); this.mat.dispose(); }
+}
+
+export function rayAABB(o, d, a, max) {
+  let tmin = 0, tmax = max;
+  const oo = [o.x, o.y, o.z], dd = [d.x, d.y, d.z];
+  for (let k = 0; k < 3; k++) {
+    const mn = a[k], mx = a[k + 3];
+    if (Math.abs(dd[k]) < 1e-9) { if (oo[k] < mn || oo[k] > mx) return -1; continue; }
+    let t1 = (mn - oo[k]) / dd[k], t2 = (mx - oo[k]) / dd[k];
+    if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
+    tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return -1;
+  }
+  return tmin;
+}
+
+let arrowGeo = null;
+export class Arrow {
+  constructor(world, scene, owner, pos, vel, fromPlayer) {
+    this.world = world;
+    this.scene = scene;
+    this.owner = owner;
+    this.pos = pos.clone();
+    this.vel = vel.clone();
+    this.fromPlayer = fromPlayer;
+    this.stuck = false;
+    this.age = 0;
+    this.dead = false;
+    if (!arrowGeo) {
+      const shaft = new THREE.BoxGeometry(0.04, 0.04, 0.55);
+      arrowGeo = shaft;
+    }
+    this.mat = new THREE.MeshBasicMaterial({ color: 0x8a6a3a });
+    this.mesh = new THREE.Mesh(arrowGeo, this.mat);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.1), new THREE.MeshBasicMaterial({ color: 0x9a9a9a }));
+    head.position.z = 0.3;
+    const fl = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.01, 0.12), new THREE.MeshBasicMaterial({ color: 0xeeeeee }));
+    fl.position.z = -0.24;
+    this.mesh.add(head, fl);
+    this.head = head; this.fl = fl;
+    scene.add(this.mesh);
+    this.orient();
+  }
+  orient() {
+    this.mesh.position.copy(this.pos);
+    if (this.vel.lengthSq() > 1e-4) this.mesh.lookAt(this.pos.clone().add(this.vel));
+  }
+  update(dt, ctx) {
+    this.age += dt;
+    const p = ctx.player;
+    if (this.stuck) {
+      if (this.age > 60) { this.remove(); return; }
+      if (this.fromPlayer && !p.creative && this.age > 0.4 && p.pos.distanceTo(this.pos) < 1.6) {
+        if (p.inventory.add({ id: 289, count: 1, dmg: 0 }) === 0) { audio.play('pop'); this.remove(); }
+      }
+      const b = ctx.lightAt(this.pos);
+      this.mat.color.setRGB(0.54 * b, 0.42 * b, 0.23 * b);
+      // fall again if the block it is stuck in disappears
+      const id = this.world.getBlock(Math.floor(this.stuckIn[0]), Math.floor(this.stuckIn[1]), Math.floor(this.stuckIn[2]));
+      if (id === 0) { this.stuck = false; this.vel.set(0, -1, 0); }
+      return;
+    }
+    if (this.age > 30) { this.remove(); return; }
+    this.vel.y -= 20 * dt;
+    this.vel.multiplyScalar(Math.pow(0.99, dt * 20));
+    const speed = this.vel.length();
+    const step = speed * dt;
+    const dir = this.vel.clone().divideScalar(speed || 1);
+    // entities
+    let best = null, bd = step;
+    const consider = (e, isPlayer) => {
+      if (e === this.owner || e.dead || e.dying) return;
+      if (isPlayer && (p.dead || p.creative)) return;
+      const a = e.aabb();
+      a[0] -= 0.1; a[2] -= 0.1; a[3] += 0.1; a[5] += 0.1;
+      const t = rayAABB(this.pos, dir, a, bd);
+      if (t >= 0 && t <= bd) { bd = t; best = e; }
+    };
+    consider(p, true);
+    for (const m of ctx.mobs) consider(m, false);
+    const bh = this.world.raycast(this.pos, dir, step);
+    if (best && (!bh || bd < bh.dist)) {
+      const dmg = Math.ceil(speed * 0.14 + Math.random() * 1.5);
+      const from = this.pos.clone().addScaledVector(dir, -2);
+      if (best === p) p.damage(dmg, 'arrow', from);
+      else best.hurt(dmg, from, ctx);
+      audio.play('arrow_hit', this.pos);
+      this.remove();
+      return;
+    }
+    if (bh) {
+      this.pos.addScaledVector(dir, Math.max(0, bh.dist - 0.1));
+      this.stuck = true;
+      this.stuckIn = [bh.x + 0.5, bh.y + 0.5, bh.z + 0.5];
+      this.age = 0;
+      audio.play('arrow_hit', this.pos);
+      this.mesh.position.copy(this.pos);
+      return;
+    }
+    this.pos.addScaledVector(this.vel, dt);
+    this.orient();
+    const b = ctx.lightAt(this.pos);
+    this.mat.color.setRGB(0.54 * b, 0.42 * b, 0.23 * b);
+  }
+  remove() {
+    this.dead = true;
+    this.scene.remove(this.mesh);
+    this.mat.dispose();
+    this.head.material.dispose(); this.head.geometry.dispose();
+    this.fl.material.dispose(); this.fl.geometry.dispose();
+  }
 }
 
 // Instanced cube particles

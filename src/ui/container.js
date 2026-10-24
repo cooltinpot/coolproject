@@ -102,6 +102,10 @@ export class ContainerScreen {
       case 'craft': return this.craftGrid.map((_, i) => ({
         get: () => this.craftGrid[i], set: (s) => { this.craftGrid[i] = s; }, section: 'craft',
       }));
+      case 'armor': return [0, 1, 2, 3].map((i) => ({
+        get: () => inv.armor[i], set: (s) => { inv.armor[i] = s; inv.changed(); }, section: 'armor',
+        accepts: (s) => !!(ITEMS[s.id].armor && ITEMS[s.id].armor.slot === i) && s.count === 1,
+      }));
       case 'chest': return te.slots.map((_, i) => ({ get: () => te.slots[i], set: (s) => { te.slots[i] = s; }, section: 'chest' }));
       case 'furnace': return [0, 1, 2].map((i) => ({
         get: () => te.slots[i], set: (s) => { te.slots[i] = s; }, section: 'furnace', output: i === 2,
@@ -157,6 +161,8 @@ export class ContainerScreen {
       title.textContent = t === 'crafting' ? 'Crafting' : 'Inventory';
       const row = el('div', 'craft-row', panel);
       if (t === 'inventory') {
+        const armorCol = el('div', 'armor-col', row);
+        for (const s of this.slotsFor('armor')) this.makeSlot(s, armorCol, 'armor-slot');
         const pv = el('div', 'player-preview', row);
         pv.innerHTML = `<div class="pp-stats">❤ ${Math.ceil(this.player.health)} / 20<br>🍗 ${this.player.food} / 20<br>Level ${this.game.xpLevel()}</div>`;
       }
@@ -336,7 +342,8 @@ export class ContainerScreen {
         const [inp, fuel] = this.slotsFor('furnace');
         targets = SMELTING[s.id] !== undefined ? [inp] : ITEMS[s.id].fuel ? [fuel] : (sec === 'hotbar' ? this.slotsFor('main') : this.slotsFor('hotbar'));
       }
-    } else if (sec === 'craft') targets = [...this.slotsFor('main'), ...this.slotsFor('hotbar')];
+    } else if (sec === 'craft' || sec === 'armor') targets = [...this.slotsFor('main'), ...this.slotsFor('hotbar')];
+    else if (ITEMS[s.id].armor && this.type === 'inventory' && !this.inv.armor[ITEMS[s.id].armor.slot]) targets = this.slotsFor('armor');
     else targets = sec === 'hotbar' ? this.slotsFor('main') : this.slotsFor('hotbar');
     const copy = { ...s };
     const left = this.addToSlots(targets, copy);

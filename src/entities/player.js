@@ -65,6 +65,13 @@ export class Player extends Entity {
     if (this.dead) return false;
     if (this.creative && source !== 'void' && source !== 'kill') return false;
     if (this.invuln > 0 && source !== 'void' && source !== 'kill') return false;
+    if (['zombie', 'spider', 'skeleton', 'arrow', 'explosion', 'cactus', 'mob'].includes(source)) {
+      const pts = this.inventory.armorPoints();
+      if (pts > 0) {
+        this.inventory.damageArmor(amount);
+        amount *= 1 - Math.min(20, pts) / 25;
+      }
+    }
     this.health -= amount;
     this.invuln = 0.5;
     this.hurtTilt = 1;

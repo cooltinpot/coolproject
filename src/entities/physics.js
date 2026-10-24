@@ -1,13 +1,12 @@
 import * as THREE from 'three';
-import { BLOCKS, SOLID } from '../blocks.js';
+import { BLOCKS, SOLID, blockShapes } from '../blocks.js';
 
 const EPS = 1e-4;
 
-export function collisionBox(id) {
+export function collisionBoxes(id, meta) {
   const d = BLOCKS[id];
   if (!d || !d.solid) return null;
-  if (d.render === 'box' && d.box) return d.box;
-  return null; // full cube
+  return blockShapes(id, meta); // null = full cube
 }
 
 // Axis-aligned bounding-box entity with voxel collision.
@@ -29,6 +28,7 @@ export class Entity {
     this.horizontalCollision = false;
     this.gravity = 32;
     this.noClip = false;
+    this.stepHeight = 0.6;
   }
 
   aabb(p = this.pos) {
@@ -44,8 +44,8 @@ export class Entity {
       const id = w.getBlock(x, y, z);
       if (id === -1) { out.push([x, y, z, x + 1, y + 1, z + 1]); continue; }
       if (!SOLID[id]) continue;
-      const b = collisionBox(id);
-      if (b) out.push([x + b[0] / 16, y + b[1] / 16, z + b[2] / 16, x + b[3] / 16, y + b[4] / 16, z + b[5] / 16]);
+      const bs = collisionBoxes(id, w.getMeta(x, y, z));
+      if (bs) for (const b of bs) out.push([x + b[0] / 16, y + b[1] / 16, z + b[2] / 16, x + b[3] / 16, y + b[4] / 16, z + b[5] / 16]);
       else out.push([x, y, z, x + 1, y + 1, z + 1]);
     }
     return out;
@@ -60,8 +60,25 @@ export class Entity {
     return false;
   }
 
-  // Move by (dx,dy,dz) resolving collisions axis by axis. Returns which axes were blocked.
+  // Move with Minecraft-style step-up (walk onto slabs/stairs without jumping).
   move(dx, dy, dz) {
+    const start = this.pos.clone();
+    const hit = this.moveRaw(dx, dy, dz);
+    if (this.noClip || !(hit.x || hit.z) || !this.onGround || dy > 0 || this.stepHeight <= 0) return hit;
+    const normal = this.pos.clone();
+    this.pos.copy(start);
+    this.moveRaw(0, this.stepHeight, 0);
+    const h2 = this.moveRaw(dx, 0, dz);
+    const h3 = this.moveRaw(0, -this.stepHeight + Math.min(0, dy), 0);
+    const dn = (normal.x - start.x) ** 2 + (normal.z - start.z) ** 2;
+    const ds = (this.pos.x - start.x) ** 2 + (this.pos.z - start.z) ** 2;
+    if (ds > dn + 1e-6 && h3.y) return { x: h2.x, y: true, z: h2.z };
+    this.pos.copy(normal);
+    return hit;
+  }
+
+  // Move by (dx,dy,dz) resolving collisions axis by axis. Returns which axes were blocked.
+  moveRaw(dx, dy, dz) {
     if (this.noClip) { this.pos.x += dx; this.pos.y += dy; this.pos.z += dz; return { x: false, y: false, z: false }; }
     const hit = { x: false, y: false, z: false };
     const a = this.aabb();

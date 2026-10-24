@@ -56,6 +56,7 @@ export class UI {
     this.heartEls = mkRow('hearts', 10, 'hud-icon');
     this.foodEls = mkRow('food', 10, 'hud-icon');
     this.airEls = mkRow('air', 10, 'hud-icon');
+    this.armorEls = mkRow('armorrow', 10, 'hud-icon');
   }
 
   updateHud(game, dt) {
@@ -85,6 +86,13 @@ export class UI {
         const v = p.food - i * 2;
         const src = v >= 2 ? ICONS.foodFull : v === 1 ? ICONS.foodHalf : ICONS.foodEmpty;
         if (im.src !== src) im.src = src;
+      });
+      const ap = inv.armorPoints();
+      this.armorEls.forEach((im, i) => {
+        const v = ap - i * 2;
+        const src = v >= 2 ? ICONS.armorFull : v === 1 ? ICONS.armorHalf : ICONS.armorEmpty;
+        if (im.src !== src) im.src = src;
+        im.style.visibility = ap > 0 ? 'visible' : 'hidden';
       });
       const showAir = p.headInWater || p.air < 15;
       const bubbles = Math.ceil((p.air / 15) * 10);

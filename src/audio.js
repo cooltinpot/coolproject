@@ -118,6 +118,15 @@ export class GameAudio {
       case 'sheep': { for (let i = 0; i < 5; i++) this.tone(380 + (i % 2) * 30, 0.08, 'sawtooth', 0.07 * a, i * 0.07); break; }
       case 'zombie': this.tone(90, 0.9, 'sawtooth', 0.1 * a, 0, 70); this.noise(0.8, 'lowpass', 400, 1, 0.12 * a); break;
       case 'creeper_hiss': this.noise(1.4, 'highpass', 2500, 0.3, 0.35 * a); break;
+      case 'chicken': this.tone(1200, 0.06, 'square', 0.05 * a, 0, 900); this.tone(1100, 0.06, 'square', 0.05 * a, 0.1, 800); break;
+      case 'skeleton': for (let i = 0; i < 3; i++) this.noise(0.05, 'bandpass', 2500, 4, 0.2 * a, i * 0.07); break;
+      case 'bow': this.noise(0.25, 'bandpass', 600, 1, 0.35 * a, 0, 1.4); break;
+      case 'arrow_hit': this.noise(0.08, 'bandpass', 1600, 2, 0.3 * a); break;
+      case 'thunder':
+        this.noise(3.5, 'lowpass', 300, 0.6, 0.9, 0, 0.35);
+        this.noise(1.2, 'lowpass', 900, 0.5, 0.5, 0.05, 0.6);
+        this.tone(45, 2.5, 'sine', 0.4, 0, 30);
+        break;
       case 'mob_hurt': this.tone(260, 0.15, 'sawtooth', 0.12 * a, 0, 140); break;
       case 'death': this.tone(220, 0.5, 'sawtooth', 0.12 * a, 0, 60); break;
       case 'door': this.noise(0.15, 'bandpass', 500, 2, 0.4 * a); break;
@@ -125,6 +134,22 @@ export class GameAudio {
       case 'ignite': this.noise(0.2, 'highpass', 2000, 1, 0.3 * a); this.tone(1800, 0.05, 'square', 0.05 * a); break;
       case 'bucket': this.noise(0.25, 'bandpass', 700, 2, 0.35 * a); break;
     }
+  }
+
+  // Continuous rain noise; level 0..1
+  rain(level) {
+    if (!this.ctx) return;
+    if (!this.rainSrc && level > 0.01) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.noiseBuf; src.loop = true;
+      const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1400;
+      const f2 = this.ctx.createBiquadFilter(); f2.type = 'highpass'; f2.frequency.value = 300;
+      this.rainGain = this.ctx.createGain(); this.rainGain.gain.value = 0;
+      src.connect(f); f.connect(f2); f2.connect(this.rainGain); this.rainGain.connect(this.master);
+      src.start();
+      this.rainSrc = src;
+    }
+    if (this.rainGain) this.rainGain.gain.setTargetAtTime(level * 0.18, this.ctx.currentTime, 0.3);
   }
 
   // Sparse, calm generative piano.

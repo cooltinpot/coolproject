@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BLOCKS, B, I, OPAQUE, SOLID, LIGHT_EMIT, LIGHT_FILTER } from '../blocks.js';
+import { BLOCKS, B, I, OPAQUE, SOLID, LIGHT_EMIT, LIGHT_FILTER, blockShapes } from '../blocks.js';
 import { Chunk, CS, CH, SEA, idx, chunkKey } from './chunk.js';
 import { Generator, BIOME_NAMES } from './generator.js';
 import { Lighting } from './lighting.js';
@@ -20,6 +20,7 @@ export class World {
     this.saved = savedChunks || new Map(); // key -> {blocks, meta}
     this.dirtySave = new Set(); // keys of chunks needing persistence
     this.tileEntities = tileEntities || new Map(); // "x,y,z" -> data
+    this.removedTE = new Map();
     this.updates = new Map(); // scheduled block updates "x,y,z" -> {x,y,z,t}
     this.time = 0;
     this.events = null; // callbacks set by game
@@ -92,7 +93,11 @@ export class World {
     if (ex && ez) this.urgentDirty(c.cx + ex, c.cz + ez);
     if (old !== id) {
       const key = `${x},${y},${z}`;
-      if (this.tileEntities.has(key) && !(BLOCKS[id] && BLOCKS[id].interact === BLOCKS[old]?.interact)) this.tileEntities.delete(key);
+      if (this.tileEntities.has(key) && !(BLOCKS[id] && BLOCKS[id].interact === BLOCKS[old]?.interact)) {
+        // keep it around briefly so the caller can still drop its contents
+        this.removedTE.set(key, this.tileEntities.get(key));
+        this.tileEntities.delete(key);
+      }
     }
     if (!opts.silent) {
       this.scheduleUpdate(x, y, z, 0);
@@ -165,6 +170,12 @@ export class World {
       return true;
     }
     if (id === B.WHEAT) return below === B.FARMLAND;
+    if (id === B.OAK_DOOR) {
+      const m = this.getMeta(x, y, z);
+      if (m & 8) return below === B.OAK_DOOR;
+      const above = this.getBlock(x, y + 1, z);
+      return (above === B.OAK_DOOR || above < 0) && (SOLID[below] === 1);
+    }
     if (id === B.DEAD_BUSH) return below === B.SAND || below === B.DIRT || below === B.GRASS;
     return below === B.GRASS || below === B.DIRT || below === B.SNOWY_GRASS || below === B.FARMLAND || (id !== B.SAPLING && SOLID[below] && OPAQUE[below]);
   }
@@ -273,10 +284,12 @@ export class World {
   }
 
   // ---------- random ticks ----------
+  // Like Minecraft: 3 random block ticks per 16-high section per game tick.
   randomTick(c) {
-    for (let n = 0; n < 4; n++) {
-      const r = (this.rng() * CS * CS * (c.maxY + 1)) | 0;
-      const y = r >> 8, z = (r >> 4) & 15, x = r & 15;
+    const sections = (c.maxY >> 4) + 1;
+    for (let n = 0; n < sections * 3; n++) {
+      const r = (this.rng() * 4096) | 0;
+      const y = ((n / 3) | 0) * 16 + (r >> 8), z = (r >> 4) & 15, x = r & 15;
       if (y >= CH) continue;
       const id = c.blocks[idx(x, y, z)];
       if (!id) continue;
@@ -450,6 +463,7 @@ export class World {
 
   tick(dt) {
     this.time += dt;
+    this.removedTE.clear();
     // scheduled updates (limit per tick)
     if (this.updates.size) {
       const due = [];
@@ -507,20 +521,16 @@ export class World {
   }
 
   hitsShape(def, x, y, z, o, d) {
-    if (def.render !== 'box' && def.render !== 'torch') return true;
-    let box = def.box || [6, 0, 6, 10, 10, 10];
-    const mn = [x + box[0] / 16, y + box[1] / 16, z + box[2] / 16], mx = [x + box[3] / 16, y + box[4] / 16, z + box[5] / 16];
-    if (def.render === 'torch') { mn[0] -= 0.1; mn[2] -= 0.1; mx[0] += 0.1; mx[2] += 0.1; mx[1] += 0.2; const m = this.getMeta(x, y, z); if (m) { mn[0] = x + 0.2; mn[2] = z + 0.2; mx[0] = x + 0.8; mx[2] = z + 0.8; mx[1] = y + 0.9; } }
-    let tmin = 0, tmax = 100;
-    const oo = [o.x, o.y, o.z], dd = [d.x, d.y, d.z];
-    for (let k = 0; k < 3; k++) {
-      if (Math.abs(dd[k]) < 1e-9) { if (oo[k] < mn[k] || oo[k] > mx[k]) return false; continue; }
-      let t1 = (mn[k] - oo[k]) / dd[k], t2 = (mx[k] - oo[k]) / dd[k];
-      if (t1 > t2) [t1, t2] = [t2, t1];
-      tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2);
-      if (tmin > tmax) return false;
+    if (def.render !== 'box' && def.render !== 'torch' && def.render !== 'shape') return true;
+    let boxes;
+    if (def.render === 'torch') {
+      const m = this.getMeta(x, y, z);
+      boxes = [m ? [3, 3, 3, 13, 14, 13] : [5, 0, 5, 11, 13, 11]];
+    } else boxes = blockShapes(def.id, this.getMeta(x, y, z));
+    for (const b of boxes) {
+      if (rayBox(o, d, x + b[0] / 16, y + b[1] / 16, z + b[2] / 16, x + b[3] / 16, y + b[4] / 16, z + b[5] / 16)) return true;
     }
-    return true;
+    return false;
   }
 
   // Serialize modified chunks into the saved map (in-memory snapshot)
@@ -542,6 +552,19 @@ export class World {
     for (const c of this.chunks.values()) this.disposeMeshes(c);
     this.chunks.clear();
   }
+}
+
+function rayBox(o, d, x0, y0, z0, x1, y1, z1) {
+  let tmin = 0, tmax = 100;
+  const oo = [o.x, o.y, o.z], dd = [d.x, d.y, d.z], mn = [x0, y0, z0], mx = [x1, y1, z1];
+  for (let k = 0; k < 3; k++) {
+    if (Math.abs(dd[k]) < 1e-9) { if (oo[k] < mn[k] || oo[k] > mx[k]) return false; continue; }
+    let t1 = (mn[k] - oo[k]) / dd[k], t2 = (mx[k] - oo[k]) / dd[k];
+    if (t1 > t2) { const t = t1; t1 = t2; t2 = t; }
+    tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2);
+    if (tmin > tmax) return false;
+  }
+  return true;
 }
 
 export { CS, CH, SEA };

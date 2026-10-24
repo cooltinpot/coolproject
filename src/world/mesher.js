@@ -1,6 +1,7 @@
 // Builds chunk geometry: face culling, smooth lighting, ambient occlusion, special block shapes.
 import * as THREE from 'three';
-import { BLOCKS, OPAQUE, B } from '../blocks.js';
+import { BLOCKS, OPAQUE, B, blockShapes } from '../blocks.js';
+import { tileIndex } from '../textures.js';
 import { CS, CH, idx } from './chunk.js';
 import { BIOME_TINT } from './generator.js';
 
@@ -156,6 +157,16 @@ export function buildChunkMesh(world, chunk) {
       case 'cross': crossBlock(def, p, x, y, z, biome); break;
       case 'fluid': fluidBlock(def, id, p, x, y, z); break;
       case 'box': boxBlock(def, p, x, y, z, def.box, null); break;
+      case 'shape': {
+        const shapes = blockShapes(id, pm[p]);
+        let uvo = null;
+        if (def.shape === 'door') {
+          const L = tileIndex[pm[p] & 8 ? 'door_top' : 'door_bottom'];
+          uvo = { layer: (d) => (d === 2 || d === 3 ? def.faces.top : L) };
+        }
+        for (const box of shapes) boxBlock(def, p, x, y, z, box, null, null, uvo);
+        break;
+      }
       case 'torch': torchBlock(def, p, x, y, z); break;
       case 'ladder': ladderBlock(def, p, x, y, z); break;
     }
@@ -237,7 +248,7 @@ function crossBlock(def, p, x, y, z, biome) {
 }
 
 // Generic axis-aligned box (in 1/16 units). uvOverride(d) -> [u0,v0,u1,v1] in tex space optional.
-function boxBlock(def, p, x, y, z, box, uvOverride, offset) {
+function boxBlock(def, p, x, y, z, box, uvOverride, offset, opts) {
   const [x0, y0, z0, x1, y1, z1] = box.map((v) => v / 16);
   const ox = offset ? offset[0] : 0, oy = offset ? offset[1] : 0, oz = offset ? offset[2] : 0;
   const own = pl[p];
@@ -254,7 +265,7 @@ function boxBlock(def, p, x, y, z, box, uvOverride, offset) {
     }
     if (n[1] === -1 && y0 === 0 && !onBoundary) l = own;
     const sky = (l >> 4) * 17, blk = (l & 15) * 17;
-    const layer = faceLayer(def, d, p);
+    const layer = opts && opts.layer ? opts.layer(d) : faceLayer(def, d, p);
     const shade = FACE_SHADE[d] * 255;
     const vs = [];
     let uvr = uvOverride ? uvOverride(d) : null;

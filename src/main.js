@@ -65,6 +65,7 @@ function boot() {
     }
   };
   window.addEventListener('beforeunload', () => { if (game.running) game.save(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden && game.running) game.save(); });
   ui.show('title');
 }
 

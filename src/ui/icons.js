@@ -38,6 +38,16 @@ const BUBBLE = [
   '..kkk..',
 ];
 
+const ARMOR = [
+  'kkkk.kkkk',
+  'kwwkkkwwk',
+  'kwwwwwwwk',
+  '.kwwwwwk.',
+  '.kwwwwwk.',
+  '.kwwwwwk.',
+  '.kkkkkkk.',
+];
+
 export const ICONS = {};
 export function buildHudIcons() {
   const base = { k: '#000', '.': null };
@@ -47,5 +57,8 @@ export function buildHudIcons() {
   ICONS.foodFull = draw(FOOD, { ...base, b: '#a5622e', w: '#f0e0d0' }, 2);
   ICONS.foodHalf = draw(FOOD.map((r) => r.split('').map((ch, x) => (x < 4 && ch === 'b' ? 'e' : ch)).join('')), { ...base, b: '#a5622e', w: '#f0e0d0', e: '#2a1a0a' }, 2);
   ICONS.foodEmpty = draw(FOOD, { ...base, b: '#2a1a0a', w: '#3a2a1a' }, 2);
+  ICONS.armorFull = draw(ARMOR, { ...base, w: '#d8d8d8' }, 2);
+  ICONS.armorHalf = draw(ARMOR.map((r) => r.split('').map((ch, x) => (x >= 4 && ch === 'w' ? 'e' : ch)).join('')), { ...base, w: '#d8d8d8', e: '#333' }, 2);
+  ICONS.armorEmpty = draw(ARMOR, { ...base, w: '#333' }, 2);
   ICONS.bubble = draw(BUBBLE, { ...base, b: '#3070e0', w: '#d0e8ff' }, 2);
 }

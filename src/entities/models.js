@@ -144,6 +144,38 @@ export function buildModel(type) {
       m.height = 1.95; m.width = 0.6;
       break;
     }
+    case 'skeleton': {
+      const bone = [200, 200, 196];
+      m.part('head', 'skel_head', { size: [8, 8, 8], color: bone, faces: { front: (g) => {
+        g.fillStyle = '#222'; g.fillRect(1, 3, 2, 2); g.fillRect(5, 3, 2, 2); g.fillRect(3, 5, 2, 1);
+        g.fillStyle = '#555'; g.fillRect(1, 6, 6, 1); g.fillStyle = '#999'; for (let x = 1; x < 7; x += 2) g.fillRect(x, 6, 1, 1);
+      } } }, [0, 24, 0], [0, 4, 0]);
+      m.part('body', 'skel_body', { size: [8, 12, 4], color: bone, paint: (g, w, h) => { g.fillStyle = '#444'; for (let y = 2; y < h - 2; y += 2) g.fillRect(1, y, w - 2, 1); g.fillRect(3, 0, 2, h); } }, [0, 18, 0], [0, 0, 0]);
+      const limb = { size: [2, 12, 2], color: bone };
+      m.part('armL', 'skel_limb', limb, [-5, 22, 0], [0, -4, 0]);
+      m.part('armR', 'skel_limb', limb, [5, 22, 0], [0, -4, 0]);
+      m.part('legL', 'skel_limb', limb, [-2, 12, 0], [0, -6, 0]);
+      m.part('legR', 'skel_limb', limb, [2, 12, 0], [0, -6, 0]);
+      m.part('bow', 'skel_bow', { size: [1, 10, 1], color: [120, 85, 40] }, [0, 0, 0], [0, -9, 2], m.parts.armR);
+      m.humanoid = true;
+      m.height = 1.95; m.width = 0.6;
+      break;
+    }
+    case 'chicken': {
+      const white = [240, 240, 240];
+      m.part('body', 'chick_body', { size: [6, 6, 8], color: white }, [0, 8, 0], [0, 0, 0]);
+      m.part('head', 'chick_head', { size: [4, 6, 3], color: white, faces: { front: (g) => { g.fillStyle = '#000'; g.fillRect(0, 1, 1, 1); g.fillRect(3, 1, 1, 1); } } }, [0, 10, 3], [0, 2, 1.5]);
+      m.part('beak', 'chick_beak', { size: [4, 2, 2], color: [240, 180, 40] }, [0, 0, 0], [0, 2, 4], m.parts.head);
+      m.part('wattle', 'chick_wattle', { size: [2, 2, 2], color: [220, 30, 30] }, [0, 0, 0], [0, 0, 3.5], m.parts.head);
+      m.part('wingL', 'chick_wing', { size: [1, 4, 6], color: white }, [-3.5, 10, 0], [0, -2, 0]);
+      m.part('wingR', 'chick_wing', { size: [1, 4, 6], color: white }, [3.5, 10, 0], [0, -2, 0]);
+      const leg = { size: [1, 5, 1], color: [240, 180, 40] };
+      m.part('legFL', 'chick_leg', leg, [-1.5, 5, 1], [0, -2.5, 0]);
+      m.part('legFR', 'chick_leg', leg, [1.5, 5, 1], [0, -2.5, 0]);
+      m.chicken = true;
+      m.height = 0.7; m.width = 0.4;
+      break;
+    }
     case 'creeper': {
       const green = [80, 170, 70];
       const mottled = (g, w, h) => { const r = makeRng(w * 7 + h); for (let i = 0; i < w * h / 3; i++) { g.fillStyle = r() < 0.5 ? '#3a7a30' : '#a8e098'; g.fillRect(r() * w | 0, r() * h | 0, 1, 1); } };
@@ -194,7 +226,8 @@ export function animateModel(m, phase, amount, opts = {}) {
   if (m.humanoid) {
     if (P.legL) P.legL.rotation.x = s;
     if (P.legR) P.legR.rotation.x = -s;
-    if (opts.zombieArms) { P.armL.rotation.x = -Math.PI / 2 + Math.sin(phase * 0.5) * 0.05; P.armR.rotation.x = -Math.PI / 2 - Math.sin(phase * 0.5) * 0.05; }
+    if (opts.bowArms) { P.armR.rotation.x = -Math.PI / 2; P.armL.rotation.x = -Math.PI / 2; P.armL.rotation.y = 0.5; }
+    else if (opts.zombieArms) { P.armL.rotation.x = -Math.PI / 2 + Math.sin(phase * 0.5) * 0.05; P.armR.rotation.x = -Math.PI / 2 - Math.sin(phase * 0.5) * 0.05; }
     else { P.armL.rotation.x = -s * 0.8; P.armR.rotation.x = s * 0.8 - (opts.swing || 0) * 1.6; }
   } else if (m.spider) {
     for (let i = 0; i < 8; i++) {
@@ -202,7 +235,11 @@ export function animateModel(m, phase, amount, opts = {}) {
       g.rotation.x = Math.sin(phase * 1.5 + g.userData.phase + i) * 0.4 * amount;
     }
   } else {
-    if (P.legFL) { P.legFL.rotation.x = s; P.legBR.rotation.x = s; P.legFR.rotation.x = -s; P.legBL.rotation.x = -s; }
+    if (m.chicken) {
+      P.legFL.rotation.x = s; P.legFR.rotation.x = -s;
+      const flap = opts.flap || 0;
+      P.wingL.rotation.z = -flap; P.wingR.rotation.z = flap;
+    } else if (P.legFL) { P.legFL.rotation.x = s; P.legBR.rotation.x = s; P.legFR.rotation.x = -s; P.legBL.rotation.x = -s; }
   }
   if (P.head && opts.headPitch !== undefined) P.head.rotation.x = -opts.headPitch;
   if (P.head && opts.headYaw !== undefined) P.head.rotation.y = opts.headYaw;

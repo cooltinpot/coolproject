@@ -25,7 +25,7 @@ three.js is vendored in `vendor/`, so the game also runs offline. Only the pixel
 - Oak, birch and spruce trees, cacti, flowers, tall grass, pumpkins and dead bushes
 - Coal, iron, gold and diamond ores, plus gravel and dirt pockets
 - Dungeons: mossy cobblestone rooms with cobwebs and loot chests
-- 50+ block types and 60+ items
+- 60+ block types and 100+ items
 
 **Rendering**
 - Flood-fill sky light and block light (levels 0–15, like Minecraft) with smooth lighting and ambient occlusion
@@ -42,12 +42,17 @@ three.js is vendored in `vendor/`, so the game also runs offline. Only the pixel
 - 2×2 and 3×3 crafting with about 50 recipes, including all wood, stone, iron, gold and diamond tools
 - Furnaces with fuel and smelting (ores, sand to glass, cooking food, charcoal, bricks)
 - Chests (dungeon loot or player-placed), beds (skip the night and set the spawn point), ladders, torches and TNT
+- Slabs (stackable into double slabs), stairs (including upside-down), and doors that open and close
+- Step-up movement, so you can walk onto slabs and stairs without jumping, like in Minecraft
+- Armor in leather, gold, iron and diamond. It has its own slots, an armor bar, damage reduction and durability
+- Bows with charge-up and zoom, and arrows you can pick back up
+- Weather: rain, snow in cold biomes, and thunderstorms with lightning. Rain puts out fires and stops undead burning in daylight
 - Flowing water and lava. Water meeting lava makes obsidian or cobblestone. Buckets pick up and place fluids
 - Falling sand and gravel, leaf decay, saplings that grow into trees, grass spreading, cactus growth and ice melting
-- Farming: till dirt with a hoe, plant seeds, wheat grows in stages, craft bread
+- Farming: till dirt with a hoe, plant seeds, wheat grows in stages, craft bread. Bone meal makes crops and saplings grow
 - Mobs:
-  - Passive: pigs, cows and sheep (breed them with wheat)
-  - Hostile: zombies (which burn in daylight), creepers (which explode) and spiders (which climb walls)
+  - Passive: pigs, cows, sheep and chickens (breed them with wheat or seeds)
+  - Hostile: zombies and skeletons (which burn in daylight; skeletons keep their distance and shoot arrows), creepers (which explode) and spiders (which climb walls)
 - Mob drops, XP and levels, critical hits, knockback and tool durability
 - Death screen, item drop on death and respawn
 - Chat and commands
@@ -80,7 +85,7 @@ three.js is vendored in `vendor/`, so the game also runs offline. Only the pixel
 ## Commands
 
 `/help`, `/gamemode <survival|creative>`, `/time set <day|noon|night|midnight|ticks>`, `/give <item> [count]`,
-`/tp <x> <y> <z>` (supports `~`), `/summon <pig|cow|sheep|zombie|creeper|spider>`, `/kill`, `/heal`, `/seed`,
+`/tp <x> <y> <z>` (supports `~`), `/summon <pig|cow|sheep|chicken|zombie|skeleton|creeper|spider>`, `/weather <clear|rain|thunder>`, `/kill`, `/heal`, `/seed`,
 `/spawnpoint`, `/clear`, `/fly`, `/locate`
 
 ## Code layout
@@ -116,6 +121,4 @@ This is a large slice of Minecraft, not all of it. The following aren't implemen
 - Redstone
 - Villages
 - Enchanting and potions
-- Armor
 - Multiplayer
-- Weather

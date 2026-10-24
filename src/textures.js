@@ -1,7 +1,7 @@
 // Procedurally painted 16x16 pixel-art textures. Nothing is loaded from disk.
 import * as THREE from 'three';
 import { makeRng, hashString } from './noise.js';
-import { BLOCKS, ITEMS, TOOL_MATERIALS, TOOL_TYPES } from './blocks.js';
+import { BLOCKS, ITEMS, TOOL_MATERIALS, TOOL_TYPES, ARMOR_MATERIALS, ARMOR_SLOTS, blockShapes } from './blocks.js';
 
 const S = 16;
 
@@ -470,6 +470,38 @@ const P = {
     for (let i = 0; i < S; i++) { t.set(i, i, c); t.set(15 - i, i, c); t.set(7, i, c); t.set(i, 8, c); }
     for (let a = 0; a < 6.28; a += 0.15) for (const r of [3, 6]) t.set(Math.round(7.5 + Math.cos(a) * r), Math.round(7.5 + Math.sin(a) * r), c);
   },
+  stone_slab_top(t) { t.noise([160, 160, 160], 0.08); t.border([110, 110, 110]); },
+  stone_slab_side(t) {
+    t.noise([160, 160, 160], 0.08);
+    for (let x = 0; x < S; x++) { t.set(x, 0, [110, 110, 110]); t.set(x, 7, [110, 110, 110]); t.set(x, 8, [190, 190, 190]); t.set(x, 15, [110, 110, 110]); }
+  },
+  door_bottom(t) {
+    const base = [160, 122, 70];
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const f = 0.88 + t.rng() * 0.16;
+      let c = [base[0] * f, base[1] * f, base[2] * f];
+      if (x % 5 === 0) c = c.map((v) => v * 0.75);
+      t.set(x, y, c);
+    }
+    t.border([96, 70, 38]);
+    for (let x = 1; x < 15; x++) t.set(x, 7, [110, 82, 46]);
+    t.set(12, 1, [60, 60, 60]); t.set(12, 2, [90, 90, 90]);
+  },
+  door_top(t) {
+    P.door_bottom(t);
+    for (let y = 2; y < 14; y++) for (let x = 2; x < 14; x++) {
+      if (x === 7 || x === 8 || y === 7 || y === 8) continue;
+      t.set(x, y, [0, 0, 0], 0);
+    }
+    t.rect(12, 14, 1, 1, [60, 60, 60]);
+  },
+  door_item(t) {
+    t.clear();
+    const wood = [160, 122, 70], dk = [96, 70, 38];
+    for (let y = 0; y < S; y++) for (let x = 4; x < 12; x++) t.set(x, y, (x === 4 || x === 11 || y === 0 || y === 15 || y === 8) ? dk : wood.map((v) => v * (0.9 + t.rng() * 0.15)));
+    for (let y = 2; y < 7; y++) for (let x = 6; x < 10; x++) if (x !== 7 && y !== 4) t.set(x, y, [0, 0, 0], 0);
+    t.set(9, 10, [60, 60, 60]);
+  },
   farmland(t) {
     t.noise([96, 62, 38], 0.25);
     for (let y = 0; y < S; y += 4) for (let x = 0; x < S; x++) t.shade(x, y, 0.7);
@@ -637,7 +669,39 @@ function shadePal(base, outline) {
   };
 }
 
+const ARMOR_ART = {
+  helmet: ['................', '....kkkkkkkk....', '...kmmmmmmmmk...', '...kmMMMMMMmk...', '...kmk....kmk...', '...kmk....kmk...', '...kkk....kkk...'],
+  chestplate: ['..kkk......kkk..', '.kmmk......kmmk.', '.kmmmkkkkkkmmmk.', '.kmmmmmmmmmmmmk.', '.kkmmmmmmmmmmkk.', '...kmmmmmmmmk...',
+    '...kmmmMMmmmk...', '...kmmmmmmmmk...', '...kmmmmmmmmk...', '...kMMMMMMMMk...', '...kkkkkkkkkk...'],
+  leggings: ['...kkkkkkkkkk...', '...kmmmmmmmmk...', '...kmMMMMMMmk...', '...kmmmkkmmmk...', '...kmmk..kmmk...', '...kmmk..kmmk...',
+    '...kmmk..kmmk...', '...kmmk..kmmk...', '...kMMk..kMMk...', '...kkkk..kkkk...'],
+  boots: ['................', '................', '..kkkk....kkkk..', '..kmmk....kmmk..', '..kmmk....kmmk..', '.kmmmk....kmmmk.', '.kMMMk....kMMMk.', '.kkkkk....kkkkk.'],
+};
+const hexc = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+
+function line(t, x0, y0, x1, y1, c) {
+  const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+  for (let i = 0; i <= n; i++) t.set(Math.round(x0 + (x1 - x0) * i / n), Math.round(y0 + (y1 - y0) * i / n), c);
+}
+
 const ITEM_PAINTERS = {
+  leather: (t) => drawArt(t, ART.lump, shadePal([150, 90, 50])),
+  bone_meal: (t) => drawArt(t, ART.lump, shadePal([235, 235, 225], [140, 140, 130])),
+  raw_chicken: (t) => drawArt(t, ART.meat, { ...shadePal([240, 190, 170]), w: [250, 230, 220] }),
+  cooked_chicken: (t) => drawArt(t, ART.meat, { ...shadePal([200, 140, 70]), w: [240, 210, 160] }),
+  feather: (t) => { t.clear(); line(t, 3, 13, 12, 2, [150, 150, 150]); for (let i = 0; i < 8; i++) { t.set(5 + i, 9 - i, [245, 245, 245]); t.set(6 + i, 10 - i, [225, 225, 225]); t.set(4 + i, 9 - i, [235, 235, 235]); } },
+  arrow: (t) => {
+    t.clear();
+    line(t, 3, 12, 11, 4, [140, 105, 60]);
+    t.set(12, 3, [200, 200, 200]); t.set(11, 3, [160, 160, 160]); t.set(12, 4, [160, 160, 160]); t.set(13, 2, [230, 230, 230]); t.set(10, 3, [120, 120, 120]); t.set(12, 5, [120, 120, 120]);
+    for (const [x, y] of [[2, 12], [3, 13], [2, 11], [4, 13], [2, 13], [1, 12], [3, 14]]) t.set(x, y, [240, 240, 240]);
+  },
+  bow: (t) => {
+    t.clear();
+    for (let a = Math.PI; a <= Math.PI * 1.5 + 0.01; a += 0.05) t.set(Math.round(14 + Math.cos(a) * 11), Math.round(14 + Math.sin(a) * 11), [120, 85, 40]);
+    for (let a = Math.PI; a <= Math.PI * 1.5 + 0.01; a += 0.05) t.set(Math.round(14 + Math.cos(a) * 10), Math.round(14 + Math.sin(a) * 10), [160, 115, 60]);
+    line(t, 3, 14, 14, 3, [220, 220, 220]);
+  },
   stick: (t) => drawArt(t, ART.stick, { k: [40, 28, 10], l: [150, 110, 50], d: [105, 75, 32] }),
   coal: (t) => drawArt(t, ART.lump, shadePal([45, 45, 50], [15, 15, 15])),
   iron_ingot: (t) => drawArt(t, ART.ingot, shadePal([215, 215, 215])),
@@ -668,6 +732,9 @@ const ITEM_PAINTERS = {
   bowl: (t) => drawArt(t, ART.bowl, { ...shadePal([140, 100, 50]), w: [80, 55, 25] }),
   mushroom_stew: (t) => drawArt(t, ART.bowl, { ...shadePal([140, 100, 50]), w: [200, 140, 90] }),
 };
+ARMOR_MATERIALS.forEach((m) => ARMOR_SLOTS.forEach((slot) => {
+  ITEM_PAINTERS[`armor_${slot}_${m.key}`] = (t) => drawArt(t, ARMOR_ART[slot], { k: [30, 30, 30], m: hexc(m.color), M: hexc(m.dark) });
+}));
 TOOL_MATERIALS.forEach((m) => TOOL_TYPES.forEach((type) => {
   ITEM_PAINTERS[`tool_${type}_${m.key}`] = (t) => drawTool(t, type, m);
 }));
@@ -735,7 +802,9 @@ function buildIcons() {
     ctx.imageSmoothingEnabled = false;
     if (it.isBlock) {
       if (!it.tex) continue;
-      if (it.render === 'cross' || it.render === 'torch' || it.render === 'ladder') {
+      if (it.flatIcon) {
+        ctx.drawImage(tileCanvases[it.flatIcon], 0, 0, N, N);
+      } else if (it.render === 'cross' || it.render === 'torch' || it.render === 'ladder') {
         ctx.drawImage(tileCanvases[it.tex.side], 0, 0, N, N);
       } else {
         drawIso(ctx, it);
@@ -758,6 +827,7 @@ function drawIso(ctx, b) {
   const front = tileCanvases[b.tex.front || b.tex.side];
   let h = 1, inset = 0;
   if (b.render === 'box') { h = (b.box[4] - b.box[1]) / 16; inset = b.box[0] / 16; }
+  if (b.shape === 'slab') h = 0.5;
   const k = 1 - inset * 2;
   const sx = 15 / 16 * k, sy = 7 / 16 * k;
   const ox = 1 + 15 * inset, oy = 8;

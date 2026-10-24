@@ -8,10 +8,12 @@ import { CH } from '../world/chunk.js';
 
 export const MOB_TYPES = {
   pig: { health: 10, speed: 1.3, hostile: false, sound: 'pig', drops: (r) => [[I.RAW_PORK, 1 + Math.floor(r() * 3)]], xp: 2, food: I.WHEAT },
-  cow: { health: 10, speed: 1.2, hostile: false, sound: 'cow', drops: (r) => [[I.RAW_BEEF, 1 + Math.floor(r() * 3)]], xp: 2, food: I.WHEAT },
+  cow: { health: 10, speed: 1.2, hostile: false, sound: 'cow', drops: (r) => [[I.RAW_BEEF, 1 + Math.floor(r() * 3)], [I.LEATHER, Math.floor(r() * 3)]], xp: 2, food: I.WHEAT },
+  chicken: { health: 4, speed: 1.1, hostile: false, sound: 'chicken', drops: (r) => [[I.RAW_CHICKEN, 1], [I.FEATHER, Math.floor(r() * 3)]], xp: 1, food: I.WHEAT_SEEDS },
   sheep: { health: 8, speed: 1.2, hostile: false, sound: 'sheep', drops: (r) => [[B.WOOL, 1], [I.RAW_MUTTON, 1 + Math.floor(r() * 2)]], xp: 2, food: I.WHEAT },
   zombie: { health: 20, speed: 2.3, hostile: true, sound: 'zombie', drops: (r) => [[I.ROTTEN_FLESH, Math.floor(r() * 3)]], xp: 5, damage: 3, burns: true },
   creeper: { health: 20, speed: 2.0, hostile: true, sound: null, drops: (r) => [[I.GUNPOWDER, Math.floor(r() * 3)]], xp: 5 },
+  skeleton: { health: 20, speed: 2.0, hostile: true, sound: 'skeleton', drops: (r) => [[I.BONE, Math.floor(r() * 3)], [I.ARROW, Math.floor(r() * 3)]], xp: 5, burns: true, ranged: true },
   spider: { health: 16, speed: 2.9, hostile: true, sound: 'zombie', drops: (r) => [[I.STRING, Math.floor(r() * 3)]], xp: 5, damage: 2 },
 };
 
@@ -134,7 +136,19 @@ export class Mob extends Entity {
       tx = dxp / (distP || 1); tz = dzp / (distP || 1);
       speed = def.speed;
       this.targetYaw = Math.atan2(-tx, -tz);
-      if (this.type === 'creeper') {
+      if (def.ranged) {
+        // keep medium range, strafe, and shoot when there is line of sight
+        if (distP < 7) { tx = -tx; tz = -tz; speed = def.speed * 0.8; }
+        else if (distP < 13) {
+          if (!this.strafe || Math.random() < dt * 0.4) this.strafe = Math.random() < 0.5 ? -1 : 1;
+          const sx = -tz * this.strafe, sz = tx * this.strafe; tx = sx; tz = sz; speed = def.speed * 0.5;
+        }
+        this.targetYaw = Math.atan2(-(dxp / (distP || 1)), -(dzp / (distP || 1)));
+        if (this.attackCooldown <= 0 && distP < 16 && ctx.canSee(this, player)) {
+          ctx.shootArrow(this, player, 22 + Math.random() * 4);
+          this.attackCooldown = 1.6 + Math.random() * 1.2;
+        }
+      } else if (this.type === 'creeper') {
         if (distP < 3 && Math.abs(dyp) < 3) {
           if (this.fuse === 0) audio.play('creeper_hiss', this.pos);
           this.fuse += dt; speed = 0;
@@ -195,6 +209,7 @@ export class Mob extends Entity {
       else if (this.onGround) this.vel.y = 8.9;
     }
     if (this.inWater || this.inLava) { if (this.pos.y % 1 < 0.6 || this.headInWater) this.vel.y += 22 * dt; }
+    if (this.type === 'chicken' && !this.onGround && this.vel.y < -2.5) this.vel.y = -2.5;
 
     this.physics(dt, false);
 
@@ -206,7 +221,7 @@ export class Mob extends Entity {
 
     // hazards
     if (this.inLava) { this.burning = 6; this.lavaTimer -= dt; if (this.lavaTimer <= 0) { this.lavaTimer = 0.5; this.hurt(4, null, ctx); this.hurtTime = 0; } }
-    if (def.burns && ctx.dayFactor > 0.75 && !this.inWater) {
+    if (def.burns && ctx.dayFactor > 0.75 && !this.inWater && !ctx.raining) {
       const l = this.world.getLight(Math.floor(this.pos.x), Math.floor(this.pos.y + this.h), Math.floor(this.pos.z));
       if ((l >> 4) >= 15) this.burning = Math.max(this.burning, 1);
     }
@@ -238,7 +253,10 @@ export class Mob extends Entity {
     r.rotation.y = this.yaw + Math.PI;
     const s = (this.baby > 0 ? 0.5 : 1) * (1 + this.fuse * 0.12);
     r.scale.set(s, this.baby > 0 ? 0.5 : 1 + this.fuse * 0.05, s);
-    animateModel(this.model, this.limb, this.limbAmt, { zombieArms: this.type === 'zombie' });
+    animateModel(this.model, this.limb, this.limbAmt, {
+      zombieArms: this.type === 'zombie', bowArms: this.type === 'skeleton' && this.attackCooldown > 0.8,
+      flap: this.type === 'chicken' && !this.onGround ? Math.abs(Math.sin(this.age * 20)) * 1.2 : 0,
+    });
     const b = ctx.lightAt(this.pos, this.h * 0.6);
     const flashWhite = this.fuse > 0 && Math.floor(this.fuse * 8) % 2 === 0;
     this.model.setBrightness(this.burning > 0 ? Math.max(b, 0.9) : b, this.hurtTime > 0.2, flashWhite);
@@ -331,7 +349,7 @@ export class MobManager {
         const y = w.surfaceY(x, z);
         const free = (b) => b === 0 || (b > 0 && BLOCKS[b].replaceable && !BLOCKS[b].fluid);
         if (w.getBlock(x, y, z) === B.GRASS && free(w.getBlock(x, y + 1, z)) && free(w.getBlock(x, y + 2, z))) {
-          const types = ['pig', 'cow', 'sheep'];
+          const types = ['pig', 'cow', 'sheep', 'chicken'];
           const t = types[Math.floor(Math.random() * types.length)];
           const n = 1 + Math.floor(Math.random() * 3);
           for (let i = 0; i < n; i++) {
@@ -360,7 +378,7 @@ export class MobManager {
         if (eff > 7) continue;
         if (Math.hypot(x - p.x, y - p.y, z - p.z) < 20) continue;
         const roll = Math.random();
-        const t = roll < 0.5 ? 'zombie' : roll < 0.78 ? 'creeper' : 'spider';
+        const t = roll < 0.38 ? 'zombie' : roll < 0.6 ? 'skeleton' : roll < 0.82 ? 'creeper' : 'spider';
         this.spawn(t, x + 0.5, y, z + 0.5);
         break;
       }
