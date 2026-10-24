@@ -68,32 +68,35 @@ export async function loadWorld(id) {
   const metaStr = lsGet(`${PREFIX}.w.${id}.meta`);
   const meta = metaStr ? JSON.parse(metaStr) : null;
   const chunks = new Map();
+  const nether = new Map();
   const keys = [];
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k && k.startsWith(`${PREFIX}.w.${id}.c.`)) keys.push(k);
+      if (k && (k.startsWith(`${PREFIX}.w.${id}.c.`) || k.startsWith(`${PREFIX}.w.${id}.n.`))) keys.push(k);
     }
   } catch (e) { /* ignore */ }
   await Promise.all(keys.map(async (k) => {
     try {
+      const isNether = k.startsWith(`${PREFIX}.w.${id}.n.`);
       const key = Number(k.slice(`${PREFIX}.w.${id}.c.`.length));
       const raw = await inflate(fromB64(lsGet(k)));
       if (raw.length !== CHUNK_VOL * 2) return;
-      chunks.set(key, { blocks: raw.slice(0, CHUNK_VOL), meta: raw.slice(CHUNK_VOL) });
+      (isNether ? nether : chunks).set(key, { blocks: raw.slice(0, CHUNK_VOL), meta: raw.slice(CHUNK_VOL) });
     } catch (e) { console.warn('bad chunk', k, e); }
   }));
-  return { meta, chunks };
+  return { meta, chunks, nether };
 }
 
-export async function saveWorld(id, meta, chunkList) {
+export async function saveWorld(id, meta, chunkList, dim = 'overworld') {
+  const tag = dim === 'nether' ? 'n' : 'c';
   lsSet(`${PREFIX}.w.${id}.meta`, JSON.stringify(meta));
   for (const [key, data] of chunkList) {
     const buf = new Uint8Array(CHUNK_VOL * 2);
     buf.set(data.blocks, 0);
     buf.set(data.meta, CHUNK_VOL);
     const comp = await deflate(buf);
-    lsSet(`${PREFIX}.w.${id}.c.${key}`, toB64(comp));
+    lsSet(`${PREFIX}.w.${id}.${tag}.${key}`, toB64(comp));
   }
   touchWorld(id);
 }

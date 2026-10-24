@@ -502,6 +502,33 @@ const P = {
     for (let y = 2; y < 7; y++) for (let x = 6; x < 10; x++) if (x !== 7 && y !== 4) t.set(x, y, [0, 0, 0], 0);
     t.set(9, 10, [60, 60, 60]);
   },
+  netherrack(t) {
+    t.noise([111, 54, 52], 0.3);
+    for (let i = 0; i < 30; i++) t.set(Math.floor(t.rng() * S), Math.floor(t.rng() * S), [80, 30, 30]);
+    for (let i = 0; i < 14; i++) t.set(Math.floor(t.rng() * S), Math.floor(t.rng() * S), [150, 80, 75]);
+  },
+  soul_sand(t) {
+    t.noise([84, 64, 50], 0.25);
+    for (let k = 0; k < 3; k++) {
+      const x = 2 + Math.floor(t.rng() * 10), y = 2 + Math.floor(t.rng() * 10);
+      t.set(x, y, [40, 28, 20]); t.set(x + 2, y, [40, 28, 20]); t.set(x + 1, y + 2, [40, 28, 20]); t.set(x, y + 2, [50, 36, 26]); t.set(x + 2, y + 2, [50, 36, 26]);
+    }
+  },
+  portal(t) {
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const v = Math.sin(x * 0.8 + Math.sin(y * 0.7) * 2) * 0.5 + 0.5;
+      const f = 0.6 + v * 0.5 + t.rng() * 0.15;
+      t.set(x, y, [110 * f, 30 * f, 200 * f], 190);
+    }
+  },
+  nether_bricks(t) { bricksPattern(t, [70, 34, 40], [32, 16, 20], 4, 8); },
+  quartz_ore(t) {
+    P.netherrack(t);
+    for (let c = 0; c < 6; c++) {
+      const x = 1 + Math.floor(t.rng() * 13), y = 1 + Math.floor(t.rng() * 13);
+      t.set(x, y, [235, 228, 220]); t.set(x + 1, y, [210, 200, 190]); if (t.rng() < 0.5) t.set(x, y + 1, [200, 192, 182]);
+    }
+  },
   farmland(t) {
     t.noise([96, 62, 38], 0.25);
     for (let y = 0; y < S; y += 4) for (let x = 0; x < S; x++) t.shade(x, y, 0.7);
@@ -685,6 +712,8 @@ function line(t, x0, y0, x1, y1, c) {
 }
 
 const ITEM_PAINTERS = {
+  quartz: (t) => drawArt(t, ART.gem, shadePal([230, 225, 215], [120, 110, 100])),
+  gold_nugget: (t) => drawArt(t, ART.lump.map((r, i) => (i < 4 ? '................' : r)), shadePal([250, 210, 50])),
   leather: (t) => drawArt(t, ART.lump, shadePal([150, 90, 50])),
   bone_meal: (t) => drawArt(t, ART.lump, shadePal([235, 235, 225], [140, 140, 130])),
   raw_chicken: (t) => drawArt(t, ART.meat, { ...shadePal([240, 190, 170]), w: [250, 230, 220] }),
@@ -773,6 +802,7 @@ export function buildTextures() {
   tex.magFilter = THREE.NearestFilter;
   tex.minFilter = THREE.NearestMipmapLinearFilter;
   tex.generateMipmaps = true;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.needsUpdate = true;
   atlasTexture = tex;
 

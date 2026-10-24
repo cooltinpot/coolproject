@@ -118,6 +118,7 @@ export class UI {
     let bg = '';
     if (p.headInWater) bg = 'rgba(20,50,140,0.35)';
     if (game.cameraInLava) bg = 'rgba(220,80,10,0.7)';
+    if (game.portalTime > 0) bg = `rgba(130,40,220,${Math.min(0.75, game.portalTime / 3.5 * 0.75).toFixed(3)})`;
     ov.style.background = bg;
     $('fire').style.display = p.burning > 0 && !p.creative ? 'block' : 'none';
     $('hurt').style.opacity = p.hurtTilt * 0.6;

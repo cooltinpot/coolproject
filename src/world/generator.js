@@ -2,12 +2,12 @@ import { SimplexNoise, makeRng, hash2 } from '../noise.js';
 import { B } from '../blocks.js';
 import { CS, CH, SEA, idx } from './chunk.js';
 
-export const BIOME = { OCEAN: 0, BEACH: 1, PLAINS: 2, FOREST: 3, DESERT: 4, SNOWY: 5, MOUNTAINS: 6, FROZEN_OCEAN: 7 };
-export const BIOME_NAMES = ['Ocean', 'Beach', 'Plains', 'Forest', 'Desert', 'Snowy Tundra', 'Mountains', 'Frozen Ocean'];
+export const BIOME = { OCEAN: 0, BEACH: 1, PLAINS: 2, FOREST: 3, DESERT: 4, SNOWY: 5, MOUNTAINS: 6, FROZEN_OCEAN: 7, NETHER: 8 };
+export const BIOME_NAMES = ['Ocean', 'Beach', 'Plains', 'Forest', 'Desert', 'Snowy Tundra', 'Mountains', 'Frozen Ocean', 'Nether'];
 // grass / foliage tint per biome
 export const BIOME_TINT = [
   [0.85, 1.0, 0.85], [0.95, 1.0, 0.8], [1.0, 1.0, 1.0], [0.82, 0.95, 0.8], [1.15, 1.0, 0.6],
-  [0.8, 0.95, 0.95], [0.85, 0.95, 0.9], [0.8, 0.95, 0.95],
+  [0.8, 0.95, 0.95], [0.85, 0.95, 0.9], [0.8, 0.95, 0.95], [0.9, 0.8, 0.6],
 ];
 
 const CAVE_STEP = 4;
@@ -306,6 +306,103 @@ export class Generator {
     blocks[idx(x0, y0 + h - 1, z0 + d - 1)] = B.COBWEB;
     blocks[idx(x0 + 3, y0, z0 + 3)] = B.GLOWSTONE;
     chunk.dungeonChests = [[x0 + 1, y0, z0 + 1], [x0 + w - 2, y0, z0 + d - 2]];
+  }
+}
+
+export const NETHER_LAVA = 31;
+
+// The Nether: a cavernous netherrack world with a lava sea, glowstone and soul sand.
+export class NetherGenerator extends Generator {
+  constructor(seed) {
+    super(seed ^ 0x6e657468);
+    this.dens = new SimplexNoise(seed + 21);
+    this.dens2 = new SimplexNoise(seed + 22);
+  }
+
+  column() { return { h: 64, biome: BIOME.NETHER, t: 1, u: 0 }; }
+
+  density(x, y, z) {
+    let d = this.dens.noise3(x / 48, y / 26, z / 48) * 0.7 + this.dens2.noise3(x / 18, y / 14, z / 18) * 0.3;
+    // solid floor and ceiling bands
+    if (y < 24) d += (24 - y) / 14;
+    if (y > 100) d += (y - 100) / 12;
+    return d + 0.05;
+  }
+
+  generate(chunk) {
+    const { cx, cz } = chunk;
+    const bx = cx * CS, bz = cz * CS;
+    const blocks = chunk.blocks;
+    const rng = makeRng((this.seed * 31 + cx * 73856093) ^ (cz * 19349663));
+    chunk.biomes.fill(BIOME.NETHER);
+    const NX = CS / CAVE_STEP + 1, NY = CH / CAVE_STEP + 1;
+    const lat = new Float32Array(NX * NX * NY);
+    for (let ly = 0; ly < NY; ly++) for (let lz = 0; lz < NX; lz++) for (let lx = 0; lx < NX; lx++) {
+      lat[(ly * NX + lz) * NX + lx] = this.density(bx + lx * CAVE_STEP, ly * CAVE_STEP, bz + lz * CAVE_STEP);
+    }
+    const sample = (x, y, z) => {
+      const lx = x >> 2, ly = y >> 2, lz = z >> 2;
+      const fx = (x & 3) / 4, fy = (y & 3) / 4, fz = (z & 3) / 4;
+      const i000 = (ly * NX + lz) * NX + lx;
+      const i100 = i000 + 1, i010 = i000 + NX * NX, i110 = i010 + 1, i001 = i000 + NX, i101 = i001 + 1, i011 = i010 + NX, i111 = i011 + 1;
+      const c00 = lat[i000] * (1 - fx) + lat[i100] * fx, c01 = lat[i001] * (1 - fx) + lat[i101] * fx;
+      const c10 = lat[i010] * (1 - fx) + lat[i110] * fx, c11 = lat[i011] * (1 - fx) + lat[i111] * fx;
+      return (c00 * (1 - fz) + c01 * fz) * (1 - fy) + (c10 * (1 - fz) + c11 * fz) * fy;
+    };
+    for (let z = 0; z < CS; z++) for (let x = 0; x < CS; x++) {
+      const wx = bx + x, wz = bz + z;
+      const soul = this.misc.noise2(wx / 24, wz / 24) > 0.45;
+      for (let y = 0; y < CH; y++) {
+        let id;
+        if (y === 0 || y === CH - 1) id = B.BEDROCK;
+        else if (y < 4 && hash2(wx * 7 + y, wz * 13 - y, this.seed) < 0.5 - y * 0.12) id = B.BEDROCK;
+        else if (y > CH - 5 && hash2(wx * 5 - y, wz * 11 + y, this.seed) < 0.5 - (CH - 1 - y) * 0.12) id = B.BEDROCK;
+        else if (y >= CH - 2) id = B.NETHERRACK;
+        else if (sample(x, Math.min(y, CH - 4), z) > 0) id = B.NETHERRACK;
+        else id = y <= NETHER_LAVA ? B.LAVA : 0;
+        blocks[idx(x, y, z)] = id;
+      }
+      // soul sand / gravel floors
+      for (let y = 1; y < CH - 1; y++) {
+        const i = idx(x, y, z);
+        if (blocks[i] === B.NETHERRACK && blocks[idx(x, y + 1, z)] === 0 && y > NETHER_LAVA - 3 && y < NETHER_LAVA + 6) {
+          if (soul) blocks[i] = B.SOUL_SAND;
+          else if (this.misc.noise2(wx / 9 + 40, wz / 9) > 0.6) blocks[i] = B.GRAVEL;
+        }
+      }
+    }
+    // quartz ore
+    for (let i = 0; i < 16; i++) {
+      let x = Math.floor(rng() * CS), y = 10 + Math.floor(rng() * 108), z = Math.floor(rng() * CS);
+      for (let k = 0; k < 6; k++) {
+        if (x >= 0 && x < CS && z >= 0 && z < CS && blocks[idx(x, y, z)] === B.NETHERRACK) blocks[idx(x, y, z)] = B.QUARTZ_ORE;
+        x += Math.floor(rng() * 3) - 1; y += Math.floor(rng() * 3) - 1; z += Math.floor(rng() * 3) - 1;
+        if (y < 1 || y > CH - 2) break;
+      }
+    }
+    // glowstone hanging from ceilings
+    for (let i = 0; i < 6; i++) {
+      const x0 = 2 + Math.floor(rng() * 12), z0 = 2 + Math.floor(rng() * 12);
+      let y0 = -1;
+      for (let y = CH - 6; y > 40; y--) {
+        if (blocks[idx(x0, y, z0)] === 0 && blocks[idx(x0, y + 1, z0)] === B.NETHERRACK) { y0 = y; break; }
+      }
+      if (y0 < 0 || rng() < 0.4) continue;
+      for (let k = 0; k < 40; k++) {
+        const x = x0 + Math.floor((rng() - 0.5) * 5), z = z0 + Math.floor((rng() - 0.5) * 5), y = y0 - Math.floor(rng() * 5);
+        if (x < 0 || x >= CS || z < 0 || z >= CS) continue;
+        const j = idx(x, y, z);
+        if (blocks[j] !== 0) continue;
+        let n = 0;
+        for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+          const nx = x + dx, ny = y + dy, nz = z + dz;
+          if (nx < 0 || nx >= CS || nz < 0 || nz >= CS) continue;
+          const b = blocks[idx(nx, ny, nz)];
+          if (b === B.GLOWSTONE || (dy === 1 && b === B.NETHERRACK)) n++;
+        }
+        if (n > 0) blocks[j] = B.GLOWSTONE;
+      }
+    }
   }
 }
 

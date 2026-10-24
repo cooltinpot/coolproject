@@ -25,6 +25,11 @@ three.js is vendored in `vendor/`, so the game also runs offline. Only the pixel
 - Oak, birch and spruce trees, cacti, flowers, tall grass, pumpkins and dead bushes
 - Coal, iron, gold and diamond ores, plus gravel and dirt pockets
 - Dungeons: mossy cobblestone rooms with cobwebs and loot chests
+- **The Nether**:
+  - Build an obsidian frame and light it with flint and steel to make a portal
+  - Stand inside the portal to travel. One block in the Nether is eight in the overworld, and the game links to an existing portal or builds a new one
+  - Netherrack caverns with a lava sea, glowstone, soul sand, quartz ore and neutral zombie pigmen
+  - The Nether is saved separately from the overworld
 - 60+ block types and 100+ items
 
 **Rendering**
@@ -85,7 +90,7 @@ three.js is vendored in `vendor/`, so the game also runs offline. Only the pixel
 ## Commands
 
 `/help`, `/gamemode <survival|creative>`, `/time set <day|noon|night|midnight|ticks>`, `/give <item> [count]`,
-`/tp <x> <y> <z>` (supports `~`), `/summon <pig|cow|sheep|chicken|zombie|skeleton|creeper|spider>`, `/weather <clear|rain|thunder>`, `/kill`, `/heal`, `/seed`,
+`/tp <x> <y> <z>` (supports `~`), `/summon <pig|cow|sheep|chicken|zombie|skeleton|creeper|spider>`, `/weather <clear|rain|thunder>`, `/dimension <overworld|nether>`, `/kill`, `/heal`, `/seed`,
 `/spawnpoint`, `/clear`, `/fly`, `/locate`
 
 ## Code layout
@@ -117,7 +122,7 @@ src/save.js               localStorage persistence
 ## Not included
 
 This is a large slice of Minecraft, not all of it. The following aren't implemented:
-- The Nether and the End
+- The End
 - Redstone
 - Villages
 - Enchanting and potions

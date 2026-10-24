@@ -14,6 +14,7 @@ export const MOB_TYPES = {
   zombie: { health: 20, speed: 2.3, hostile: true, sound: 'zombie', drops: (r) => [[I.ROTTEN_FLESH, Math.floor(r() * 3)]], xp: 5, damage: 3, burns: true },
   creeper: { health: 20, speed: 2.0, hostile: true, sound: null, drops: (r) => [[I.GUNPOWDER, Math.floor(r() * 3)]], xp: 5 },
   skeleton: { health: 20, speed: 2.0, hostile: true, sound: 'skeleton', drops: (r) => [[I.BONE, Math.floor(r() * 3)], [I.ARROW, Math.floor(r() * 3)]], xp: 5, burns: true, ranged: true },
+  pigman: { health: 20, speed: 2.4, hostile: false, neutral: true, sound: 'pig', drops: (r) => [[I.ROTTEN_FLESH, Math.floor(r() * 2)], [I.GOLD_NUGGET, Math.floor(r() * 2)]], xp: 5, damage: 5 },
   spider: { health: 16, speed: 2.9, hostile: true, sound: 'zombie', drops: (r) => [[I.STRING, Math.floor(r() * 3)]], xp: 5, damage: 2 },
 };
 
@@ -63,7 +64,10 @@ export class Mob extends Entity {
       this.vel.x = (dx / l) * 7; this.vel.z = (dz / l) * 7;
       this.vel.y = 5.5;
     }
-    if (!this.def.hostile) { this.panic = 5; }
+    if (!this.def.hostile && !this.def.neutral) { this.panic = 5; }
+    if (this.def.neutral && this.manager) {
+      for (const o of this.manager.mobs) if (o.type === this.type && o.pos.distanceTo(this.pos) < 24) o.provoked = true;
+    }
     this.provoked = true;
     if (this.health <= 0) this.die(ctx, true);
     return true;
@@ -128,7 +132,7 @@ export class Mob extends Entity {
     const night = ctx.dayFactor < 0.5;
 
     let chase = false;
-    if (def.hostile && canTarget && distP < 24) {
+    if ((def.hostile || (def.neutral && this.provoked)) && canTarget && distP < (def.neutral ? 40 : 24)) {
       chase = this.type !== 'spider' || night || this.provoked || ctx.lightAt(this.pos) < 0.4;
     }
 
@@ -254,7 +258,7 @@ export class Mob extends Entity {
     const s = (this.baby > 0 ? 0.5 : 1) * (1 + this.fuse * 0.12);
     r.scale.set(s, this.baby > 0 ? 0.5 : 1 + this.fuse * 0.05, s);
     animateModel(this.model, this.limb, this.limbAmt, {
-      zombieArms: this.type === 'zombie', bowArms: this.type === 'skeleton' && this.attackCooldown > 0.8,
+      zombieArms: this.type === 'zombie' || (this.type === 'pigman' && this.provoked), bowArms: this.type === 'skeleton' && this.attackCooldown > 0.8,
       flap: this.type === 'chicken' && !this.onGround ? Math.abs(Math.sin(this.age * 20)) * 1.2 : 0,
     });
     const b = ctx.lightAt(this.pos, this.h * 0.6);
@@ -291,6 +295,7 @@ export class MobManager {
   spawn(type, x, y, z) {
     const m = new Mob(this.world, type, this.scene);
     m.pos.set(x, y, z);
+    m.manager = this;
     this.mobs.push(m);
     return m;
   }
@@ -304,7 +309,7 @@ export class MobManager {
       if (m.dead) continue;
       const d = m.pos.distanceTo(p);
       if (!this.world.isLoaded(Math.floor(m.pos.x), Math.floor(m.pos.z))) { m.remove(); continue; }
-      if (m.def.hostile && (d > 96 || (d > 40 && Math.random() < dt / 30))) m.remove();
+      if ((m.def.hostile || m.def.neutral) && (d > 96 || (d > 40 && Math.random() < dt / 30))) m.remove();
       if (m.def.hostile && ctx.dayFactor > 0.9 && m.type !== 'zombie' && d > 24 && Math.random() < dt / 20) m.remove();
     }
     this.mobs = this.mobs.filter((m) => !m.dead);
@@ -338,6 +343,21 @@ export class MobManager {
 
   trySpawn(ctx) {
     const p = ctx.player.pos;
+    if (this.world.dim === 'nether') {
+      const w = this.world;
+      if (this.mobs.length >= 12) return;
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const a = Math.random() * Math.PI * 2, r = 16 + Math.random() * 32;
+        const x = Math.floor(p.x + Math.cos(a) * r), z = Math.floor(p.z + Math.sin(a) * r);
+        const y = Math.floor(p.y + (Math.random() - 0.5) * 40);
+        if (!w.isLoaded(x, z) || y < 2 || y > CH - 4) continue;
+        const below = w.getBlock(x, y - 1, z);
+        if (!(below === B.NETHERRACK || below === B.SOUL_SAND) || w.getBlock(x, y, z) !== 0 || w.getBlock(x, y + 1, z) !== 0) continue;
+        this.spawn('pigman', x + 0.5, y, z + 0.5);
+        break;
+      }
+      return;
+    }
     const passive = this.mobs.filter((m) => !m.def.hostile).length;
     const hostile = this.mobs.length - passive;
     const w = this.world;

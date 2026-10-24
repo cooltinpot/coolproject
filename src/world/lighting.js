@@ -148,8 +148,10 @@ export class Lighting {
     const bx = chunk.cx * CS, bz = chunk.cz * CS;
     const top = new Int16Array(CS * CS); // first non-clear block from top
     let maxTop = 0;
+    const hasSky = this.world.hasSky;
     for (let z = 0; z < CS; z++) for (let x = 0; x < CS; x++) {
       let y = CH - 1;
+      if (!hasSky) { top[z * CS + x] = CH - 1; continue; }
       for (; y >= 0; y--) {
         const id = blocks[idx(x, y, z)];
         if (OPAQUE[id] || LIGHT_FILTER[id]) break;
@@ -206,7 +208,7 @@ export class Lighting {
 
   onBlockChanged(wx, wy, wz, oldId, newId) {
     this._lc = null;
-    for (const ch of [BLK, SKY]) {
+    for (const ch of this.world.hasSky ? [BLK, SKY] : [BLK]) {
       const cur = this.getLevel(wx, wy, wz, ch);
       if (cur > 0) this.remove(wx, wy, wz, ch);
       const q = this.q[ch];

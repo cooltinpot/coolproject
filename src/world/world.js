@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { BLOCKS, B, I, OPAQUE, SOLID, LIGHT_EMIT, LIGHT_FILTER, blockShapes } from '../blocks.js';
 import { Chunk, CS, CH, SEA, idx, chunkKey } from './chunk.js';
-import { Generator, BIOME_NAMES } from './generator.js';
+import { Generator, NetherGenerator, BIOME_NAMES } from './generator.js';
 import { Lighting } from './lighting.js';
 import { buildChunkMesh, ATTACH_DIRS } from './mesher.js';
 import { makeRng } from '../noise.js';
@@ -10,11 +10,13 @@ import { dungeonLoot } from '../inventory.js';
 const NEIGHBORS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 
 export class World {
-  constructor(scene, materials, seed, savedChunks, tileEntities) {
+  constructor(scene, materials, seed, savedChunks, tileEntities, dim = 'overworld') {
     this.scene = scene;
     this.materials = materials;
     this.seed = seed;
-    this.gen = new Generator(seed);
+    this.dim = dim;
+    this.hasSky = dim !== 'nether';
+    this.gen = dim === 'nether' ? new NetherGenerator(seed) : new Generator(seed);
     this.lighting = new Lighting(this);
     this.chunks = new Map();
     this.saved = savedChunks || new Map(); // key -> {blocks, meta}
@@ -48,7 +50,7 @@ export class World {
     return c.meta[idx(x & 15, y, z & 15)];
   }
   getLight(x, y, z) {
-    if (y >= CH) return 0xf0;
+    if (y >= CH) return this.hasSky ? 0xf0 : 0;
     if (y < 0) return 0;
     const c = this.chunks.get(chunkKey(x >> 4, z >> 4));
     if (!c) return 0xf0;
@@ -170,6 +172,11 @@ export class World {
       return true;
     }
     if (id === B.WHEAT) return below === B.FARMLAND;
+    if (id === B.PORTAL) {
+      const ok = (b) => b === B.PORTAL || b === B.OBSIDIAN || b < 0;
+      const ax = this.getMeta(x, y, z) & 1 ? [0, 1] : [1, 0];
+      return ok(below) && ok(this.getBlock(x, y + 1, z)) && ok(this.getBlock(x + ax[0], y, z + ax[1])) && ok(this.getBlock(x - ax[0], y, z - ax[1]));
+    }
     if (id === B.OAK_DOOR) {
       const m = this.getMeta(x, y, z);
       if (m & 8) return below === B.OAK_DOOR;
@@ -178,6 +185,64 @@ export class World {
     }
     if (id === B.DEAD_BUSH) return below === B.SAND || below === B.DIRT || below === B.GRASS;
     return below === B.GRASS || below === B.DIRT || below === B.SNOWY_GRASS || below === B.FARMLAND || (id !== B.SAPLING && SOLID[below] && OPAQUE[below]);
+  }
+
+  // Light a nether portal inside an obsidian frame containing (x,y,z). Returns true on success.
+  tryLightPortal(x, y, z) {
+    const free = (b) => b === 0;
+    for (const axis of [0, 1]) {
+      const ax = axis ? [0, 1] : [1, 0];
+      // find bottom-left corner of the interior
+      let bx = x, by = y, bz = z;
+      for (let i = 0; i < 22 && free(this.getBlock(bx, by - 1, bz)); i++) by--;
+      if (this.getBlock(bx, by - 1, bz) !== B.OBSIDIAN) continue;
+      for (let i = 0; i < 22 && free(this.getBlock(bx - ax[0], by, bz - ax[1])); i++) { bx -= ax[0]; bz -= ax[1]; }
+      if (this.getBlock(bx - ax[0], by, bz - ax[1]) !== B.OBSIDIAN) continue;
+      let w = 0;
+      while (w < 22 && free(this.getBlock(bx + ax[0] * w, by, bz + ax[1] * w))) w++;
+      let h = 0;
+      while (h < 22 && free(this.getBlock(bx, by + h, bz))) h++;
+      if (w < 2 || h < 3 || w > 21 || h > 21) continue;
+      let valid = true;
+      for (let i = -1; i <= w && valid; i++) for (let j = -1; j <= h && valid; j++) {
+        const px = bx + ax[0] * i, pz = bz + ax[1] * i, py = by + j;
+        const edgeI = i === -1 || i === w, edgeJ = j === -1 || j === h;
+        if (edgeI && edgeJ) continue; // corners optional
+        const b = this.getBlock(px, py, pz);
+        if (edgeI || edgeJ) { if (b !== B.OBSIDIAN) valid = false; } else if (!free(b)) valid = false;
+      }
+      if (!valid) continue;
+      for (let i = 0; i < w; i++) for (let j = 0; j < h; j++) this.setBlock(bx + ax[0] * i, by + j, bz + ax[1] * i, B.PORTAL, axis, { silent: true });
+      return true;
+    }
+    return false;
+  }
+
+  findPortal(x, y, z, r) {
+    let best = null, bd = Infinity;
+    for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+      if (!this.isLoaded(x + dx, z + dz)) continue;
+      for (let yy = 1; yy < CH - 1; yy++) {
+        if (this.getBlock(x + dx, yy, z + dz) === B.PORTAL && this.getBlock(x + dx, yy - 1, z + dz) !== B.PORTAL) {
+          const d = dx * dx + dz * dz + (yy - y) * (yy - y) * 0.25;
+          if (d < bd) { bd = d; best = [x + dx, yy, z + dz]; }
+        }
+      }
+    }
+    return best;
+  }
+
+  // Build an obsidian frame with a lit portal, clearing space and adding a floor.
+  buildPortal(x, y, z) {
+    for (let i = -1; i <= 4; i++) for (let j = -1; j <= 4; j++) for (let k = -1; k <= 1; k++) {
+      const px = x + i, py = y + j, pz = z + k;
+      if (j === -1) { if (!SOLID[this.getBlock(px, py, pz)] || BLOCKS[this.getBlock(px, py, pz)]?.fluid) this.setBlock(px, py, pz, B.OBSIDIAN, 0, { silent: true }); }
+      else this.setBlock(px, py, pz, 0, 0, { silent: true });
+    }
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 5; j++) {
+      const frame = i === 0 || i === 3 || j === 0 || j === 4;
+      this.setBlock(x + i, y + j, z, frame ? B.OBSIDIAN : B.PORTAL, frame ? 0 : 0, { silent: true });
+    }
   }
 
   hasLogNear(x, y, z, r) {

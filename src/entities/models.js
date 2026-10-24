@@ -124,12 +124,14 @@ export function buildModel(type) {
       break;
     }
     case 'zombie':
+    case 'pigman':
     case 'player': {
-      const zombie = type === 'zombie';
-      const skin = zombie ? [100, 150, 80] : [210, 160, 120];
-      const shirt = zombie ? [40, 160, 160] : [40, 170, 180];
-      const pants = zombie ? [70, 60, 140] : [60, 60, 150];
-      const hair = zombie ? [60, 100, 50] : [70, 45, 25];
+      const zombie = type === 'zombie' || type === 'pigman';
+      const pig = type === 'pigman';
+      const skin = pig ? [230, 150, 150] : zombie ? [100, 150, 80] : [210, 160, 120];
+      const shirt = pig ? [150, 110, 90] : zombie ? [40, 160, 160] : [40, 170, 180];
+      const pants = pig ? [110, 150, 90] : zombie ? [70, 60, 140] : [60, 60, 150];
+      const hair = pig ? [120, 160, 100] : zombie ? [60, 100, 50] : [70, 45, 25];
       m.part('head', `${type}_head`, { size: [8, 8, 8], color: skin, faceColor: { top: hair, back: hair }, faces: { front: (g, w, h) => {
         g.fillStyle = `rgb(${hair})`; g.fillRect(0, 0, 8, 2); g.fillRect(0, 2, 1, 1); g.fillRect(7, 2, 1, 1);
         eyes(g, w, h, 4, zombie ? '#1a3010' : '#fff', zombie ? '#000' : '#3050a0', 1);

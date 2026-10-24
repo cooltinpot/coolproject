@@ -93,6 +93,7 @@ const solidB = new Builder();
 const transB = new Builder();
 
 function fillPadding(world, chunk) {
+  const skyL = world.hasSky ? 0xf0 : 0;
   const maxY = Math.min(CH - 1, chunk.maxY + 1);
   // clear region
   for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
@@ -104,7 +105,7 @@ function fillPadding(world, chunk) {
         const px = dx * 16 + lx, pz = dz * 16 + lz;
         const p = pidx(px, y, pz);
         if (c) { const i = idx(lx, y, lz); pb[p] = c.blocks[i]; pl[p] = c.light[i]; pm[p] = c.meta[i]; }
-        else { pb[p] = 0; pl[p] = 0xf0; pm[p] = 0; }
+        else { pb[p] = 0; pl[p] = skyL; pm[p] = 0; }
       }
     }
     // y = -1 bedrock, y = top+ fill sky
@@ -112,7 +113,7 @@ function fillPadding(world, chunk) {
       const px = dx * 16 + lx, pz = dz * 16 + lz;
       const p = pidx(px, -1, pz); pb[p] = B.BEDROCK; pl[p] = 0;
       const top = Math.min(CH, maxY + 2);
-      for (let y = top; y <= CH; y++) { const q = pidx(px, y, pz); pb[q] = 0; pl[q] = 0xf0; pm[q] = 0; }
+      for (let y = top; y <= CH; y++) { const q = pidx(px, y, pz); pb[q] = 0; pl[q] = skyL; pm[q] = 0; }
     }
   }
 }
@@ -157,6 +158,9 @@ export function buildChunkMesh(world, chunk) {
       case 'cross': crossBlock(def, p, x, y, z, biome); break;
       case 'fluid': fluidBlock(def, id, p, x, y, z); break;
       case 'box': boxBlock(def, p, x, y, z, def.box, null); break;
+      case 'portal':
+        boxBlock(def, p, x, y, z, pm[p] & 1 ? [6, 0, 0, 10, 16, 16] : [0, 0, 6, 16, 16, 10], null, null, { builder: transB, fullLight: true });
+        break;
       case 'shape': {
         const shapes = blockShapes(id, pm[p]);
         let uvo = null;
@@ -252,6 +256,7 @@ function boxBlock(def, p, x, y, z, box, uvOverride, offset, opts) {
   const [x0, y0, z0, x1, y1, z1] = box.map((v) => v / 16);
   const ox = offset ? offset[0] : 0, oy = offset ? offset[1] : 0, oz = offset ? offset[2] : 0;
   const own = pl[p];
+  const builder = (opts && opts.builder) || solidB;
   for (let d = 0; d < 6; d++) {
     const F = FACES[d];
     const n = F.n;
@@ -260,11 +265,11 @@ function boxBlock(def, p, x, y, z, box, uvOverride, offset, opts) {
     let l = own;
     if (onBoundary) {
       const nid = pb[p + F.nOff];
-      if (OPAQUE[nid]) continue;
+      if (OPAQUE[nid] || (nid === def.id && def.render === 'portal')) continue;
       l = pl[p + F.nOff];
     }
     if (n[1] === -1 && y0 === 0 && !onBoundary) l = own;
-    const sky = (l >> 4) * 17, blk = (l & 15) * 17;
+    const sky = (l >> 4) * 17, blk = opts && opts.fullLight ? 255 : (l & 15) * 17;
     const layer = opts && opts.layer ? opts.layer(d) : faceLayer(def, d, p);
     const shade = FACE_SHADE[d] * 255;
     const vs = [];
@@ -281,9 +286,9 @@ function boxBlock(def, p, x, y, z, box, uvOverride, offset, opts) {
         u = dot(rel, F.right) + 0.5;
         v = 1 - (dot(rel, F.up) + 0.5);
       }
-      vs.push(solidB.vert(x + px + ox, y + py + oy, z + pz + oz, u, v, layer, shade, shade, shade, sky, blk));
+      vs.push(builder.vert(x + px + ox, y + py + oy, z + pz + oz, u, v, layer, shade, shade, shade, sky, blk));
     }
-    solidB.quad(vs[0], vs[1], vs[2], vs[3], false);
+    builder.quad(vs[0], vs[1], vs[2], vs[3], false);
   }
 }
 

@@ -34,6 +34,8 @@ uniform vec3 fogColor;
 uniform float uTime;
 uniform float uAnimLayer;
 uniform float uGamma;
+uniform float uAmbient;
+uniform float uAnimLayer2;
 in vec2 vUv;
 flat in float vLayer;
 in vec3 vColor;
@@ -43,6 +45,7 @@ out highp vec4 pc_fragColor;
 void main() {
   vec2 uv = vUv;
   if (abs(vLayer - uAnimLayer) < 0.5) uv += vec2(uTime * 0.03, uTime * 0.05);
+  if (abs(vLayer - uAnimLayer2) < 0.5) uv += vec2(sin(uTime * 0.7) * 0.15, uTime * 0.25);
   vec4 t = texture(map, vec3(uv, vLayer));
   if (t.a < alphaTest) discard;
   float sky = vLight.x * daylight;
@@ -50,7 +53,7 @@ void main() {
   float l = max(sky, bl);
   float b = pow(0.8, (1.0 - l) * 15.0);
   b = mix(b, sqrt(b), uGamma);
-  b = max(b, 0.035);
+  b = max(b, max(0.035, uAmbient));
   vec3 tint = mix(vec3(1.0), vec3(1.0, 0.9, 0.75), clamp((bl - sky) * 1.5, 0.0, 1.0) * 0.8);
   vec3 col = t.rgb * vColor * b * tint;
   float f = smoothstep(fogNear, fogFar, vDist);
@@ -67,6 +70,8 @@ export function createChunkMaterials(atlas) {
     uTime: { value: 0 },
     uAnimLayer: { value: -10 },
     uGamma: { value: 0.3 },
+    uAmbient: { value: 0 },
+    uAnimLayer2: { value: -10 },
     uWave: { value: 0 },
   };
   const mk = (alphaTest, opacity, transparent, side) => new THREE.ShaderMaterial({
@@ -131,10 +136,12 @@ export function createEntityBlockMaterial(atlas, shared) {
   });
 }
 
+let AMBIENT = 0;
+export function setAmbient(a) { AMBIENT = a; }
 export function lightToBrightness(packed, daylight) {
   const sky = (packed >> 4) / 15 * daylight;
   const bl = (packed & 15) / 15;
   const l = Math.max(sky, bl);
   const b = Math.pow(0.8, (1 - l) * 15);
-  return Math.max(0.06, b * 0.7 + Math.sqrt(b) * 0.3);
+  return Math.max(0.06, AMBIENT * 1.3, b * 0.7 + Math.sqrt(b) * 0.3);
 }

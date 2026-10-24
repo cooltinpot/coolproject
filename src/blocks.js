@@ -11,7 +11,7 @@ export const B = {
   BED: 43, IRON_BLOCK: 44, GOLD_BLOCK: 45, DIAMOND_BLOCK: 46, SAPLING: 47, DEAD_BUSH: 48,
   SPRUCE_LOG: 49, SPRUCE_LEAVES: 50, JACK_O_LANTERN: 51, LADDER: 52, COBWEB: 53, FARMLAND: 54, WHEAT: 55,
   OAK_SLAB: 56, STONE_SLAB: 57, COBBLE_SLAB: 58, OAK_STAIRS: 59, COBBLE_STAIRS: 60, STONE_BRICK_STAIRS: 61,
-  BRICK_STAIRS: 62, OAK_DOOR: 63,
+  BRICK_STAIRS: 62, OAK_DOOR: 63, NETHERRACK: 64, SOUL_SAND: 65, PORTAL: 66, NETHER_BRICKS: 67, QUARTZ_ORE: 68,
 };
 
 export const I = {
@@ -21,6 +21,7 @@ export const I = {
   LAVA_BUCKET: 273, FLINT_AND_STEEL: 274, RAW_MUTTON: 275, COOKED_MUTTON: 276, STRING: 277,
   BONE: 278, BREAD: 279, WHEAT_SEEDS: 280, GOLDEN_APPLE: 281, BOWL: 282, MUSHROOM_STEW: 283, WHEAT: 284,
   LEATHER: 285, FEATHER: 286, RAW_CHICKEN: 287, COOKED_CHICKEN: 288, ARROW: 289, BOW: 290, BONE_MEAL: 291,
+  QUARTZ: 292, GOLD_NUGGET: 293,
 };
 
 export const ARMOR_MATERIALS = [
@@ -156,6 +157,11 @@ block(B.STONE_BRICK_STAIRS, 'stone_brick_stairs', 'Stone Brick Stairs', { tex: T
 block(B.BRICK_STAIRS, 'brick_stairs', 'Brick Stairs', { tex: T('bricks'), render: 'shape', shape: 'stairs', opaque: false, hardness: 2, tool: 'pickaxe', level: 0 });
 block(B.OAK_DOOR, 'oak_door', 'Oak Door', { tex: { top: 'planks', bottom: 'planks', side: 'door_bottom', front: 'door_bottom' }, render: 'shape', shape: 'door', layer: 'cutout', opaque: false, hardness: 3, tool: 'axe', sound: 'wood', stack: 16, interact: 'door', needsSupport: true, flatIcon: 'door_item',
   drops: (rng, meta) => (meta & 8 ? [] : [[B.OAK_DOOR, 1]]) });
+block(B.NETHERRACK, 'netherrack', 'Netherrack', { tex: T('netherrack'), hardness: 0.4, tool: 'pickaxe', level: 0 });
+block(B.SOUL_SAND, 'soul_sand', 'Soul Sand', { tex: T('soul_sand'), render: 'box', box: [0, 0, 0, 16, 14, 16], hardness: 0.5, tool: 'shovel', sound: 'sand', slow: true });
+block(B.PORTAL, 'portal', 'Nether Portal', { tex: T('portal'), render: 'portal', layer: 'translucent', solid: false, opaque: false, light: 11, hardness: -1, selectable: false, hidden: true, needsSupport: true, drops: () => [] });
+block(B.NETHER_BRICKS, 'nether_bricks', 'Nether Bricks', { tex: T('nether_bricks'), hardness: 2, tool: 'pickaxe', level: 0 });
+block(B.QUARTZ_ORE, 'quartz_ore', 'Nether Quartz Ore', { tex: T('quartz_ore'), hardness: 3, tool: 'pickaxe', level: 0, drops: () => [[I.QUARTZ, 1]] });
 block(B.COBWEB, 'cobweb', 'Cobweb', { tex: T('cobweb'), render: 'cross', layer: 'cutout', solid: false, opaque: false, hardness: 4, tool: 'sword', sound: 'cloth', web: true, drops: () => [[I.STRING, 1]] });
 
 // Planks from birch/spruce logs share the oak plank block to keep things simple.
@@ -193,6 +199,8 @@ item(I.COOKED_CHICKEN, 'cooked_chicken', 'Cooked Chicken', { food: { hunger: 6, 
 item(I.ARROW, 'arrow', 'Arrow');
 item(I.BOW, 'bow', 'Bow', { stack: 1, durability: 384, bow: true });
 item(I.BONE_MEAL, 'bone_meal', 'Bone Meal');
+item(I.QUARTZ, 'quartz', 'Nether Quartz');
+item(I.GOLD_NUGGET, 'gold_nugget', 'Gold Nugget');
 ARMOR_MATERIALS.forEach((m, mi) => ARMOR_SLOTS.forEach((slot, si) => {
   const names = { helmet: 'Helmet', chestplate: 'Chestplate', leggings: 'Leggings', boots: 'Boots' };
   item(armorId(mi, si), `${m.key}_${slot}`, `${m.key === 'leather' ? 'Leather ' + (slot === 'helmet' ? 'Cap' : slot === 'chestplate' ? 'Tunic' : slot === 'leggings' ? 'Pants' : 'Boots') : m.name + ' ' + names[slot]}`, {
