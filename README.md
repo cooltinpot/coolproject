@@ -51,15 +51,17 @@ Headphones recommended: attack cues are panned in stereo.
 - **Perfect parry:** hit-stop, a short slow-motion, sparks, a shockwave, a floor
   ripple and a metallic ring. Projectiles **fly back at whoever fired them**. One
   reflected orb kills a drone.
-- **On-beat parry** (within ±95 ms of a beat): almost double Resonance, a gold
-  flash, and a **chime tuned to the chord the soundtrack is playing**.
+- **PERFECT / on-beat parry:** press within **95 ms of impact**. Impacts are
+  quantized to the soundtrack, so a tight press is also on the beat. Rewards:
+  almost double Resonance, a gold flash, and a **chime tuned to the chord the
+  soundtrack is playing**.
 - **Parry chains:** consecutive parries within 1.4 s raise the pitch of the clang
   and add bonus Resonance.
 - **No mashing:** a parry window that expires unused locks parry out for 0.3 s. A
   successful parry clears the lockout, so a correctly timed chain never stalls.
 - **Holding** parry after the window turns into a **block**. A block takes 25%
   chip damage and slows you, but it is never perfect.
-- The HUD shows your timing error in milliseconds after every parry.
+- The HUD shows how many milliseconds before impact you pressed, after every parry.
 
 ### Posture and riposte
 Parries damage an enemy's **posture**. When posture breaks, the enemy kneels

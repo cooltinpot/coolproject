@@ -68,10 +68,10 @@ export class HUD {
   }
 
   onParry(onBeat, chain, offset) {
-    const ms = Math.round(offset * 1000);
-    const timing = `${ms >= 0 ? '+' : ''}${ms}ms`;
-    if (onBeat) this.popText('PERFECT', 'beat', `ON BEAT ${timing}${chain > 1 ? ' · CHAIN ×' + chain : ''}`);
-    else this.popText('PARRY', 'parry', `${timing}${chain > 1 ? ' · CHAIN ×' + chain : ''}`);
+    const ms = Math.abs(Math.round(offset * 1000));
+    const ch = chain > 1 ? ' · CHAIN ×' + chain : '';
+    if (onBeat) this.popText('PERFECT', 'beat', `ON BEAT · ${ms}ms${ch}`);
+    else this.popText('PARRY', 'parry', `${ms}ms EARLY${ch}`);
     this.laneFlashes.push({ t: 0, color: onBeat ? '#ffd34a' : '#5ff4ff' });
   }
 

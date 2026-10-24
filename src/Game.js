@@ -40,6 +40,7 @@ export class Game {
     r.toneMappingExposure = 1.05;
     r.shadowMap.enabled = this.quality.shadows;
     r.shadowMap.type = THREE.PCFSoftShadowMap;
+    r.info.autoReset = false; // count draw calls across all passes of a frame
     this.renderer = r;
 
     this.scene = new THREE.Scene();
@@ -174,6 +175,7 @@ export class Game {
     if (this.state !== 'playing') return;
     this.state = 'paused';
     this.time.paused = true;
+    this.pausedAt = this.audio.now;
     this.audio.setMuffle(0.85);
     this.emit('pause');
   }
@@ -182,6 +184,7 @@ export class Game {
     if (this.state !== 'paused') return;
     this.state = 'playing';
     this.time.paused = false;
+    this._resyncToBeat(this.audio.now - (this.pausedAt ?? this.audio.now));
     this.input.requestLock();
     this.emit('resume');
   }
@@ -214,6 +217,23 @@ export class Game {
       (k, out) => out.set(c.x + Math.sin(k * 1.2) * 9, 3 + k * 2, c.z + 10 - k * 3),
       (k, out) => out.set(c.x, 3.5, c.z), 50);
     this.time.slowMo(0.6, 1.2, 2);
+  }
+
+  // The music kept playing while paused: push every pending attack back so it
+  // lands on the beat grid again.
+  _resyncToBeat(pausedFor) {
+    if (!this.music.playing || pausedFor <= 0) return;
+    const spb = this.music.spb;
+    const e = (spb - (pausedFor % spb)) % spb;
+    if (e < 0.001) return;
+    for (const en of this.enemies) {
+      const a = en.attack;
+      if (!a || a.resolved) continue;
+      a.impactIn += e;
+      a.total += e;
+      if (a.elapsed !== undefined) a.elapsed -= e;
+    }
+    for (const p of this.projectiles.list) if (p.arrival !== null && p.team === 'enemy') p.arrival += e;
   }
 
   onEnemyKilled(e, cause) {
@@ -269,8 +289,10 @@ export class Game {
     const s = p.stats;
     const beatRatio = s.parries ? s.onBeat / s.parries : 0;
     const gi = clamp(Math.round(this.style.peakRank * 0.55 + beatRatio * 2 + (s.hitsTaken < 6 ? 1 : 0) + (victory ? 1 : 0) - 0.5), 0, 6);
+    this.lastWaveIndex = this.director.endless ? 0 : Math.max(0, this.director.waveIndex);
     return {
       victory,
+      waveIndex: this.director.endless ? -1 : this.director.waveIndex,
       grade: RANKS[gi].id,
       gradeColor: RANKS[gi].color,
       stats: [
@@ -344,6 +366,7 @@ export class Game {
     const rawDt = Math.min(0.05, (now - this._clock) / 1000);
     this._clock = now;
     this.update(rawDt);
+    this.renderer.info.reset();
     this.post.render(rawDt);
     this.input.endFrame();
   }
@@ -351,16 +374,24 @@ export class Game {
   // Advance the simulation without rendering (used by automated tests).
   simulate(seconds, step = 1 / 60) {
     const n = Math.round(seconds / step);
+    this.simulating = this.audio.fakeNow === undefined;
     for (let i = 0; i < n; i++) {
       this.update(step);
       this.input.endFrame();
     }
+    this.simulating = false;
   }
 
   update(rawDt) {
     if (this.bot) this._botThink();
     this.input.update(this.time.real, rawDt);
-    this.time.update(rawDt);
+    // Attack timers follow the audio clock so impacts stay locked to the music
+    // even when the frame rate dips.
+    const an = this.audio.now;
+    let clockDt = rawDt;
+    if (this.audio.running && !this.simulating && this._lastAudio !== undefined) clockDt = clamp(an - this._lastAudio, 0, 0.25);
+    this._lastAudio = an;
+    this.time.update(rawDt, clockDt);
     const dt = this.time.dt;
     const edt = this.time.enemyDt;
 
@@ -419,8 +450,9 @@ export class Game {
         if (bi !== this.lastBeatIndex) { this.lastBeatIndex = bi; this.sfx.heartbeat(); }
       }
     } else if (this.state === 'title') {
-      // Attract mode: the ronin idles in the centre of the arena.
+      // Attract mode: the ronin performs a sword kata in time with the music.
       this.input.takeLook();
+      this._titleKata();
       this.player._updateVisuals(rawDt);
     }
 
@@ -469,6 +501,32 @@ export class Game {
     if (this.bot === 'fight' && tgt) {
       this.cameraRig.yaw = Math.atan2(tgt.position.x - p.position.x, tgt.position.z - p.position.z);
       inp.down.up = flatDist(tgt.position, p.position) > 2.8;
+    }
+  }
+
+  _titleKata() {
+    if (!this.music.playing) return;
+    const beat = Math.floor(this.music.beatPos);
+    if (beat === this._kataBeat || beat % 2) return;
+    this._kataBeat = beat;
+    const p = this.player;
+    const moves = ['attack1', 'attack2', 'attack3', 'parry'];
+    const m = moves[(beat / 2) % moves.length];
+    p.yaw += 0.6;
+    const f = p.forward;
+    const pos = p.position.clone().setY(1.1).addScaledVector(f, 0.2);
+    if (m === 'parry') {
+      p.anim.play('parryHit', 0.4);
+      this.particles.sparks(pos.clone().addScaledVector(f, 0.5).setY(1.4), f, { count: 30, color: 0xffd34a, speed: 12, life: 0.4, size: 0.05 });
+      this.effects.shockwave(pos.clone().addScaledVector(f, 0.6).setY(1.4), { color: 0xffd34a, radius: 1.6, duration: 0.35, vertical: true });
+      this.arena.addRipple(p.position, 1, 0xffd34a);
+    } else {
+      p.anim.play(m, m === 'attack3' ? 0.6 : 0.42);
+      p.trail.emitting = true;
+      setTimeout(() => (p.trail.emitting = false), 250);
+      const roll = m === 'attack3' ? Math.PI / 2 - 0.15 : m === 'attack2' ? 0.15 : -0.12;
+      setTimeout(() => this.effects.slash(pos, p.yaw, { color: 0x5ff4ff, radius: 3, roll, mirror: m === 'attack2', duration: 0.2 }), m === 'attack3' ? 160 : 70);
+      if (m === 'attack3') this.arena.addRipple(p.position.clone().addScaledVector(f, 2), 0.8, 0x5ff4ff);
     }
   }
 

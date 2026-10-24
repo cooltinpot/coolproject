@@ -7,6 +7,7 @@ export class Time {
     this.rawDt = 0;
     this.dt = 0;           // scaled delta for the player / world
     this.enemyDt = 0;      // additionally scaled for enemies (Overdrive)
+    this.beatDt = 0;       // attack timers: real time (ignores hit-stop/slow-mo) so hits stay on the beat
     this.elapsed = 0;      // scaled time
     this.real = 0;         // unscaled time
     this.scale = 1;
@@ -39,13 +40,15 @@ export class Time {
     return 1 - this.scale;
   }
 
-  update(rawDt) {
+  // clockDt: elapsed time on the audio clock (uncapped), used for attack timers.
+  update(rawDt, clockDt = rawDt) {
     rawDt = Math.min(rawDt, 1 / 20);
     this.rawDt = rawDt;
     this.real += rawDt;
     if (this.paused) {
       this.dt = 0;
       this.enemyDt = 0;
+      this.beatDt = 0;
       return;
     }
     let target = 1;
@@ -65,6 +68,7 @@ export class Time {
     this.enemyScale = damp(this.enemyScale, this.targetEnemyScale, 6, rawDt);
     this.dt = rawDt * s;
     this.enemyDt = this.dt * this.enemyScale;
+    this.beatDt = clockDt * this.enemyScale;
     this.elapsed += this.dt;
   }
 }

@@ -131,6 +131,7 @@ export class AudioEngine {
 
   // Audio clock (falls back to performance clock if audio is unavailable).
   get now() {
+    if (this.fakeNow !== undefined) return this.fakeNow; // deterministic tests
     if (this.ctx) return this.ctx.currentTime;
     return (performance.now() - this._perfStart) / 1000;
   }

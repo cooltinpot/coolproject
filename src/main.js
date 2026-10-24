@@ -65,6 +65,7 @@ async function boot() {
   $('btn-pause-howto').onclick = () => { backTarget = 'pause'; showScreen('howto'); };
   $('btn-quit').onclick = () => { game.quitToTitle(); showScreen('title'); };
   $('btn-retry').onclick = () => { showScreen(null); game.startGame(0); };
+  $('btn-retry-wave').onclick = () => { showScreen(null); game.startGame(game.lastWaveIndex || 0); };
   $('btn-title').onclick = () => { game.quitToTitle(); showScreen('title'); };
   $('btn-endless').onclick = () => { showScreen(null); game.continueEndless(); };
   document.querySelectorAll('.back').forEach((b) => (b.onclick = () => showScreen(backTarget)));
@@ -78,6 +79,9 @@ async function boot() {
     gEl.style.color = r.gradeColor;
     $('results-stats').innerHTML = r.stats.map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join('');
     $('btn-endless').classList.toggle('hidden', !r.victory);
+    const canRetryWave = !r.victory && r.waveIndex > 0 && r.waveIndex < 8;
+    $('btn-retry-wave').classList.toggle('hidden', !canRetryWave);
+    $('btn-retry-wave').textContent = r.waveIndex === 7 ? 'RETRY BOSS' : `RETRY WAVE ${r.waveIndex + 1}`;
     showScreen('results');
   });
 

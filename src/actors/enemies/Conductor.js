@@ -128,8 +128,10 @@ export class Conductor extends Enemy {
     baton.add(this.batonTip);
     // Gyroscope rings
     this.rings = [];
+    const ringMatA = fxMaterial({ color: 0, emissive: 0xff5ad1, emissiveIntensity: 1.1 }, U, { glow: true });
+    const ringMatB = fxMaterial({ color: 0, emissive: 0x3df2ff, emissiveIntensity: 1.0 }, U, { glow: true });
     for (let i = 0; i < 3; i++) {
-      const r = new THREE.Mesh(new THREE.TorusGeometry(1.6 + i * 0.35, 0.03, 4, 96), i === 1 ? glow2 : glow);
+      const r = new THREE.Mesh(new THREE.TorusGeometry(1.6 + i * 0.35, 0.022, 4, 96), i === 1 ? ringMatB : ringMatA);
       r.position.y = 0.6;
       body.add(r);
       this.rings.push(r);
@@ -290,7 +292,7 @@ export class Conductor extends Enemy {
   updateAttack(dt, att) {
     const g = this.game;
     const p = this.player;
-    att.elapsed = (att.elapsed || 0) + dt;
+    att.elapsed = (att.elapsed || 0) + g.time.beatDt;
     this.position.y = damp(this.position.y, this.floatY + 0.6, 2, dt);
     if (att.kind !== 'baton') {
       this.faceTo(p.position, dt, 4);

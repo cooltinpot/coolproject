@@ -10,7 +10,7 @@ import { ARENA_RADIUS } from '../world/Arena.js';
 
 export const PARRY_WINDOW = 0.18;    // seconds of "perfect" after pressing parry
 const PARRY_WHIFF_CD = 0.3;          // lockout if the window expires unused
-const ON_BEAT_TOLERANCE = 0.095;     // seconds either side of a beat
+const PERFECT_TOLERANCE = 0.095;     // press within this long before impact = PERFECT (impacts land on the beat)
 const RUN_SPEED = 10.5;
 const GRAVITY = 40;
 const JUMP_V = 13.5;
@@ -563,6 +563,7 @@ export class Player {
     const g = this.game;
     this.parryWindow = PARRY_WINDOW * (this.overdriveActive ? 1.6 : 1);
     this._parrySucceeded = false;
+    this.parryPressTime = g.time.real;
     // Parry cancels attacks and recovery.
     if (this.state === 'attack' || this.state === 'hurt') {
       this.trail.emitting = false;
@@ -615,8 +616,10 @@ export class Player {
     this.parryWindow = Math.max(this.parryWindow, 0.07);
     this.parryChain = now - this.lastParryTime < 1.4 ? this.parryChain + 1 : 1;
     this.lastParryTime = now;
-    const offset = g.music.beatOffset();
-    const onBeat = Math.abs(offset) <= ON_BEAT_TOLERANCE;
+    // Timing is judged from the button press to the moment of impact. Attacks
+    // are quantized to the soundtrack, so a tight press is also on the beat.
+    const offset = (this.parryPressTime ?? now) - g.time.real;
+    const onBeat = -offset <= PERFECT_TOLERANCE || (this.overdriveActive && !this.parryWindow);
     this.lastParryOnBeat = onBeat;
     this.stats.parries++;
     if (onBeat) this.stats.onBeat++;
@@ -639,7 +642,7 @@ export class Player {
     g.cameraRig.addTrauma(onBeat ? 0.32 : 0.24);
     g.cameraRig.kickFov(-5);
     g.post.kickAberration(onBeat ? 0.9 : 0.6);
-    g.post.flash(onBeat ? 0xfff0b0 : 0xd8ffff, onBeat ? 0.3 : 0.18);
+    g.post.flash(onBeat ? 0xfff0b0 : 0xd8ffff, onBeat ? 0.2 : 0.12);
     const sp = g.worldToScreen(contact);
     if (sp) g.post.setCenter(sp.x, sp.y);
     g.post.kickZoom(0.5);
@@ -649,7 +652,7 @@ export class Player {
     g.fx.particles.burst(contact, { count: 16, color: col, speed: 3, life: 0.4, size: 0.25, soft: 0.9 });
     g.fx.effects.shockwave(contact, { color: col, radius: onBeat ? 3.2 : 2.2, duration: 0.35, thickness: 0.05, vertical: true });
     g.fx.effects.sphere(contact, { color: col, radius: 1.4, duration: 0.22, opacity: 0.45 });
-    g.fx.effects.flash(contact, col, onBeat ? 45 : 30, 0.25);
+    g.fx.effects.flash(contact, col, onBeat ? 24 : 16, 0.22);
     g.arena.addRipple(this.position, onBeat ? 1.4 : 0.9, col);
     this.anim.play('parryHit', 0.24);
     this.anim.flinch = 0;

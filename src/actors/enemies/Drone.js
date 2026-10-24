@@ -131,7 +131,7 @@ export class Drone extends Enemy {
 
   updateAttack(dt, att) {
     const g = this.game;
-    att.elapsed += dt;
+    att.elapsed += g.time.beatDt;
     this.charge = clamp(att.elapsed / Math.max(0.2, att.total - att.flight), 0, 1);
     const muzzle = this._v2.set(this.position.x + Math.sin(this.yaw) * 0.5, this.position.y, this.position.z + Math.cos(this.yaw) * 0.5);
     if (att.fired === 0) {

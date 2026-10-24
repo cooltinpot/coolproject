@@ -177,16 +177,20 @@ export class Projectiles {
       const step = p.team === 'enemy' ? enemyDt : dt;
       p.age += step;
       p.life -= step;
-      if (p.arrival !== null) p.arrival -= step;
+      if (p.arrival !== null) p.arrival -= p.team === 'enemy' ? g.time.beatDt : step;
 
-      if (p.team === 'enemy' && p.arrival !== null && p.arrival > 0.25 && player.alive) {
-        // Beat-locked steering: aim to arrive exactly when the beat lands.
-        // Aim so the contact sphere (not the centre) is reached on the beat.
-        const want = this._v.subVectors(pc, p.pos);
+      if (p.team === 'enemy' && p.arrival !== null && p.arrival > 0.16 && player.alive) {
+        // Beat-locked steering: aim where the player will be when the beat
+        // lands (partial lead) so the contact sphere is reached exactly on time.
+        // The last stretch flies straight, so dashing or jumping still dodges.
+        const lead = this._v2.copy(player.velocity).multiplyScalar(Math.min(p.arrival, 1.2) * 0.8);
+        lead.y = 0;
+        const corr = Math.max(0, p.pos.distanceTo(pc) - this._capsuleDist(p.pos));
+        const want = this._v.copy(pc).add(lead).sub(p.pos);
         const d = want.length() || 1;
-        const reach = Math.max(0, this._capsuleDist(p.pos) - (p.radius + 0.5));
+        const reach = Math.max(0, d - corr - (p.radius + 0.5));
         want.multiplyScalar(reach / d / Math.max(0.05, p.arrival));
-        p.vel.lerp(want, 1 - Math.exp(-6 * step));
+        p.vel.lerp(want, 1 - Math.exp(-10 * step));
       }
       if (p.homingTarget) {
         const t = p.homingTarget;

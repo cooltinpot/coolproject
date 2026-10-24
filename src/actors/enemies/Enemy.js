@@ -111,7 +111,7 @@ export class Enemy {
 
     // Attack timing
     if (this.attack && !this.attack.resolved) {
-      this.attack.impactIn -= dt;
+      this.attack.impactIn -= this.game.time.beatDt;
       this.updateAttack(dt, this.attack);
     }
 
