@@ -1,0 +1,11 @@
+{
+  "name": "minecraft-js",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node tools/build-single.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.0"
+  }
+}

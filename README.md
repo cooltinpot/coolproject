@@ -16,6 +16,15 @@ python3 -m http.server 8000
 Then open <http://localhost:8000>. The game needs a browser with WebGL2 (any recent Chrome, Firefox, Edge or Safari).
 three.js is vendored in `vendor/`, so the game also runs offline. Only the pixel font comes from Google Fonts, and the game falls back to a system monospace font without it.
 
+### Single-file version
+
+`dist/index.html` is the whole game (code, three.js and styles) bundled into one file. You can double-click it to play straight from disk, or upload just that one file to any web host, such as GitHub Pages. To rebuild it after changing the code:
+
+```sh
+npm install
+npm run build
+```
+
 ## Features
 
 **World**
