@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Minecraft.js</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=VT323&display=swap">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three.module.min.js" } }
+  </script>
+</head>
+<body>
+  <canvas id="c"></canvas>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div id="crosshair"></div>
+    <div id="overlay"></div>
+    <div id="fire"></div>
+    <div id="hurt"></div>
+    <div id="sleep"></div>
+    <div id="heldname"></div>
+    <div id="bottom">
+      <div id="stats">
+        <div id="hearts" class="iconrow"></div>
+        <div class="stat-right">
+          <div id="air" class="iconrow rtl"></div>
+          <div id="food" class="iconrow rtl"></div>
+        </div>
+      </div>
+      <div id="xpbar"><div id="xpfill"></div><div id="xplevel"></div></div>
+      <div id="hotbar"></div>
+    </div>
+    <div id="chatlog"></div>
+    <input id="chatinput" type="text" autocomplete="off" spellcheck="false" maxlength="256">
+    <pre id="debug"></pre>
+    <div id="fps"></div>
+  </div>
+
+  <div id="container"></div>
+
+  <!-- Screens -->
+  <div id="title" class="screen dirt">
+    <div class="logo-wrap">
+      <h1 class="logo">MINECRAFT<span class="logo-js">.js</span></h1>
+      <div id="splash" class="splash"></div>
+    </div>
+    <div class="menu">
+      <button id="btn-singleplayer" class="btn">Singleplayer</button>
+      <button id="btn-options-title" class="btn">Options...</button>
+      <button id="btn-controls-title" class="btn">Controls</button>
+    </div>
+    <div class="footer-left">Fan-made browser clone · everything procedurally generated</div>
+  </div>
+
+  <div id="worlds" class="screen dirt">
+    <h2>Select World</h2>
+    <div id="world-list"></div>
+    <div class="menu row">
+      <button id="btn-create" class="btn">Create New World</button>
+      <button id="btn-worlds-back" class="btn">Back</button>
+    </div>
+  </div>
+
+  <div id="create" class="screen dirt">
+    <h2>Create New World</h2>
+    <div class="form">
+      <label>World Name<input id="new-name" type="text" maxlength="40"></label>
+      <label>Seed for the World Generator<input id="new-seed" type="text" placeholder="Leave blank for a random seed" maxlength="40"></label>
+      <button id="btn-mode" class="btn">Game Mode: Survival</button>
+    </div>
+    <div class="menu row">
+      <button id="btn-create-go" class="btn">Create New World</button>
+      <button id="btn-create-cancel" class="btn">Cancel</button>
+    </div>
+  </div>
+
+  <div id="loading" class="screen dirt">
+    <h2 id="loading-text">Loading...</h2>
+    <div class="loadbar"><div id="loading-fill"></div></div>
+  </div>
+
+  <div id="pause" class="screen dim">
+    <h2>Game Menu</h2>
+    <div class="menu">
+      <button id="btn-resume" class="btn">Back to Game</button>
+      <button id="btn-options-pause" class="btn">Options...</button>
+      <button id="btn-controls-pause" class="btn">Controls</button>
+      <button id="btn-quit" class="btn">Save and Quit to Title</button>
+    </div>
+  </div>
+
+  <div id="options" class="screen dim-dirt">
+    <h2>Options</h2>
+    <div id="options-list" class="options-grid"></div>
+    <div class="menu"><button id="btn-options-done" class="btn">Done</button></div>
+  </div>
+
+  <div id="controls" class="screen dim-dirt">
+    <h2>Controls</h2>
+    <div class="controls-grid">
+      <div><b>W A S D</b> Move</div><div><b>Space</b> Jump / swim up / fly up</div>
+      <div><b>Shift</b> Sneak / fly down</div><div><b>Ctrl</b> or <b>R</b> Sprint</div>
+      <div><b>Left click</b> Mine / attack</div><div><b>Right click</b> Place / use / eat</div>
+      <div><b>Middle click</b> Pick block</div><div><b>1-9 / wheel</b> Select hotbar slot</div>
+      <div><b>E</b> Inventory</div><div><b>Q</b> Drop item (Ctrl+Q: stack)</div>
+      <div><b>T</b> Chat · <b>/</b> Command</div><div><b>F3</b> Debug info</div>
+      <div><b>F5</b> Camera view</div><div><b>F1</b> Hide HUD</div>
+      <div><b>Double-tap Space</b> Fly (creative)</div><div><b>Esc</b> Pause</div>
+      <div class="wide"><b>Inventory:</b> left click pick/place, right click split/place one, shift-click quick move, number keys swap with hotbar, Q drop.</div>
+      <div class="wide"><b>Commands:</b> /help, /gamemode creative, /time set night, /give diamond 64, /summon creeper, /tp ~ ~10 ~</div>
+    </div>
+    <div class="menu"><button id="btn-controls-done" class="btn">Done</button></div>
+  </div>
+
+  <div id="death" class="screen red">
+    <h1 class="dead">You Died!</h1>
+    <div id="death-msg"></div>
+    <div id="death-score"></div>
+    <div class="menu">
+      <button id="btn-respawn" class="btn">Respawn</button>
+      <button id="btn-death-title" class="btn">Title Screen</button>
+    </div>
+  </div>
+
+  <div id="fatal"></div>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
