@@ -147,6 +147,17 @@ export function buildHumanoid(styleName = 'player') {
   for (const sx of [-1, 1]) {
     add(J.hips, plate([[-0.07, 0.1], [0.07, 0.1], [0.06, -0.12], [-0.05, -0.14]], 0.02), mats.armor, 0.15 * sx * bulk, -0.1, 0.02, 0.05, 0, 0.18 * sx);
   }
+  // Scabbard (saya) slung on the left hip, angled back.
+  if (styleName === 'player' || duelist) {
+    const saya = new THREE.Group();
+    saya.position.set(0.19 * bulk, -0.02, 0.02);
+    saya.rotation.set(1.05, 0, 0.12);
+    J.hips.add(saya);
+    add(saya, roundedBox(0.045, 0.98, 0.028, 0.012), mats.dark, 0, -0.42, 0);
+    for (const y of [-0.02, -0.18, -0.62]) add(saya, roundedBox(0.055, 0.03, 0.036, 0.01), mats.trim, 0, y, 0);
+    add(saya, roundedBox(0.05, 0.06, 0.032, 0.012), mats.trim, 0, -0.92, 0);
+    add(saya, new THREE.BoxGeometry(0.008, 0.7, 0.03), mats.glow, 0.024, -0.42, 0, 0, 0, 0, false);
+  }
   // Coat tails / loincloth (static plates; scarf is simulated separately)
   add(J.hips, plate([[-0.09, 0.05], [0.09, 0.05], [0.07, -0.32], [-0.07, -0.3]], 0.01), mats.cloth, 0, -0.14, -0.12, -0.15);
 

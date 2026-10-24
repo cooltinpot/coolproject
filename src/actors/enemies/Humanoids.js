@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { Enemy } from './Enemy.js';
 import { buildHumanoid, Animator, locomotion } from '../Rig.js';
-import { SwordTrail } from '../../fx/Trail.js';
+import { SwordTrail, ClothRibbon } from '../../fx/Trail.js';
 import { clamp, damp, dampAngle, flatDist, rand, pick, chance, yawTo, TAU } from '../../core/MathUtil.js';
 
 class HumanoidEnemy extends Enemy {
@@ -140,6 +140,24 @@ export class Duelist extends HumanoidEnemy {
     this.level = level;
     this.guardChance = clamp(0.45 + level * 0.04, 0.45, 0.75);
     this.queue = [];
+    // Tattered crimson sash trailing from the belt.
+    this.sash = new ClothRibbon(this.rig.J.hips, game.scene, { segments: 8, length: 1.15, width: 0.13, color: 0x7a0c20 });
+    this.sash.anchor.position.set(-0.1, 0.04, -0.13);
+    this._wind = new THREE.Vector3();
+    this._bf = new THREE.Vector3();
+  }
+
+  updateVisuals(dt) {
+    super.updateVisuals(dt);
+    const t = this.time;
+    this._wind.set(-this.velocity.x * 3 + Math.sin(t * 2.1 + this.id) * 2, 1.5, -this.velocity.z * 3 + Math.cos(t * 1.6) * 2);
+    this._bf.set(Math.sin(this.mesh.rotation.y), 0, Math.cos(this.mesh.rotation.y));
+    this.sash.update(dt, this._wind, this._bf);
+  }
+
+  dispose() {
+    super.dispose();
+    this.sash.dispose(this.game.scene);
   }
 
   canGuard() {

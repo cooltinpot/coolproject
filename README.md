@@ -102,7 +102,7 @@ sharply when you get hit. Score multiplies with rank and wave.
 | **Brute** | Hyper-armoured hammer. Parryable slams, a **red 360° sweep** and ground **quakes**. | Parry slams, jump sweeps and quake rings, punish recovery. |
 | **The Conductor** (boss) | A three-movement fight: Blade Sonata (blades launched on consecutive beats), Crescendo rings with an escape gap, swooping baton combos, a sweeping red laser, quake finales, and summoned minions. | Parry the sonata blades back for big posture damage, then riposte. Jump the laser. |
 
-After the Conductor falls you can continue into **Encore** (endless) waves.
+After the Conductor falls you can continue into **Encore** (endless) waves. If you fall mid-run, the results screen offers **Retry wave** so you can pick up from the wave you reached.
 
 ## Soundtrack
 
@@ -168,6 +168,7 @@ src/combat/Projectiles.js   Beat-locked projectiles and reflection
 src/game/                   Director (waves, tokens, beat slots), Style (rank and score)
 src/ui/HUD.js               HUD and threat lane
 tools/posetest.html         Dev page that renders rig poses side by side
+tools/render-music.html     Renders the soundtrack offline to a WAV and prints its levels
 vendor/three/               three.js r170 (MIT) and the post-processing add-ons used
 ```
 
