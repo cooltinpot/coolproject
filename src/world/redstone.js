@@ -39,10 +39,7 @@ export function stronglyPowered(w, x, y, z) {
       if (ax === x && ay === y && az === z) return true;
     }
     if (n === B.PRESSURE_PLATE && (m & ON_BIT) && dy === 1) return true;
-    if (n === B.REDSTONE_TORCH && dy === -1 && (m & 7) !== 0) {
-      // wall torch below this block still powers it
-      return true;
-    }
+    // a lit torch directly underneath (standing or wall-mounted) powers the block above it
     if (n === B.REDSTONE_TORCH && dy === -1) return true;
   }
   return false;
