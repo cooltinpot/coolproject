@@ -374,6 +374,14 @@ export class Enemy {
     this.game.scene.remove(this.mesh);
     this.telegraph.dispose();
     if (this.dispose) this.dispose();
+    // Free per-instance GPU resources (geometries/materials are built per enemy).
+    const seen = new Set();
+    this.mesh.traverse((o) => {
+      if (!o.isMesh) return;
+      for (const r of [o.geometry, ...(Array.isArray(o.material) ? o.material : [o.material])]) {
+        if (r && !seen.has(r)) { seen.add(r); r.dispose(); }
+      }
+    });
   }
 
   // Threat descriptor for the HUD rhythm lane / off-screen indicators.

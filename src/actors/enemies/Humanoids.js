@@ -78,6 +78,7 @@ class HumanoidEnemy extends Enemy {
   dispose() {
     this.game.scene.remove(this.trail.mesh);
     this.trail.geo.dispose();
+    this.trail.mesh.material.dispose();
   }
 
   // Shared melee strike flow. strike = { pose:'slash'|'slash2'|'heavy'|'sweep'|'thrust', ... }
@@ -426,7 +427,8 @@ export class Lancer extends HumanoidEnemy {
     const tpos = this._v2.copy(this.position).setY(this.position.y + 2.4);
     if (att.kind === 'charge') {
       const d = this.distToPlayer();
-      const travel = (d + 0.5) / att.speed;
+      // Contact happens at range + body radius, so start the dash such that it lands at impactIn = 0.
+      const travel = Math.max(0, d - (att.range + p.radius)) / att.speed;
       if (!att.charging) {
         this.steer(this.position, 0, dt, 8);
         if (att.impactIn > travel + 0.3) {
@@ -446,7 +448,7 @@ export class Lancer extends HumanoidEnemy {
         this.showTelegraph(att, tpos, 2.2);
         if (att.impactIn <= travel) {
           att.charging = true;
-          att.chargeLeft = travel + 0.35;
+          att.chargeLeft = travel + 0.4;
           this.anim.play('eThrustHit', 0.5, { hold: true });
           this.trail.emitting = true;
           this.telegraph.hide();
@@ -459,9 +461,9 @@ export class Lancer extends HumanoidEnemy {
         this.yaw = Math.atan2(this.chargeDir.x, this.chargeDir.z);
         if (Math.random() < 0.8) g.fx.particles.trail(this.center, this.color, { size: 0.25, life: 0.25 });
         const dd = flatDist(this.position, p.position);
-        if (!att.hitChecked && dd < 1.6 + p.radius) {
-          att.hitChecked = true;
+        if (!att.hitChecked && dd <= att.range + p.radius) {
           const res = this.resolveMelee(att);
+          if (res !== 'miss') att.hitChecked = true;
           if (res === 'parried') {
             att.resolved = true;
             if (!this.staggered) this.anim.play('recoil', 0.3);

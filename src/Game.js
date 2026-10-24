@@ -169,6 +169,7 @@ export class Game {
     this.effects.clear();
     this.particles.clear();
     this.hud.hideBoss();
+    this.boss = null;
   }
 
   pause() {
@@ -232,6 +233,7 @@ export class Game {
       a.impactIn += e;
       a.total += e;
       if (a.elapsed !== undefined) a.elapsed -= e;
+      if (a.shotTimes) a.shotTimes = a.shotTimes.map((t) => t + e);
     }
     for (const p of this.projectiles.list) if (p.arrival !== null && p.team === 'enemy') p.arrival += e;
   }

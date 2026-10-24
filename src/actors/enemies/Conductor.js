@@ -488,6 +488,7 @@ export class Conductor extends Enemy {
     if (a && a.beam) {
       this.game.scene.remove(a.beam);
       a.beam.geometry.dispose();
+      a.beam.material.dispose();
       a.beam = null;
     }
     if (a && a.warn) {
@@ -506,7 +507,7 @@ export class Conductor extends Enemy {
   threat() {
     const a = this.attack;
     if (!a || !this.alive) return null;
-    if (a.kind === 'baton') return { time: a.impactIn, parryable: true, unblockable: false, source: this.position, kind: 'melee' };
+    if (a.kind === 'baton') return { time: a.impactIn / Math.max(0.2, this.game.time.enemyScale), parryable: true, unblockable: false, source: this.position, kind: 'melee' };
     if (a.kind === 'laser' && a.beam && a.threatTime !== undefined) return { time: a.threatTime, parryable: false, unblockable: true, source: this.position, kind: 'laser' };
     return null;
   }
@@ -630,6 +631,10 @@ export class Conductor extends Enemy {
 
   dispose() {
     for (const c of this.capes) c.dispose(this.game.scene);
-    if (this.attack && this.attack.beam) this.game.scene.remove(this.attack.beam);
+    if (this.attack && this.attack.beam) {
+      this.game.scene.remove(this.attack.beam);
+      this.attack.beam.geometry.dispose();
+      this.attack.beam.material.dispose();
+    }
   }
 }

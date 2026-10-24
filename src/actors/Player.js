@@ -96,6 +96,8 @@ export class Player {
     this.scarf.reset();
     this.scarf2.reset();
     this.trail.clear();
+    this.trail.setColor(0x5ff4ff);
+    this.anim.stop(0.001);
   }
 
   get alive() {
@@ -613,6 +615,7 @@ export class Player {
   _onParry(att) {
     const g = this.game;
     const now = g.time.elapsed;
+    const autoParry = this.parryWindow <= 0; // Overdrive guard-hold auto-parry
     this._parrySucceeded = true;
     this.parryCooldown = 0;
     this.parryWindow = Math.max(this.parryWindow, 0.07);
@@ -621,7 +624,7 @@ export class Player {
     // Timing is judged from the button press to the moment of impact. Attacks
     // are quantized to the soundtrack, so a tight press is also on the beat.
     const offset = (this.parryPressTime ?? now) - g.time.real;
-    const onBeat = -offset <= PERFECT_TOLERANCE || (this.overdriveActive && !this.parryWindow);
+    const onBeat = -offset <= PERFECT_TOLERANCE || (this.overdriveActive && autoParry);
     this.lastParryOnBeat = onBeat;
     this.stats.parries++;
     if (onBeat) this.stats.onBeat++;
