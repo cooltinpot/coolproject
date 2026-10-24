@@ -80,7 +80,7 @@ const ImpactShader = {
 
       // Overdrive: hot magenta/gold split-tone.
       vec3 od = mix(vec3(0.9, 0.2, 0.7) * luma * 1.4, vec3(1.0, 0.85, 0.4) * luma * 1.6, smoothstep(0.2, 0.8, luma));
-      col = mix(col, max(col, od), uOverdrive * 0.55);
+      col = mix(col, max(col, od), uOverdrive * 0.3);
 
       // Death: drain colour.
       col = mix(col, vec3(luma) * vec3(1.1, 0.85, 0.85), uDeath);
@@ -172,7 +172,7 @@ export class PostFX {
     u.uPulse.value = pulse;
     u.uCenter.value.x = damp(u.uCenter.value.x, 0.5, 3, rawDt);
     u.uCenter.value.y = damp(u.uCenter.value.y, 0.5, 3, rawDt);
-    this.bloom.strength = this.baseBloom + bloomBoost + overdrive * 0.35 + s.flash * 0.6;
+    this.bloom.strength = this.baseBloom + bloomBoost + overdrive * 0.12 + s.flash * 0.4;
   }
 
   render(dt) {

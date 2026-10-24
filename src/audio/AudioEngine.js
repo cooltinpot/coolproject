@@ -10,20 +10,24 @@ export class AudioEngine {
     this._perfStart = performance.now();
   }
 
-  init() {
+  // `existing` lets tools render into an OfflineAudioContext.
+  init(existing = null) {
     if (this.ctx) return;
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return;
-    const ctx = new AC({ latencyHint: 'interactive' });
+    let ctx = existing;
+    if (!ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      ctx = new AC({ latencyHint: 'interactive' });
+    }
     this.ctx = ctx;
 
     this.master = ctx.createGain();
     this.master.gain.value = this.volumes.master;
 
     this.comp = ctx.createDynamicsCompressor();
-    this.comp.threshold.value = -14;
-    this.comp.knee.value = 10;
-    this.comp.ratio.value = 4;
+    this.comp.threshold.value = -16;
+    this.comp.knee.value = 12;
+    this.comp.ratio.value = 3;
     this.comp.attack.value = 0.004;
     this.comp.release.value = 0.18;
 
@@ -40,13 +44,24 @@ export class AudioEngine {
 
     // Music: instruments -> musicIn -> muffle filter -> music gain -> master
     this.musicIn = ctx.createGain();
+    // Gentle "air" shelf so hats and shimmer cut through the bass.
+    this.musicAir = ctx.createBiquadFilter();
+    this.musicAir.type = 'highshelf';
+    this.musicAir.frequency.value = 5000;
+    this.musicAir.gain.value = 4;
+    this.musicLow = ctx.createBiquadFilter();
+    this.musicLow.type = 'lowshelf';
+    this.musicLow.frequency.value = 90;
+    this.musicLow.gain.value = -2;
     this.musicFilter = ctx.createBiquadFilter();
     this.musicFilter.type = 'lowpass';
     this.musicFilter.frequency.value = 20000;
     this.musicFilter.Q.value = 0.9;
     this.musicGain = ctx.createGain();
     this.musicGain.gain.value = this.volumes.music;
-    this.musicIn.connect(this.musicFilter);
+    this.musicIn.connect(this.musicLow);
+    this.musicLow.connect(this.musicAir);
+    this.musicAir.connect(this.musicFilter);
     this.musicFilter.connect(this.musicGain);
     this.musicGain.connect(this.master);
 

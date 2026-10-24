@@ -79,13 +79,13 @@ export class Projectiles {
     } else if (kind === 'spear') {
       core = new THREE.Mesh(this.geos.spear, new THREE.MeshStandardMaterial({ color: 0x221a40, emissive: 0xb07bff, emissiveIntensity: 2, metalness: 0.8, roughness: 0.3 }));
     } else if (kind === 'wave') {
-      core = new THREE.Mesh(this.geos.wave, new THREE.MeshBasicMaterial({ color: 0xffd34a, toneMapped: false, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
+      core = new THREE.Mesh(this.geos.wave, new THREE.MeshBasicMaterial({ color: 0xffd34a, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false }));
     }
     g.add(core);
     g.userData.core = core;
     const halo = new THREE.Mesh(this.geos.halo, this.haloMat.clone());
     halo.material.uniforms = { uColor: { value: new THREE.Color() } };
-    halo.scale.setScalar(kind === 'wave' ? 3 : 1.6);
+    halo.scale.setScalar(kind === 'wave' ? 1.8 : 1.6);
     g.add(halo);
     g.userData.halo = halo;
     g.frustumCulled = false;

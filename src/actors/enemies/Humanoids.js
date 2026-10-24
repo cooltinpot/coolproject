@@ -309,6 +309,7 @@ export class Brute extends HumanoidEnemy {
     g.fx.effects.shockwave(pos, { color: 0xff8a1f, radius: 4 * power, duration: 0.5 });
     g.fx.particles.ring(pos, { count: 40, color: 0xffb060, speed: 10 * power, life: 0.4, size: 0.1 });
     g.fx.effects.shardBurst(pos, { count: 8, color: 0xff8a1f, speed: 5, up: 8, size: 1.3 });
+    g.fx.effects.scorch(pos, { radius: 1.6 * power, color: 0xff8a1f });
     const near = flatDist(pos, g.player.position);
     g.cameraRig.addTrauma(clamp(0.6 - near * 0.04, 0.1, 0.5));
   }

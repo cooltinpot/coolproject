@@ -1,0 +1,79 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Soundtrack renderer</title>
+<style>body{background:#0b0918;color:#dfe6ff;font:15px system-ui;padding:24px}button{padding:8px 16px;margin:4px}</style>
+<script type="importmap">{"imports":{"three":"../vendor/three/three.module.min.js","three/addons/":"../vendor/three/addons/"}}</script>
+</head><body>
+<h2>NEON RIPOSTE soundtrack renderer</h2>
+<p>Renders the procedural soundtrack offline (no game needed) and saves it as a WAV.</p>
+<button data-mode="normal" data-from="0" data-to="4">Exploration (intensity 0→4)</button>
+<button data-mode="boss" data-from="3" data-to="4">Boss theme</button>
+<pre id="out"></pre>
+<script type="module">
+import { AudioEngine } from '../src/audio/AudioEngine.js';
+import { Music } from '../src/audio/Music.js';
+
+// Render `bars` of music, stepping intensity from `from` to `to` across the piece.
+export async function renderSoundtrack({ mode = 'normal', from = 0, to = 4, barsPerLevel = 4, sampleRate = 44100 } = {}) {
+  const levels = [];
+  for (let i = from; i <= to; i++) levels.push(i);
+  const spb = 60 / 128;
+  const bars = levels.length * barsPerLevel;
+  const seconds = bars * 4 * spb + 3;
+  const ctx = new OfflineAudioContext(2, Math.ceil(seconds * sampleRate), sampleRate);
+  const engine = new AudioEngine();
+  engine.init(ctx);
+  const music = new Music(engine);
+  music.e.setDelayTime(spb * 0.75);
+  music.mode = music.pendingMode = mode;
+  const steps = bars * 16;
+  for (let s = 0; s < steps; s++) {
+    const bar = Math.floor(s / 16);
+    music.pendingIntensity = levels[Math.floor(bar / barsPerLevel)];
+    if (bar % barsPerLevel === barsPerLevel - 1 && s % 16 === 8 && bar < bars - 1) music.fillQueued = true;
+    music._playStep(s, 0.05 + s * music.stepDur);
+  }
+  const buf = await ctx.startRendering();
+  // Level report per intensity block
+  const report = [];
+  const L = buf.getChannelData(0), R = buf.getChannelData(1);
+  const blockLen = Math.floor(barsPerLevel * 4 * spb * sampleRate);
+  levels.forEach((lv, i) => {
+    let peak = 0, sum = 0, n = 0;
+    for (let k = i * blockLen; k < Math.min(L.length, (i + 1) * blockLen); k++) {
+      const v = Math.max(Math.abs(L[k]), Math.abs(R[k]));
+      peak = Math.max(peak, v);
+      sum += L[k] * L[k] + R[k] * R[k];
+      n += 2;
+    }
+    report.push({ intensity: lv, peakDb: +(20 * Math.log10(peak + 1e-9)).toFixed(1), rmsDb: +(10 * Math.log10(sum / n + 1e-12)).toFixed(1) });
+  });
+  return { buf, report };
+}
+
+export function toWav(buf) {
+  const ch = buf.numberOfChannels, len = buf.length, rate = buf.sampleRate;
+  const data = new DataView(new ArrayBuffer(44 + len * ch * 2));
+  const w = (o, s) => [...s].forEach((c, i) => data.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); data.setUint32(4, 36 + len * ch * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+  data.setUint32(16, 16, true); data.setUint16(20, 1, true); data.setUint16(22, ch, true);
+  data.setUint32(24, rate, true); data.setUint32(28, rate * ch * 2, true); data.setUint16(32, ch * 2, true); data.setUint16(34, 16, true);
+  w(36, 'data'); data.setUint32(40, len * ch * 2, true);
+  const chans = [...Array(ch)].map((_, c) => buf.getChannelData(c));
+  let o = 44;
+  for (let i = 0; i < len; i++) for (let c = 0; c < ch; c++) { const v = Math.max(-1, Math.min(1, chans[c][i])); data.setInt16(o, v * 32767, true); o += 2; }
+  return new Blob([data], { type: 'audio/wav' });
+}
+
+window.renderSoundtrack = renderSoundtrack;
+window.toWav = toWav;
+document.querySelectorAll('button').forEach((b) => b.onclick = async () => {
+  const out = document.getElementById('out');
+  out.textContent = 'Rendering…';
+  const { buf, report } = await renderSoundtrack({ mode: b.dataset.mode, from: +b.dataset.from, to: +b.dataset.to });
+  out.textContent = JSON.stringify(report, null, 1);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(toWav(buf));
+  a.download = `neon-riposte-${b.dataset.mode}.wav`;
+  a.click();
+});
+</script></body></html>

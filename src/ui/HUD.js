@@ -180,7 +180,15 @@ export class HUD {
     if (Math.abs(this.scoreShown - g.style.score) < 1) this.scoreShown = g.style.score;
     e.score.textContent = Math.round(this.scoreShown).toLocaleString();
     e.rankFill.style.transform = `scaleX(${clamp(g.style.progress, 0, 1)})`;
-    e.combo.innerHTML = `<b>${g.style.combo}</b> COMBO`;
+    if (g.style.combo !== this._lastCombo) {
+      e.combo.innerHTML = `<b>${g.style.combo}</b> COMBO`;
+      if (g.style.combo > (this._lastCombo || 0)) {
+        e.combo.classList.remove('bump');
+        void e.combo.offsetWidth;
+        e.combo.classList.add('bump');
+      }
+      this._lastCombo = g.style.combo;
+    }
     e.combo.classList.toggle('hot', g.style.combo >= 10);
     e.combo.style.opacity = g.style.combo > 0 ? 1 : 0.35;
 

@@ -213,7 +213,8 @@ export class Player {
         this.velocity.x = damp(this.velocity.x, 0, 10, dt);
         this.velocity.z = damp(this.velocity.z, 0, 10, dt);
         this._integrate(dt);
-        if (this.stateTime > 0.7) this._setLocoState();
+        // Timed in real seconds so the slow-mo flourish never eats inputs for long.
+        if (g.time.real - this.odStartReal > 0.55) this._setLocoState();
         break;
     }
 
@@ -553,6 +554,7 @@ export class Player {
     }
     if (sw.heavy && this.grounded) {
       g.arena.addRipple(this.position.clone().addScaledVector(f, 2), 0.8, color);
+      if (hits > 0) g.fx.effects.scorch(this.position.clone().addScaledVector(f, 2), { radius: 1, color, life: 4 });
       g.fx.particles.ring(this.position.clone().addScaledVector(f, 2), { count: 30, color, speed: 9, life: 0.35, size: 0.08 });
     }
   }
@@ -797,6 +799,7 @@ export class Player {
       g.fx.effects.flash(pos, 0xffd34a, 120, 0.4);
       g.fx.particles.sparks(pos, f, { count: 70, color: 0xffd34a, speed: 22, spread: 0.6, life: 0.6, size: 0.07 });
       g.arena.addRipple(this.position, 2, 0xffd34a);
+      g.fx.effects.scorch(this.position.clone().addScaledVector(f, 1.2), { radius: 2.4, color: 0xffd34a, life: 8 });
       g.style.add(300, 'riposte');
     }
     if (t > 0.5) this.trail.emitting = false;
@@ -815,17 +818,18 @@ export class Player {
     this.overdrive = OVERDRIVE_TIME;
     this.state = 'overdriveStart';
     this.stateTime = 0;
-    this.anim.play('overdrive', 0.7);
-    g.time.slowMo(0.15, 0.55, 3);
+    this.odStartReal = g.time.real;
+    this.anim.play('overdrive', 0.3);
+    g.time.slowMo(0.2, 0.4, 4);
     g.time.targetEnemyScale = 0.55;
     g.sfx.overdrive();
     g.music.setIntensity(4);
-    g.post.flash(0xffd34a, 0.6);
+    g.post.flash(0xffd34a, 0.3);
     g.post.kickAberration(1);
     g.cameraRig.addTrauma(0.4);
     g.fx.effects.shockwave(this.position, { color: 0xffd34a, radius: 14, duration: 0.9, thickness: 0.08 });
-    g.fx.effects.sphere(this.center, { color: 0xffd34a, radius: 6, duration: 0.6 });
-    g.fx.particles.burst(this.center, { count: 120, color: 0xffd34a, speed: 16, life: 0.9, size: 0.1, stretch: 0.1 });
+    g.fx.effects.sphere(this.center, { color: 0xffd34a, radius: 3.5, duration: 0.5, opacity: 0.35 });
+    g.fx.particles.burst(this.center, { count: 70, color: 0xffd34a, speed: 16, life: 0.8, size: 0.08, stretch: 0.1 });
     g.arena.addRipple(this.position, 3, 0xffd34a);
     g.hud.popText('OVERDRIVE', 'overdrive');
     this.trail.setColor(0xffd34a);

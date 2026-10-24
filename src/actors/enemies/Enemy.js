@@ -363,6 +363,7 @@ export class Enemy {
     g.fx.effects.shockwave(this.position, { color: this.color, radius: 4, duration: 0.5 });
     g.fx.effects.flash(pos, this.color, 45, 0.3);
     g.arena.addRipple(this.position, 1.2, this.color);
+    g.fx.effects.scorch(this.position, { radius: this.maxHp > 10 ? 2.2 : 1.3, color: this.color, life: 6 });
     g.cameraRig.addTrauma(0.22);
     g.onEnemyKilled(this, cause);
   }

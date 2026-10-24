@@ -239,7 +239,18 @@ export class Game {
   onEnemyKilled(e, cause) {
     this.player.stats.kills++;
     this.style.add(cause === 'riposte' ? 120 : cause === 'reflect' ? 100 : 60, 'kill');
-    this.style.addScore(e.score);
+    const pts = Math.round(e.score * (1 + this.style.rankIndex * 0.25));
+    this.style.addScore(pts);
+    this.hud.damageNumber(e.center.clone().setY(e.position.y + (e.height || 2) + 0.4), '+' + pts, 'score');
+    // Final kill of a wave: dramatic slow motion.
+    const d = this.director;
+    const othersAlive = this.enemies.some((x) => x.alive && x !== e);
+    if (!e.isBoss && !othersAlive && d.state === 'active' && d.pending.length === 0 && d.spawnQueue.length === 0 && !d.wave.boss) {
+      this.time.slowMo(0.2, 0.7, 2.5);
+      this.post.kickZoom(0.8);
+      this.post.kickAberration(0.6);
+      this.cameraRig.kickFov(-8);
+    }
     if (this.cameraRig.lockTarget === e) this.cameraRig.lockTarget = null;
   }
 

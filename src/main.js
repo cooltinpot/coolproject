@@ -2,7 +2,7 @@
 import { Game } from './Game.js';
 
 const DEFAULTS = {
-  master: 0.8, music: 0.7, sfx: 0.85, sensitivity: 1, invertY: false, showLane: true, quality: 'high', latency: 0,
+  master: 0.8, music: 0.6, sfx: 0.9, sensitivity: 1, invertY: false, showLane: true, quality: 'high', latency: 0,
 };
 
 function loadSettings() {

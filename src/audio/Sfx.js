@@ -139,7 +139,7 @@ export class Sfx {
     if (!this.ok) return;
     const t = this.e.now;
     const out = this._out((combo % 2 ? 0.25 : -0.25), 0.8, 0.15);
-    const f0 = heavy ? 500 : 900 + combo * 200;
+    const f0 = (heavy ? 500 : 900 + combo * 200) * (0.92 + Math.random() * 0.16);
     this._noise(t, heavy ? 0.28 : 0.18, out, heavy ? 0.6 : 0.42, 'bandpass', f0, f0 * 4, 1.6, 0.03);
     this._osc('sine', heavy ? 260 : 420, t, 0.16, out, 0.06, 0.04, heavy ? 120 : 200);
   }
@@ -148,8 +148,9 @@ export class Sfx {
     if (!this.ok || !this._gate('hit', 0.025)) return;
     const t = this.e.now;
     const out = this._out(pan, heavy ? 1 : 0.8, 0.2);
-    this._noise(t, 0.08, out, 0.9, 'lowpass', 3500, 400, 0.8);
-    this._osc('sine', heavy ? 140 : 190, t, heavy ? 0.25 : 0.14, out, 0.8, 0.001, 45);
+    const v = 0.9 + Math.random() * 0.2;
+    this._noise(t, 0.08, out, 0.9, 'lowpass', 3500 * v, 400, 0.8);
+    this._osc('sine', (heavy ? 140 : 190) * v, t, heavy ? 0.25 : 0.14, out, 0.8, 0.001, 45);
     this._osc('sawtooth', 90, t, 0.07, out, 0.15, 0.001, 40);
     if (crit) this._noise(t, 0.3, out, 0.4, 'bandpass', 6000, 2000, 2);
   }

@@ -227,7 +227,7 @@ export class Music {
         }
       }
     } else if (s === 0) {
-      this.bass(t, chord.root, this.spb * 3.5, 0);
+      this.bass(t, chord.root, this.spb * 3.5, 0, 0.6);
     }
 
     // ---- pad ----
@@ -349,7 +349,7 @@ export class Music {
     hp.type = 'highpass';
     hp.frequency.value = open ? 6500 : 8000;
     const g = ctx.createGain();
-    this.e.env(g.gain, t, 0.001, 0.16 * vel, open ? 0.24 : 0.04);
+    this.e.env(g.gain, t, 0.001, 0.34 * vel, open ? 0.24 : 0.045);
     const p = ctx.createStereoPanner();
     p.pan.value = open ? 0.2 : -0.25;
     n.connect(hp); hp.connect(g); g.connect(p); p.connect(this.e.musicIn);
@@ -364,7 +364,7 @@ export class Music {
     bp.Q.value = 1.5;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(0.1 * vel, t + 0.03);
+    g.gain.linearRampToValueAtTime(0.2 * vel, t + 0.03);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
     const p = ctx.createStereoPanner();
     p.pan.value = 0.4;
@@ -378,12 +378,12 @@ export class Music {
     hp.type = 'highpass';
     hp.frequency.value = 4500;
     const g = ctx.createGain();
-    this.e.env(g.gain, t, 0.002, 0.14 * vel, 1.5);
+    this.e.env(g.gain, t, 0.002, 0.22 * vel, 1.5);
     n.connect(hp); hp.connect(g); g.connect(this.e.musicIn);
     g.connect(this.e.reverbSend);
   }
 
-  bass(t, midi, dur, I) {
+  bass(t, midi, dur, I, level = 1) {
     const { ctx } = this.e;
     const f = midiToFreq(midi);
     const lp = ctx.createBiquadFilter();
@@ -395,8 +395,8 @@ export class Music {
     lp.frequency.exponentialRampToValueAtTime(150, t + Math.min(dur, 0.25));
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(0.28, t + 0.006);
-    g.gain.setValueAtTime(0.24, t + dur * 0.8);
+    g.gain.linearRampToValueAtTime(0.25 * level, t + 0.006);
+    g.gain.setValueAtTime(0.21 * level, t + dur * 0.8);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.05);
     for (const det of [-9, 9]) {
       const o = ctx.createOscillator();
@@ -421,9 +421,9 @@ export class Music {
     const { ctx } = this.e;
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.setValueAtTime(700, t);
-    lp.frequency.linearRampToValueAtTime(1800, t + dur * 0.5);
-    lp.frequency.linearRampToValueAtTime(900, t + dur);
+    lp.frequency.setValueAtTime(1100, t);
+    lp.frequency.linearRampToValueAtTime(3200, t + dur * 0.5);
+    lp.frequency.linearRampToValueAtTime(1500, t + dur);
     lp.Q.value = 1;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
@@ -455,8 +455,8 @@ export class Music {
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
     lp.Q.value = 4;
-    lp.frequency.setValueAtTime(1200 + I * 900, t);
-    lp.frequency.exponentialRampToValueAtTime(300, t + 0.16);
+    lp.frequency.setValueAtTime(2200 + I * 1200, t);
+    lp.frequency.exponentialRampToValueAtTime(500, t + 0.18);
     const g = ctx.createGain();
     this.e.env(g.gain, t, 0.002, vol, 0.2);
     const p = ctx.createStereoPanner();

@@ -109,6 +109,30 @@ const WARN_FRAG = /* glsl */ `
   }
 `;
 
+// Burn mark left by heavy impacts: charred centre, ember ring that cools.
+const SCORCH_FRAG = /* glsl */ `
+  uniform float uAge, uLife, uSeed; uniform vec3 uColor;
+  varying vec2 vUv;
+  float h(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7)) + uSeed) * 43758.5453); }
+  float n(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(h(i), h(i + vec2(1, 0)), f.x), mix(h(i + vec2(0, 1)), h(i + vec2(1, 1)), f.x), f.y); }
+  void main() {
+    vec2 p = vUv * 2.0 - 1.0;
+    float r = length(p);
+    float ang = atan(p.y, p.x);
+    float edgeN = n(vec2(ang * 3.0, uSeed)) * 0.25 + n(p * 6.0) * 0.15;
+    float body = smoothstep(1.0, 0.55, r + edgeN);
+    if (body <= 0.0) discard;
+    float k = clamp(uAge / uLife, 0.0, 1.0);
+    float cracks = smoothstep(0.08, 0.0, abs(n(vec2(ang * 5.0, r * 4.0 + uSeed)) - 0.5)) * smoothstep(0.9, 0.2, r);
+    float heat = pow(1.0 - k, 2.0);
+    vec3 ember = uColor * (cracks * 2.5 + smoothstep(0.6, 0.85, r + edgeN) * 1.2) * heat;
+    float fade = 1.0 - smoothstep(0.7, 1.0, k);
+    // Premultiplied: darken the floor and add the ember glow.
+    gl_FragColor = vec4(ember * fade, body * 0.75 * fade);
+  }
+`;
+
 const TELE_FRAG = /* glsl */ `
   uniform float uProg, uOpacity, uTime; uniform vec3 uColor;
   varying vec2 vUv;
@@ -377,6 +401,35 @@ export class Effects {
       dispose: () => { this.scene.remove(mesh); mat.dispose(); },
       _u: u,
     };
+  }
+
+  scorch(pos, { radius = 2, color = 0xff8a1f, life = 7 } = {}) {
+    const m = this._get('scorch', () => {
+      const mat = new THREE.ShaderMaterial({
+        uniforms: { uAge: { value: 0 }, uLife: { value: 7 }, uSeed: { value: 0 }, uColor: { value: new THREE.Color() } },
+        vertexShader: SIMPLE_VERT,
+        fragmentShader: SCORCH_FRAG,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.CustomBlending,
+        blendSrc: THREE.OneFactor,
+        blendDst: THREE.OneMinusSrcAlphaFactor,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+      });
+      const mesh = new THREE.Mesh(this.groundGeo, mat);
+      mesh.renderOrder = 3;
+      return mesh;
+    });
+    m.position.set(pos.x, 0.025, pos.z);
+    m.rotation.set(0, Math.random() * TAU, 0);
+    m.scale.set(radius * 2, 1, radius * 2);
+    const u = m.material.uniforms;
+    u.uColor.value.set(color);
+    u.uLife.value = life;
+    u.uSeed.value = Math.random() * 100;
+    u.uAge.value = 0;
+    this._track(m, life, (k) => { u.uAge.value = k * life; });
   }
 
   flash(pos, color = 0xffffff, intensity = 40, duration = 0.25) {

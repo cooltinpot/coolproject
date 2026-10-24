@@ -432,6 +432,7 @@ export class Conductor extends Enemy {
             att.done++;
             this.telegraph.hide();
             g.spawnQuake(this.position, { speed: 11, maxR: 24, damage: 16, color: 0xff5ad1 });
+            g.fx.effects.scorch(this.position, { radius: 3.2, color: 0xff5ad1, life: 9 });
             g.sfx.slam({ pan: 0 });
             g.cameraRig.addTrauma(0.5);
             g.arena.addRipple(this.position, 2, 0xff5ad1);

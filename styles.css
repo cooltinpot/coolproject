@@ -100,6 +100,8 @@ canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
 #combo { margin-top: 8px; font: 600 14px var(--display); letter-spacing: 0.25em; color: var(--dim); }
 #combo b { font-size: 26px; color: var(--ink); }
 #combo.hot b { color: var(--gold); text-shadow: 0 0 12px var(--gold); }
+#combo b { display: inline-block; }
+#combo.bump b { animation: bump 0.18s ease-out; }
 
 #reticle {
   position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px;
@@ -140,6 +142,7 @@ canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
 }
 .dmg.crit { color: var(--gold); font-size: 26px; text-shadow: 0 0 14px var(--gold), 0 0 4px #000; }
 .dmg.player { color: #ff5a6a; font-size: 22px; }
+.dmg.score { color: var(--gold); font-size: 15px; letter-spacing: 0.1em; text-shadow: 0 0 10px rgba(255, 211, 74, 0.8), 0 0 3px #000; }
 
 .ebar { position: absolute; width: 70px; transform: translate(-50%, -100%); }
 .ebar .hp { height: 4px; background: rgba(255, 255, 255, 0.12); }
